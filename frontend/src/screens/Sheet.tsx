@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { bindBackButton } from "../telegram";
 
 interface SheetProps {
@@ -40,7 +40,10 @@ interface NameSheetProps {
   submitLabel: string;
   cancelLabel: string;
   initial: string;
+  /** Cancel / BackButton / backdrop. */
   onClose: () => void;
+  /** Called after a successful submit, unless the sheet was dismissed meanwhile. */
+  onDone: () => void;
   /** Resolves true when the request succeeded; on false the sheet stays open with the text. */
   onSubmit: (name: string) => Promise<boolean>;
 }
@@ -54,8 +57,16 @@ export function NameSheet({
   cancelLabel,
   initial,
   onClose,
+  onDone,
   onSubmit,
 }: NameSheetProps) {
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
   const [name, setName] = useState(initial);
   const [busy, setBusy] = useState(false);
   const trimmed = name.trim();
@@ -67,7 +78,8 @@ export function NameSheet({
           if (!trimmed || busy) return;
           setBusy(true);
           void onSubmit(trimmed).then((ok) => {
-            if (ok) onClose();
+            if (!alive.current) return;
+            if (ok) onDone();
             else setBusy(false);
           });
         }}

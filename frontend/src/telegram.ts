@@ -3,6 +3,8 @@ import {
   bindViewportCssVars,
   disableVerticalSwipes,
   expandViewport,
+  hapticFeedbackNotificationOccurred,
+  hapticFeedbackSelectionChanged,
   hideBackButton,
   init,
   isBackButtonMounted,
@@ -10,20 +12,18 @@ import {
   miniAppReady,
   mountBackButton,
   mountMiniApp,
-  hapticFeedbackNotificationOccurred,
-  offBackButtonClick,
-  onBackButtonClick,
-  hapticFeedbackSelectionChanged,
-  showBackButton,
   mountSwipeBehavior,
   mountThemeParamsSync,
   mountViewport,
+  offBackButtonClick,
+  onBackButtonClick,
   openPopup,
   retrieveLaunchParams,
   retrieveRawInitData,
   setMiniAppBackgroundColor,
   setMiniAppBottomBarColor,
   setMiniAppHeaderColor,
+  showBackButton,
 } from "@telegram-apps/sdk-react";
 
 export interface TelegramContext {
@@ -64,6 +64,9 @@ async function doStartTelegram(): Promise<TelegramContext | null> {
   if (expandViewport.isAvailable()) expandViewport();
 
   // Swipes on list rows must not close the app.
+  // Mounted once here: show/hide/onClick are only available on a mounted BackButton.
+  if (mountBackButton.isAvailable() && !isBackButtonMounted()) mountBackButton();
+
   if (mountSwipeBehavior.isAvailable()) mountSwipeBehavior();
   if (disableVerticalSwipes.isAvailable()) disableVerticalSwipes();
 
@@ -103,7 +106,6 @@ export async function confirmDestructive(opts: {
  */
 export function bindBackButton(onBack: () => void): () => void {
   if (!showBackButton.isAvailable() || !onBackButtonClick.isAvailable()) return () => {};
-  if (mountBackButton.isAvailable() && !isBackButtonMounted()) mountBackButton();
   onBackButtonClick(onBack);
   showBackButton();
   return () => {

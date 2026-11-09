@@ -93,6 +93,22 @@ class TestOrdering:
         client.patch(f"/api/lists/{first['id']}", json={"name": "A2"}, headers=h)
         assert names(client, h)[:3] == ["A2", "C", "B"]
 
+    def test_leaving_counts_as_a_change_for_the_remaining_members(
+        self, client, anna, boris, add_member
+    ):
+        h = anna["headers"]
+        shared = create(client, h, "Дача")
+        create(client, h, "Дом")
+        assert names(client, h)[:2] == ["Дом", "Дача"]
+        add_member(shared["id"], boris["response"]["user"]["id"])
+        before = client.get(f"/api/lists/{shared['id']}", headers=h).json()["version"]
+
+        client.post(f"/api/lists/{shared['id']}/leave", headers=boris["headers"])
+
+        after = client.get(f"/api/lists/{shared['id']}", headers=h).json()["version"]
+        assert after == before + 1
+        assert names(client, h)[:2] == ["Дача", "Дом"]
+
     def test_each_user_sees_only_their_lists(self, client, anna, boris):
         create(client, anna["headers"], "Секрет")
         assert "Секрет" not in names(client, boris["headers"])

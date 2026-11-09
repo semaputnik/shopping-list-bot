@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Request,
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, StringConstraints
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -221,10 +221,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(404, "list not found")
         return list_out(lst)
 
-    def _touch(lst: models.List) -> None:
-        """Record a mutation: bump the List's version and its change time."""
-        lst.version += 1
-        lst.updated_at = models.utcnow()
+    def _touch(session: Session, lst: models.List) -> None:
+        """Record a mutation: bump the List's version and its change time.
+
+        One atomic UPDATE (version = version + 1), so concurrent mutations cannot lose an
+        increment the way a read-modify-write on the loaded object could.
+        """
+        session.execute(
+            update(models.List)
+            .where(models.List.id == lst.id)
+            .values(version=models.List.version + 1, updated_at=models.utcnow())
+        )
+        session.flush()
+        session.refresh(lst)
 
     def _member_list(session: Session, user: models.User, list_id: int) -> models.List:
         lst = session.scalar(_member_lists(user).where(models.List.id == list_id))
@@ -244,7 +253,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def rename_list(list_id: int, body: ListIn, user: UserDep, session: SessionDep) -> ListOut:
         lst = _member_list(session, user, list_id)
         lst.name = body.name
-        _touch(lst)
+        _touch(session, lst)
         session.commit()
         return list_out(lst)
 
@@ -266,7 +275,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             session.delete(lst)
         else:
             # A leave counts as a change for the switcher order (version + updated_at bump).
-            _touch(lst)
+            _touch(session, lst)
         session.commit()
         return Response(status_code=204)
 

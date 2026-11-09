@@ -62,12 +62,19 @@ export function ListScreen({
   const [panel, setPanel] = useState<Panel>(null);
   // The sheet the BackButton returns to; null closes the sheets altogether.
   const [parent, setParent] = useState<Panel>(null);
-  const close = () => setPanel(null);
+  const close = () => {
+    setParent(null);
+    setPanel(null);
+  };
   const open = (next: Panel, from: Panel = null) => {
     setParent(from);
     setPanel(next);
   };
-  const back = useCallback(() => setPanel(parent), [parent]);
+  // Back from a nested sheet returns to its parent (and forgets it); otherwise closes all.
+  const back = useCallback(() => {
+    setParent(null);
+    setPanel(parent);
+  }, [parent]);
 
   const leave = async () => {
     if (!list) return;
@@ -99,7 +106,7 @@ export function ListScreen({
         </p>
       )}
       {panel === "switcher" && (
-        <Sheet title={strings.switchList} onClose={back} closeLabel={strings.cancel}>
+        <Sheet title={strings.switchList} onClose={close} closeLabel={strings.cancel}>
           <ul className="rows">
             {lists.map((l) => (
               <li key={l.id}>
@@ -131,7 +138,7 @@ export function ListScreen({
         </Sheet>
       )}
       {panel === "menu" && list && (
-        <Sheet title={strings.listMenu} onClose={back} closeLabel={strings.cancel}>
+        <Sheet title={strings.listMenu} onClose={close} closeLabel={strings.cancel}>
           <ul className="rows">
             <li>
               <button type="button" className="row" onClick={() => open("rename", "menu")}>
@@ -160,6 +167,7 @@ export function ListScreen({
           cancelLabel={strings.cancel}
           initial=""
           onClose={back}
+          onDone={close}
           onSubmit={onCreate}
         />
       )}
@@ -172,6 +180,7 @@ export function ListScreen({
           cancelLabel={strings.cancel}
           initial={list.name}
           onClose={back}
+          onDone={close}
           onSubmit={(name) => onRename(list.id, name)}
         />
       )}
