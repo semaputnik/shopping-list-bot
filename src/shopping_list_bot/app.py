@@ -7,10 +7,10 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, StringConstraints
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -40,9 +40,18 @@ class UserOut(BaseModel):
     language: str
 
 
+ListName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+
+
+class ListIn(BaseModel):
+    name: ListName
+
+
 class ListOut(BaseModel):
     id: int
     name: str
+    # How many Members the List has (shown by the delete confirmation).
+    member_count: int
     share_code: str
     version: int
     updated_at: datetime
@@ -77,6 +86,7 @@ def list_out(lst: models.List) -> ListOut:
     return ListOut(
         id=lst.id,
         name=lst.name,
+        member_count=len(lst.members),
         share_code=lst.share_code,
         version=lst.version,
         updated_at=lst.updated_at,
@@ -206,6 +216,54 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if lst is None:  # also hides the existence of Lists the user is not a Member of
             raise HTTPException(404, "list not found")
         return list_out(lst)
+
+    def _touch(lst: models.List) -> None:
+        """Record a mutation: bump the List's version and its change time."""
+        lst.version += 1
+        lst.updated_at = models.utcnow()
+
+    def _member_list(session: Session, user: models.User, list_id: int) -> models.List:
+        lst = session.scalar(_member_lists(user).where(models.List.id == list_id))
+        if lst is None:
+            raise HTTPException(404, "list not found")
+        return lst
+
+    @api.post("/lists", response_model=ListOut, status_code=201)
+    def create_list(body: ListIn, user: UserDep, session: SessionDep) -> ListOut:
+        lst = models.List(name=body.name, created_by=user.id)
+        lst.members.append(models.ListMember(user_id=user.id))
+        session.add(lst)
+        session.commit()
+        return list_out(lst)
+
+    @api.patch("/lists/{list_id}", response_model=ListOut)
+    def rename_list(list_id: int, body: ListIn, user: UserDep, session: SessionDep) -> ListOut:
+        lst = _member_list(session, user, list_id)
+        lst.name = body.name
+        _touch(lst)
+        session.commit()
+        return list_out(lst)
+
+    @api.post("/lists/{list_id}/leave", status_code=204)
+    def leave_list(list_id: int, user: UserDep, session: SessionDep) -> Response:
+        lst = _member_list(session, user, list_id)
+        membership = next(m for m in lst.members if m.user_id == user.id)
+        if len(lst.members) == 1:  # the last Member leaves: the List goes with them
+            session.delete(lst)
+        else:
+            session.delete(membership)
+            lst.members.remove(membership)
+            _touch(lst)
+        session.commit()
+        return Response(status_code=204)
+
+    @api.delete("/lists/{list_id}", status_code=204)
+    def delete_list(list_id: int, user: UserDep, session: SessionDep) -> Response:
+        # Any Member may delete the List for everyone; the UI asks for confirmation first.
+        # Members (and, in later tickets, Entries, Products and History) go by FK cascade.
+        session.delete(_member_list(session, user, list_id))
+        session.commit()
+        return Response(status_code=204)
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:

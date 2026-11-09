@@ -67,3 +67,34 @@ def sign_in(client: TestClient) -> Callable[..., dict]:
         }
 
     return _sign_in
+
+
+@pytest.fixture
+def add_member(tmp_path: Path) -> Callable[[int, int], None]:
+    """Make a user a Member of a List directly in the database.
+
+    Joining by Share link is another feature; Lists with several Members are set up here
+    so that leave/delete can be tested through the HTTP API.
+    """
+    import sqlite3
+
+    def _add(list_id: int, user_id: int) -> None:
+        with sqlite3.connect(tmp_path / "test.db") as db:
+            db.execute(
+                "INSERT INTO list_member (list_id, user_id, joined_at)"
+                " VALUES (?, ?, datetime('now'))",
+                (list_id, user_id),
+            )
+
+    return _add
+
+
+@pytest.fixture
+def count_rows(tmp_path: Path) -> Callable[[str], int]:
+    import sqlite3
+
+    def _count(table: str) -> int:
+        with sqlite3.connect(tmp_path / "test.db") as db:
+            return db.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
+
+    return _count

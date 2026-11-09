@@ -10,6 +10,7 @@ import {
   mountSwipeBehavior,
   mountThemeParamsSync,
   mountViewport,
+  openPopup,
   retrieveLaunchParams,
   retrieveRawInitData,
   setMiniAppBackgroundColor,
@@ -62,4 +63,27 @@ async function doStartTelegram(): Promise<TelegramContext | null> {
   if (!rawInitData) return null;
   const user = retrieveLaunchParams().tgWebAppData?.user;
   return { rawInitData, languageCode: user?.language_code ?? null };
+}
+
+/**
+ * Native confirmation (Telegram's showConfirm). Resolves true only when the destructive
+ * button is pressed. Outside Telegram (local dev) it falls back to window.confirm.
+ */
+export async function confirmDestructive(opts: {
+  title: string;
+  message: string;
+  confirmLabel: string;
+}): Promise<boolean> {
+  if (openPopup.isAvailable()) {
+    const id = await openPopup({
+      title: opts.title,
+      message: opts.message,
+      buttons: [
+        { id: "confirm", type: "destructive", text: opts.confirmLabel },
+        { type: "cancel" },
+      ],
+    });
+    return id === "confirm";
+  }
+  return window.confirm(`${opts.title}\n\n${opts.message}`);
 }
