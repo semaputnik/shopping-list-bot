@@ -24,6 +24,7 @@ export interface Member {
 export interface ShoppingList {
   id: number;
   name: string;
+  member_count: number;
   share_code: string;
   /** The Share link; null while the backend has no SL_BOT_USERNAME. */
   share_url: string | null;
@@ -53,7 +54,10 @@ async function request<T>(path: string, init: RequestInit = {}, token?: string):
   headers.set("Content-Type", "application/json");
   if (token) headers.set("Authorization", `Bearer ${token}`);
   const response = await fetch(path, { ...init, headers });
-  if (!response.ok) throw new ApiError(`${init.method ?? "GET"} ${path}: ${response.status}`, response.status);
+  if (!response.ok) {
+    throw new ApiError(`${init.method ?? "GET"} ${path}: ${response.status}`, response.status);
+  }
+  if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
 
@@ -70,8 +74,17 @@ export function updateLanguage(token: string, language: "ru" | "es" | null): Pro
   return request<User>("/api/me", { method: "PATCH", body: JSON.stringify({ language }) }, token);
 }
 
+/** The user's Lists, most recently changed first. */
 export function fetchLists(token: string): Promise<ShoppingList[]> {
   return request<ShoppingList[]>("/api/lists", {}, token);
+}
+
+export function createList(token: string, name: string): Promise<ShoppingList> {
+  return request<ShoppingList>(
+    "/api/lists",
+    { method: "POST", body: JSON.stringify({ name }) },
+    token,
+  );
 }
 
 export interface Entry {
@@ -119,6 +132,24 @@ export function addEntries(
     { method: "POST", body: JSON.stringify({ text, client_id: clientId }) },
     token,
   );
+}
+
+export function renameList(token: string, id: number, name: string): Promise<ShoppingList> {
+  return request<ShoppingList>(
+    `/api/lists/${id}`,
+    { method: "PATCH", body: JSON.stringify({ name }) },
+    token,
+  );
+}
+
+/** Leaves the List for this user only; the last Member leaving deletes it. */
+export function leaveList(token: string, id: number): Promise<void> {
+  return request<void>(`/api/lists/${id}/leave`, { method: "POST" }, token);
+}
+
+/** Deletes the List for all its Members. Always ask for confirmation first. */
+export function deleteList(token: string, id: number): Promise<void> {
+  return request<void>(`/api/lists/${id}`, { method: "DELETE" }, token);
 }
 
 /** Opens a Share link: joins the List (a no-op for a Member). Rejects with ApiError 404 for an invalid code. */
