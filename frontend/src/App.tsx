@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  ApiError,
   authenticate,
   createList,
   deleteList,
   fetchLists,
+  joinList,
   leaveList,
   renameList,
   type ShoppingList,
@@ -11,6 +13,7 @@ import {
 } from "./api";
 import { pickLanguage, t, type Language } from "./i18n";
 import { ListScreen } from "./screens/ListScreen";
+import { MembersScreen } from "./screens/MembersScreen";
 import { Message } from "./screens/Message";
 import { haptic, startTelegram } from "./telegram";
 
@@ -18,10 +21,24 @@ type State =
   | { kind: "loading" }
   | { kind: "not-telegram" }
   | { kind: "error" }
-  | { kind: "ready"; token: string; user: User; lists: ShoppingList[]; currentId: number | null };
+  | { kind: "bad-link"; token: string; user: User; lists: ShoppingList[] }
+  | {
+      kind: "ready";
+      token: string;
+      user: User;
+      lists: ShoppingList[];
+      currentId: number | null;
+      screen: Screen;
+    };
+
+type Screen = "list" | "members";
 
 export function App() {
   const [state, setState] = useState<State>({ kind: "loading" });
+  const backToList = useCallback(
+    () => setState((s) => (s.kind === "ready" ? { ...s, screen: "list" } : s)),
+    [],
+  );
   const [language, setLanguage] = useState<Language>(() =>
     pickLanguage(navigator.language),
   );
@@ -45,14 +62,28 @@ export function App() {
       }
       setLanguage(pickLanguage(telegram.languageCode));
       const session = await authenticate(telegram.rawInitData);
-      const lists = await fetchLists(session.token);
+      let lists = await fetchLists(session.token);
       setLanguage(session.user.language);
+      let currentId = lists[0]?.id ?? null;
+      if (session.start_param) {
+        // Opening a Share link joins the List (a no-op for a Member) and opens it.
+        try {
+          const joined = await joinList(session.token, session.start_param);
+          lists = [joined, ...lists.filter((l) => l.id !== joined.id)];
+          currentId = joined.id;
+        } catch (error) {
+          if (!(error instanceof ApiError && error.status === 404)) throw error;
+          setState({ kind: "bad-link", token: session.token, user: session.user, lists });
+          return;
+        }
+      }
       setState({
         kind: "ready",
         token: session.token,
         user: session.user,
         lists,
-        currentId: lists[0]?.id ?? null,
+        currentId,
+        screen: "list",
       });
     } catch (error) {
       console.error(error);
@@ -105,16 +136,46 @@ export function App() {
           action={{ label: strings.retry, onClick: () => void boot() }}
         />
       );
+    case "bad-link": {
+      const { token, user, lists } = state;
+      return (
+        <Message
+          title={strings.badLinkTitle}
+          hint={strings.badLinkHint}
+          action={
+            lists.length > 0
+              ? {
+                  label: strings.openMyLists,
+                  onClick: () =>
+                    setState({
+                      kind: "ready",
+                      token,
+                      user,
+                      lists,
+                      currentId: lists[0].id,
+                      screen: "list",
+                    }),
+                }
+              : undefined
+          }
+        />
+      );
+    }
     case "ready": {
       const current = state.lists.find((l) => l.id === state.currentId) ?? null;
+      if (current && state.screen === "members") {
+        return (
+          <MembersScreen user={state.user} list={current} strings={strings} onBack={backToList} />
+        );
+      }
       return (
         <ListScreen
-          user={state.user}
           lists={state.lists}
           list={current}
           strings={strings}
           failed={failed}
           onSelect={(id) => setState({ ...state, currentId: id })}
+          onOpenMembers={() => setState({ ...state, screen: "members" })}
           onCreate={(name) => mutate(async (token) => (await createList(token, name)).id)}
           onRename={(id, name) =>
             mutate(async (token) => {

@@ -27,7 +27,16 @@ type StringKey =
   | "deleteTitle"
   | "deleteMessage"
   | "membersCount"
-  | "actionFailed";
+  | "actionFailed"
+  | "share"
+  | "linkCopied"
+  | "linkUnavailable"
+  | "members"
+  | "you"
+  | "membersHint"
+  | "badLinkTitle"
+  | "badLinkHint"
+  | "openMyLists";
 
 const strings: Record<Language, Record<StringKey, string>> = {
   ru: {
@@ -59,6 +68,15 @@ const strings: Record<Language, Record<StringKey, string>> = {
       "Список удалится у всех участников ({n}) вместе с историей. Восстановить его будет нельзя.",
     membersCount: "Участников: {n}",
     actionFailed: "Не получилось. Попробуйте ещё раз.",
+    share: "Поделиться",
+    linkCopied: "Ссылка скопирована",
+    linkUnavailable: "Не удалось получить ссылку",
+    members: "Участники",
+    you: "вы",
+    membersHint: "У всех участников одинаковые права. Отправьте ссылку, чтобы добавить ещё кого-то.",
+    badLinkTitle: "Ссылка недействительна",
+    badLinkHint: "Попросите прислать ссылку на список ещё раз.",
+    openMyLists: "Открыть мои списки",
   },
   es: {
     loading: "Cargando…",
@@ -89,6 +107,15 @@ const strings: Record<Language, Record<StringKey, string>> = {
       "La lista se eliminará para todos los miembros ({n}), con su historial. No se puede recuperar.",
     membersCount: "Miembros: {n}",
     actionFailed: "No se pudo. Inténtalo de nuevo.",
+    share: "Compartir",
+    linkCopied: "Enlace copiado",
+    linkUnavailable: "No se pudo obtener el enlace",
+    members: "Miembros",
+    you: "tú",
+    membersHint: "Todos los miembros tienen los mismos derechos. Envía el enlace para añadir a alguien más.",
+    badLinkTitle: "El enlace no es válido",
+    badLinkHint: "Pide que te envíen de nuevo el enlace de la lista.",
+    openMyLists: "Abrir mis listas",
   },
 };
 

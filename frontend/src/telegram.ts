@@ -63,10 +63,10 @@ async function doStartTelegram(): Promise<TelegramContext | null> {
   if (bindViewportCssVars.isAvailable()) bindViewportCssVars();
   if (expandViewport.isAvailable()) expandViewport();
 
-  // Swipes on list rows must not close the app.
   // Mounted once here: show/hide/onClick are only available on a mounted BackButton.
   if (mountBackButton.isAvailable() && !isBackButtonMounted()) mountBackButton();
 
+  // Swipes on list rows must not close the app.
   if (mountSwipeBehavior.isAvailable()) mountSwipeBehavior();
   if (disableVerticalSwipes.isAvailable()) disableVerticalSwipes();
 

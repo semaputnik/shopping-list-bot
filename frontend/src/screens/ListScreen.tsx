@@ -1,11 +1,11 @@
 import { useCallback, useState } from "react";
-import type { ShoppingList, User } from "../api";
+import type { ShoppingList } from "../api";
+import { AvatarStack } from "../components/Avatar";
 import { withCount, type Strings } from "../i18n";
 import { confirmDestructive, haptic } from "../telegram";
 import { NameSheet, Sheet } from "./Sheet";
 
 interface Props {
-  user: User;
   /** All the user's Lists, most recently changed first. */
   lists: ShoppingList[];
   list: ShoppingList | null;
@@ -13,6 +13,7 @@ interface Props {
   /** True when the last action failed on the server. */
   failed: boolean;
   onSelect: (id: number) => void;
+  onOpenMembers: () => void;
   /** Mutations resolve true on success, false when the request failed. */
   onCreate: (name: string) => Promise<boolean>;
   onRename: (id: number, name: string) => Promise<boolean>;
@@ -22,38 +23,14 @@ interface Props {
 
 type Panel = null | "switcher" | "menu" | "create" | "rename";
 
-function initials(user: User): string {
-  const letters = [user.first_name, user.last_name].map((s) => (s ?? "").trim()[0] ?? "");
-  return letters.join("").toUpperCase() || "?";
-}
-
-function Avatar({ user }: { user: User }) {
-  const [broken, setBroken] = useState(false);
-  if (user.photo_url && !broken) {
-    return (
-      <img
-        className="avatar"
-        src={user.photo_url}
-        alt={user.first_name}
-        onError={() => setBroken(true)}
-      />
-    );
-  }
-  return (
-    <span className="avatar avatar--initials" aria-label={user.first_name}>
-      {initials(user)}
-    </span>
-  );
-}
-
 /** The List screen: header with the List name and Members, then the empty state. */
 export function ListScreen({
-  user,
   lists,
   list,
   strings,
   failed,
   onSelect,
+  onOpenMembers,
   onCreate,
   onRename,
   onLeave,
@@ -62,10 +39,10 @@ export function ListScreen({
   const [panel, setPanel] = useState<Panel>(null);
   // The sheet the BackButton returns to; null closes the sheets altogether.
   const [parent, setParent] = useState<Panel>(null);
-  const close = () => {
+  const close = useCallback(() => {
     setParent(null);
     setPanel(null);
-  };
+  }, []);
   const open = (next: Panel, from: Panel = null) => {
     setParent(from);
     setPanel(next);
@@ -81,7 +58,7 @@ export function ListScreen({
     close();
     const ok = await confirmDestructive({
       title: strings.leaveTitle,
-      message: list.member_count <= 1 ? strings.leaveLastMessage : strings.leaveMessage,
+      message: list.members.length <= 1 ? strings.leaveLastMessage : strings.leaveMessage,
       confirmLabel: strings.leaveList,
     });
     if (ok) await onLeave(list.id);
@@ -92,7 +69,7 @@ export function ListScreen({
     close();
     const ok = await confirmDestructive({
       title: strings.deleteTitle,
-      message: withCount(strings.deleteMessage, list.member_count),
+      message: withCount(strings.deleteMessage, list.members.length),
       confirmLabel: strings.deleteList,
     });
     if (ok) await onDelete(list.id);
@@ -122,7 +99,7 @@ export function ListScreen({
                 >
                   <span className="row__name">{l.name}</span>
                   <span className="row__meta">
-                    {l.id === list?.id ? "✓" : withCount(strings.membersCount, l.member_count)}
+                    {l.id === list?.id ? "✓" : withCount(strings.membersCount, l.members.length)}
                   </span>
                 </button>
               </li>
@@ -216,9 +193,14 @@ export function ListScreen({
             </span>
           </button>
         </h1>
-        <div className="avatars">
-          <Avatar user={user} />
-        </div>
+        <button
+          type="button"
+          className="avatars-button"
+          aria-label={strings.members}
+          onClick={onOpenMembers}
+        >
+          <AvatarStack members={list.members} />
+        </button>
         <button
           type="button"
           className="header__menu"

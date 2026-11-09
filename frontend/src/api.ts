@@ -9,12 +9,24 @@ export interface User {
   language: "ru" | "es";
 }
 
+/** A Member of a List, as the backend exposes it (no Telegram id). */
+export interface Member {
+  id: number;
+  first_name: string;
+  last_name: string | null;
+  username: string | null;
+  photo_url: string | null;
+}
+
 /** A List in GLOSSARY.md terms (named ShoppingList to avoid clashing with the TS/DOM List names). */
 export interface ShoppingList {
   id: number;
   name: string;
   member_count: number;
   share_code: string;
+  /** The Share link; null while the backend has no SL_BOT_USERNAME. */
+  share_url: string | null;
+  members: Member[];
   version: number;
   updated_at: string;
 }
@@ -26,12 +38,23 @@ export interface AuthResult {
   start_param: string | null;
 }
 
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
 async function request<T>(path: string, init: RequestInit = {}, token?: string): Promise<T> {
   const headers = new Headers(init.headers);
   headers.set("Content-Type", "application/json");
   if (token) headers.set("Authorization", `Bearer ${token}`);
   const response = await fetch(path, { ...init, headers });
-  if (!response.ok) throw new Error(`${init.method ?? "GET"} ${path}: ${response.status}`);
+  if (!response.ok) {
+    throw new ApiError(`${init.method ?? "GET"} ${path}: ${response.status}`, response.status);
+  }
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
@@ -73,4 +96,12 @@ export function leaveList(token: string, id: number): Promise<void> {
 /** Deletes the List for all its Members. Always ask for confirmation first. */
 export function deleteList(token: string, id: number): Promise<void> {
   return request<void>(`/api/lists/${id}`, { method: "DELETE" }, token);
+}
+/** Opens a Share link: joins the List (a no-op for a Member). Rejects with ApiError 404 for an invalid code. */
+export function joinList(token: string, code: string): Promise<ShoppingList> {
+  return request<ShoppingList>(
+    "/api/lists/join",
+    { method: "POST", body: JSON.stringify({ code }) },
+    token,
+  );
 }

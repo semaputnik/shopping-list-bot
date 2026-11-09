@@ -13,7 +13,11 @@ interface SheetProps {
  * Telegram's BackButton is shown and calls `onClose` (which may return to a parent sheet).
  */
 export function Sheet({ title, closeLabel, onClose, children }: SheetProps) {
-  useEffect(() => bindBackButton(onClose), [onClose]);
+  // Bind the native button once per Sheet; the ref keeps the latest onClose without re-binding
+  // (off/hide/on/show) on every parent re-render, which would flicker the button.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useEffect(() => bindBackButton(() => onCloseRef.current()), []);
   return (
     <div className="sheet-backdrop" onClick={onClose}>
       <div

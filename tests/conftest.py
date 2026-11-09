@@ -46,6 +46,7 @@ def sign_init_data(
 def client(tmp_path: Path) -> Iterator[TestClient]:
     settings = Settings(
         bot_token=TEST_BOT_TOKEN,
+        bot_username="shared_lists_test_bot",
         database_url=f"sqlite:///{tmp_path / 'test.db'}",
         frontend_dist=tmp_path / "no-frontend",
         _env_file=None,
@@ -70,21 +71,15 @@ def sign_in(client: TestClient) -> Callable[..., dict]:
 
 
 @pytest.fixture
-def add_member(tmp_path: Path) -> Callable[[int, int], None]:
-    """Make a user a Member of a List directly in the database.
+def add_member(client: TestClient) -> Callable[[dict, dict], dict]:
+    """Make a signed-in user a Member of a List by opening its Share link (POST /lists/join)."""
 
-    Joining by Share link is another feature; Lists with several Members are set up here
-    so that leave/delete can be tested through the HTTP API.
-    """
-    import sqlite3
-
-    def _add(list_id: int, user_id: int) -> None:
-        with sqlite3.connect(tmp_path / "test.db") as db:
-            db.execute(
-                "INSERT INTO list_member (list_id, user_id, joined_at)"
-                " VALUES (?, ?, datetime('now'))",
-                (list_id, user_id),
-            )
+    def _add(lst: dict, session: dict) -> dict:
+        response = client.post(
+            "/api/lists/join", json={"code": lst["share_code"]}, headers=session["headers"]
+        )
+        assert response.status_code == 200, response.text
+        return response.json()
 
     return _add
 
