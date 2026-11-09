@@ -85,6 +85,11 @@ class Product(Base):
     name: Mapped[str] = mapped_column(String(200))
     name_norm: Mapped[str] = mapped_column(String(200))
     category_key: Mapped[str] = mapped_column(String(32))
+    # Times bought (updated on «Куплено»); breaks ties between equally good suggestions.
+    purchase_count: Mapped[int] = mapped_column(default=0, server_default="0")
+    # Removed from memory: not suggested any more, but Entries and History keep the Product,
+    # and entering the name again brings it back.
+    hidden: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
