@@ -9,12 +9,13 @@ interface Props {
   language: Language;
   strings: Strings;
   onOpenMembers: () => void;
+  onOpenSettings: () => void;
 }
 
 const HIGHLIGHT_MS = 1600;
 
-/** The List screen: header, the pinned input line, then Entries grouped by Category. */
-export function ListScreen({ token, list, language, strings, onOpenMembers }: Props) {
+/** The List screen: header with Members and Settings, the pinned input line, then Entries grouped by Category. */
+export function ListScreen({ token, list, language, strings, onOpenMembers, onOpenSettings }: Props) {
   const [contents, setContents] = useState<ListContents | null>(null);
   const [fresh, setFresh] = useState<ReadonlySet<number>>(new Set());
   const [error, setError] = useState<"add" | "load" | null>(null);
@@ -105,6 +106,9 @@ export function ListScreen({ token, list, language, strings, onOpenMembers }: Pr
       <main className="screen">
         <section className="empty">
           <p className="empty__title">{strings.noList}</p>
+          <button type="button" className="text-button" onClick={onOpenSettings}>
+            {strings.settings}
+          </button>
         </section>
       </main>
     );
@@ -122,6 +126,14 @@ export function ListScreen({ token, list, language, strings, onOpenMembers }: Pr
           onClick={onOpenMembers}
         >
           <AvatarStack members={list.members} />
+        </button>
+        <button
+          type="button"
+          className="icon-button"
+          aria-label={strings.settings}
+          onClick={onOpenSettings}
+        >
+          ⚙︎
         </button>
       </header>
 

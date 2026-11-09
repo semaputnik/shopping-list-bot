@@ -4,6 +4,7 @@ import {
   authenticate,
   fetchLists,
   joinList,
+  updateLanguage,
   type ShoppingList,
   type User,
 } from "./api";
@@ -11,6 +12,7 @@ import { pickLanguage, t, type Language } from "./i18n";
 import { ListScreen } from "./screens/ListScreen";
 import { MembersScreen } from "./screens/MembersScreen";
 import { Message } from "./screens/Message";
+import { SettingsScreen } from "./screens/SettingsScreen";
 import { startTelegram } from "./telegram";
 
 type State =
@@ -18,9 +20,16 @@ type State =
   | { kind: "not-telegram" }
   | { kind: "error" }
   | { kind: "bad-link"; token: string; user: User; lists: ShoppingList[] }
-  | { kind: "ready"; token: string; user: User; lists: ShoppingList[]; currentId: number | null; screen: Screen };
+  | {
+      kind: "ready";
+      token: string;
+      user: User;
+      lists: ShoppingList[];
+      currentId: number | null;
+      screen: Screen;
+    };
 
-type Screen = "list" | "members";
+type Screen = "list" | "members" | "settings";
 
 export function App() {
   const [state, setState] = useState<State>({ kind: "loading" });
@@ -76,6 +85,20 @@ export function App() {
     void boot();
   }, [boot]);
 
+  const changeLanguage = useCallback(async (token: string, next: Language | null) => {
+    const user = await updateLanguage(token, next);
+    // An auto-created List name is rendered in the user's language, so refetch the Lists.
+    // The choice is saved by now: apply it even if the refetch below fails.
+    setLanguage(user.language);
+    setState((s) => (s.kind === "ready" ? { ...s, user } : s));
+    try {
+      const lists = await fetchLists(token);
+      setState((s) => (s.kind === "ready" ? { ...s, lists } : s));
+    } catch {
+      // Keep the stale List name; it refreshes on the next load.
+    }
+  }, []);
+
   const strings = t(language);
   switch (state.kind) {
     case "loading":
@@ -91,7 +114,7 @@ export function App() {
         />
       );
     case "bad-link": {
-      const { user, lists, token } = state;
+      const { token, user, lists } = state;
       return (
         <Message
           title={strings.badLinkTitle}
@@ -127,6 +150,17 @@ export function App() {
           />
         );
       }
+      if (state.screen === "settings") {
+        return (
+          <SettingsScreen
+            language={language}
+            overridden={state.user.language_overridden}
+            strings={strings}
+            onBack={backToList}
+            onChangeLanguage={(next) => changeLanguage(state.token, next)}
+          />
+        );
+      }
       return (
         <ListScreen
           token={state.token}
@@ -134,6 +168,7 @@ export function App() {
           language={language}
           strings={strings}
           onOpenMembers={() => setState({ ...state, screen: "members" })}
+          onOpenSettings={() => setState({ ...state, screen: "settings" })}
         />
       );
     }

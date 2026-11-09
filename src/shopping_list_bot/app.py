@@ -6,13 +6,13 @@ import logging
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from sqlalchemy import select, update
+from sqlalchemy import inspect, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -27,7 +27,7 @@ from .auth import (
 from .categories import CATEGORIES, guess_category
 from .config import Settings
 from .db import Base, make_engine, make_session_factory
-from .i18n import FIRST_LIST_NAME, pick_language
+from .i18n import FIRST_LIST_NAME, SYSTEM_CATEGORIES, effective_language
 from .normalize import normalize
 from .parsing import parse_input
 
@@ -44,8 +44,10 @@ class UserOut(BaseModel):
     username: str | None
     photo_url: str | None
     language_code: str | None
-    # Interface language picked from language_code: "ru" or "es".
+    # Effective interface language, "ru" or "es": the user's choice, else from language_code.
     language: str
+    # True when the user overrode Telegram's language in Settings.
+    language_overridden: bool
 
 
 class MemberOut(BaseModel):
@@ -105,6 +107,16 @@ class AddEntriesOut(BaseModel):
     entries: list[EntryOut]
 
 
+class MeUpdate(BaseModel):
+    # "ru" or "es" sets the language; null goes back to following Telegram.
+    language: Literal["ru", "es"] | None
+
+
+class CategoryOut(BaseModel):
+    key: str
+    name: str
+
+
 class JoinIn(BaseModel):
     code: str = Field(max_length=64)
 
@@ -130,7 +142,8 @@ def user_out(user: models.User) -> UserOut:
         username=user.username,
         photo_url=user.photo_url,
         language_code=user.language_code,
-        language=pick_language(user.language_code),
+        language=effective_language(user.language, user.language_code),
+        language_overridden=user.language is not None,
     )
 
 
@@ -149,11 +162,12 @@ def share_url(bot_username: str, share_code: str) -> str | None:
     return f"https://t.me/{username}?startapp={share_code}" if username else None
 
 
-def list_out(lst: models.List, bot_username: str = "") -> ListOut:
+def list_out(lst: models.List, lang: str, bot_username: str = "") -> ListOut:
     members = sorted(lst.members, key=lambda m: m.id)
     return ListOut(
         id=lst.id,
-        name=lst.name,
+        # An auto-created name is rendered in the viewer's language until a Member renames it.
+        name=FIRST_LIST_NAME[lang] if lst.name_is_default else lst.name,
         share_code=lst.share_code,
         share_url=share_url(bot_username, lst.share_code),
         members=[member_out(m.user) for m in members],
@@ -177,6 +191,22 @@ def _upsert_user(session: Session, tg: TelegramUser) -> tuple[models.User, bool]
     return user, created
 
 
+def _add_missing_columns(engine) -> None:
+    """create_all does not alter existing tables; add columns introduced later.
+
+    Ad-hoc stopgap: replace with a migration tool (e.g. Alembic) once one is introduced.
+    """
+    inspector = inspect(engine)
+    additions = [
+        ("user", "language", "VARCHAR(8)"),
+        ("list", "name_is_default", "BOOLEAN NOT NULL DEFAULT 0"),
+    ]
+    for table, column, ddl in additions:
+        if column not in {c["name"] for c in inspector.get_columns(table)}:
+            with engine.begin() as conn:
+                conn.execute(text(f'ALTER TABLE "{table}" ADD COLUMN {column} {ddl}'))
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
     engine = make_engine(settings.database_url)
@@ -194,6 +224,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not settings.bot_username.lstrip("@"):
             logger.warning("SL_BOT_USERNAME is not set: Share links cannot be built")
         Base.metadata.create_all(engine)
+        _add_missing_columns(engine)
         yield
         engine.dispose()
 
@@ -253,7 +284,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         if created and not arrived_by_share_link:
             lst = models.List(
-                name=FIRST_LIST_NAME[pick_language(user.language_code)], created_by=user.id
+                name=FIRST_LIST_NAME[effective_language(user.language, user.language_code)],
+                name_is_default=True,
+                created_by=user.id,
             )
             lst.members.append(models.ListMember(user_id=user.id))
             session.add(lst)
@@ -271,6 +304,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def me(user: UserDep) -> UserOut:
         return user_out(user)
 
+    @api.patch("/me", response_model=UserOut)
+    def update_me(body: MeUpdate, user: UserDep, session: SessionDep) -> UserOut:
+        user.language = body.language
+        session.commit()
+        return user_out(user)
+
+    @api.get("/categories", response_model=list[CategoryOut])
+    def categories(user: UserDep) -> list[CategoryOut]:
+        """System Categories named in the user's effective language."""
+        lang = effective_language(user.language, user.language_code)
+        return [CategoryOut(key=key, name=names[lang]) for key, names in SYSTEM_CATEGORIES]
+
     def _member_lists(user: models.User):
         return (
             select(models.List)
@@ -282,7 +327,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @api.get("/lists", response_model=list[ListOut])
     def my_lists(user: UserDep, session: SessionDep) -> list[ListOut]:
         stmt = _member_lists(user).order_by(models.List.updated_at.desc(), models.List.id.desc())
-        return [list_out(lst, settings.bot_username) for lst in session.scalars(stmt)]
+        lang = effective_language(user.language, user.language_code)
+        return [list_out(lst, lang, settings.bot_username) for lst in session.scalars(stmt)]
 
     @api.post("/lists/join", response_model=ListOut)
     def join_list(body: JoinIn, user: UserDep, session: SessionDep) -> ListOut:
@@ -300,14 +346,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 session.rollback()
                 lst = session.scalar(select(models.List).where(models.List.share_code == body.code))
                 assert lst is not None
-        return list_out(lst, settings.bot_username)
+        return list_out(
+            lst, effective_language(user.language, user.language_code), settings.bot_username
+        )
 
     @api.get("/lists/{list_id}", response_model=ListOut)
     def get_list(list_id: int, user: UserDep, session: SessionDep) -> ListOut:
         lst = session.scalar(_member_lists(user).where(models.List.id == list_id))
         if lst is None:  # also hides the existence of Lists the user is not a Member of
             raise HTTPException(404, "list not found")
-        return list_out(lst, settings.bot_username)
+        return list_out(
+            lst, effective_language(user.language, user.language_code), settings.bot_username
+        )
 
     def _entry_out(entry: models.Entry) -> EntryOut:
         return EntryOut(
@@ -335,7 +385,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             .options(selectinload(models.Entry.product))
             .order_by(models.Entry.created_at, models.Entry.id)
         ).all()
-        language = pick_language(user.language_code)
+        language = effective_language(user.language, user.language_code)
         groups = []
         for category in CATEGORIES:
             members = [_entry_out(e) for e in entries if e.product.category_key == category.key]
@@ -349,7 +399,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         entries=members,
                     )
                 )
-        return ListContentsOut(list=list_out(lst, settings.bot_username), categories=groups)
+        return ListContentsOut(
+            list=list_out(lst, language, settings.bot_username), categories=groups
+        )
 
     @api.post("/lists/{list_id}/entries", response_model=AddEntriesOut, status_code=201)
     def add_entries(

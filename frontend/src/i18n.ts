@@ -23,7 +23,11 @@ type StringKey =
   | "membersHint"
   | "badLinkTitle"
   | "badLinkHint"
-  | "openMyLists";
+  | "openMyLists"
+  | "settings"
+  | "languageSection"
+  | "languageAsTelegram"
+  | "languageSaveError";
 
 const strings: Record<Language, Record<StringKey, string>> = {
   ru: {
@@ -50,6 +54,10 @@ const strings: Record<Language, Record<StringKey, string>> = {
     badLinkTitle: "Ссылка недействительна",
     badLinkHint: "Попросите прислать ссылку на список ещё раз.",
     openMyLists: "Открыть мои списки",
+    settings: "Настройки",
+    languageSection: "Язык",
+    languageAsTelegram: "Как в Telegram",
+    languageSaveError: "Не удалось сохранить язык. Попробуйте ещё раз.",
   },
   es: {
     loading: "Cargando…",
@@ -75,6 +83,10 @@ const strings: Record<Language, Record<StringKey, string>> = {
     badLinkTitle: "El enlace no es válido",
     badLinkHint: "Pide que te envíen de nuevo el enlace de la lista.",
     openMyLists: "Abrir mis listas",
+    settings: "Ajustes",
+    languageSection: "Idioma",
+    languageAsTelegram: "Como en Telegram",
+    languageSaveError: "No se pudo guardar el idioma. Inténtalo de nuevo.",
   },
 };
 
@@ -83,6 +95,9 @@ export const QUICK_ADD: Record<Language, string[]> = {
   ru: ["Молоко", "Хлеб", "Яйца", "Бананы", "Картошка", "Сыр", "Курица", "Вода"],
   es: ["Leche", "Pan", "Huevos", "Plátanos", "Patatas", "Queso", "Pollo", "Agua"],
 };
+
+/** Each language is always shown in its own name, whatever the interface language is. */
+export const LANGUAGE_NAMES: Record<Language, string> = { ru: "Русский", es: "Español" };
 
 export type Strings = Record<StringKey, string>;
 

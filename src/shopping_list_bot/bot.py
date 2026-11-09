@@ -12,9 +12,13 @@ from aiogram.types import (
     Message,
     WebAppInfo,
 )
+from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 
+from . import models
 from .config import Settings
-from .i18n import pick_language
+from .db import make_engine, make_session_factory
+from .i18n import effective_language
 
 OPEN_BUTTON = {"ru": "Открыть список", "es": "Abrir lista"}
 START_TEXT = {
@@ -23,23 +27,48 @@ START_TEXT = {
 }
 
 
-def open_keyboard(webapp_url: str, language_code: str | None) -> InlineKeyboardMarkup:
-    lang = pick_language(language_code)
+def open_keyboard(webapp_url: str, lang: str) -> InlineKeyboardMarkup:
     button = InlineKeyboardButton(text=OPEN_BUTTON[lang], web_app=WebAppInfo(url=webapp_url))
     return InlineKeyboardMarkup(inline_keyboard=[[button]])
 
 
 def build_dispatcher(settings: Settings) -> Dispatcher:
     dp = Dispatcher()
+    engine = make_engine(settings.database_url)
+    session_factory = make_session_factory(engine)
+
+    def lookup_language(telegram_id: int) -> str | None:
+        with session_factory() as session:
+            return session.scalar(
+                select(models.User.language).where(models.User.telegram_id == telegram_id)
+            )
+
+    async def language_for(telegram_id: int, language_code: str | None) -> str:
+        """The language chosen in Settings if the user set one, else Telegram's.
+
+        The database is shared with the backend, which owns the schema. If it is unreachable
+        or not migrated yet, /start still replies, in Telegram's language.
+        """
+        try:
+            chosen = await asyncio.to_thread(lookup_language, telegram_id)
+        except SQLAlchemyError:
+            logging.getLogger(__name__).warning("Language lookup failed", exc_info=True)
+            chosen = None
+        return effective_language(chosen, language_code)
 
     @dp.message(CommandStart())
     async def start(message: Message) -> None:
-        code = message.from_user.language_code if message.from_user else None
+        sender = message.from_user
+        lang = (
+            await language_for(sender.id, sender.language_code)
+            if sender
+            else effective_language(None, None)
+        )
         await message.answer(
-            START_TEXT[pick_language(code)],
-            reply_markup=open_keyboard(settings.webapp_url, code),
+            START_TEXT[lang], reply_markup=open_keyboard(settings.webapp_url, lang)
         )
 
+    dp.shutdown.register(lambda: engine.dispose())
     return dp
 
 
