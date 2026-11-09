@@ -43,6 +43,7 @@ interface Props {
   onSelect: (id: number) => void;
   onOpenMembers: () => void;
   onOpenSettings: () => void;
+  onOpenHistory: () => void;
   /** Mutations resolve true on success, false when the request failed. */
   onCreate: (name: string) => Promise<boolean>;
   onRename: (id: number, name: string) => Promise<boolean>;
@@ -88,6 +89,7 @@ export function ListScreen({
   onSelect,
   onOpenMembers,
   onOpenSettings,
+  onOpenHistory,
   onCreate,
   onRename,
   onLeave,
@@ -545,6 +547,18 @@ export function ListScreen({
             <li>
               <button type="button" className="sheet-row" onClick={() => openPanel("rename", "menu")}>
                 {strings.renameList}
+              </button>
+            </li>
+            <li>
+              <button
+                type="button"
+                className="sheet-row"
+                onClick={() => {
+                  close();
+                  onOpenHistory();
+                }}
+              >
+                {strings.history}
               </button>
             </li>
             <li>

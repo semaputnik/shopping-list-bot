@@ -870,3 +870,67 @@ body {
   font-size: 13px;
   color: var(--destructive);
 }
+
+/* History */
+.history,
+.history__items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.history__purchase {
+  margin-bottom: 16px;
+}
+
+.history__when {
+  margin: 0 4px 6px;
+  color: var(--hint);
+  font-size: 15px;
+}
+
+.history__items {
+  border-radius: 12px;
+  background: var(--section);
+  padding: 0 16px;
+}
+
+.history__items li + li {
+  border-top: 0.5px solid var(--separator);
+}
+
+.history__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+}
+
+.history__note {
+  color: var(--hint);
+}
+
+.history__add {
+  flex-shrink: 0;
+  color: var(--accent);
+  font-size: 22px;
+}
+
+.history__sentinel {
+  height: 1px;
+}
+
+.history__status,
+.history__empty {
+  margin: 16px 4px;
+  color: var(--hint);
+  text-align: center;
+}

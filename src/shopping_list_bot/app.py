@@ -1,5 +1,7 @@
 """FastAPI application factory."""
 
+import base64
+import binascii
 import hashlib
 import hmac
 import logging
@@ -12,7 +14,7 @@ from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, R
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, StringConstraints
-from sqlalchemy import delete, func, inspect, select, text, update
+from sqlalchemy import and_, delete, func, inspect, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -181,6 +183,34 @@ class PurchaseOut(BaseModel):
     entries: list[PurchasedEntryOut]
     # How many Entries left the List.
     count: int
+
+
+class HistoryEntryOut(BaseModel):
+    """One item of a past Purchase: a snapshot, never the live Entry."""
+
+    id: int
+    name: str
+    note: str | None
+
+
+class HistoryPurchaseOut(BaseModel):
+    id: int
+    purchased_at: datetime
+    # The Member who pressed «Куплено»; null if that user is gone.
+    purchased_by: int | None
+    purchased_by_name: str | None
+    entries: list[HistoryEntryOut]
+
+
+class HistoryPageOut(BaseModel):
+    purchases: list[HistoryPurchaseOut]
+    # Pass as `cursor` to get the next (older) page; null on the last page.
+    next_cursor: str | None
+
+
+class ReaddIn(BaseModel):
+    # Client-generated idempotency id; replaying it returns the same Entry.
+    client_id: str | None = Field(default=None, min_length=1, max_length=64)
 
 
 class UndoPurchaseOut(BaseModel):
@@ -930,6 +960,137 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         _touch(session, lst)
         session.commit()
         return UndoPurchaseOut(version=lst.version, restored=len(snapshots))
+
+    def _utc(at: datetime) -> datetime:
+        return at.replace(tzinfo=UTC) if at.tzinfo is None else at  # SQLite hands back naive UTC
+
+    def _encode_cursor(purchase: models.Purchase) -> str:
+        raw = f"{_utc(purchase.purchased_at).replace(tzinfo=None).isoformat()}|{purchase.id}"
+        return base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
+
+    def _decode_cursor(cursor: str) -> tuple[datetime, int]:
+        try:
+            raw = base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)).decode()
+            at, _, pid = raw.partition("|")
+            return datetime.fromisoformat(at), int(pid)
+        except ValueError, binascii.Error:
+            raise HTTPException(422, "invalid cursor") from None
+
+    @api.get("/lists/{list_id}/purchases", response_model=HistoryPageOut)
+    def history(
+        list_id: int,
+        user: UserDep,
+        session: SessionDep,
+        cursor: Annotated[str | None, Query(max_length=200)] = None,
+        limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    ) -> HistoryPageOut:
+        """The List's History, newest Purchase first, in pages (keyset cursor)."""
+        lst = _member_list(session, user, list_id)
+        stmt = select(models.Purchase).where(models.Purchase.list_id == lst.id)
+        if cursor:
+            at, pid = _decode_cursor(cursor)
+            stmt = stmt.where(
+                or_(
+                    models.Purchase.purchased_at < at,
+                    and_(models.Purchase.purchased_at == at, models.Purchase.id < pid),
+                )
+            )
+        rows = session.scalars(
+            stmt.options(selectinload(models.Purchase.entries))
+            .order_by(models.Purchase.purchased_at.desc(), models.Purchase.id.desc())
+            .limit(limit + 1)
+        ).all()
+        page = rows[:limit]
+        buyer_ids = {p.purchased_by for p in page if p.purchased_by is not None}
+        names = {
+            uid: name
+            for uid, name in session.execute(
+                select(models.User.id, models.User.first_name).where(models.User.id.in_(buyer_ids))
+            )
+        }
+        purchases = [
+            HistoryPurchaseOut(
+                id=p.id,
+                purchased_at=_utc(p.purchased_at),
+                purchased_by=p.purchased_by,
+                purchased_by_name=names.get(p.purchased_by),
+                entries=[
+                    HistoryEntryOut(id=e.id, name=e.name, note=e.note)
+                    for e in sorted(p.entries, key=lambda e: (e.entry_created_at, e.id))
+                ],
+            )
+            for p in page
+        ]
+        next_cursor = _encode_cursor(page[-1]) if len(rows) > limit else None
+        return HistoryPageOut(purchases=purchases, next_cursor=next_cursor)
+
+    @api.post(
+        "/lists/{list_id}/purchases/{purchase_id}/entries/{item_id}/readd",
+        response_model=AddEntriesOut,
+        status_code=201,
+    )
+    def readd_from_history(
+        list_id: int,
+        purchase_id: int,
+        item_id: int,
+        body: ReaddIn,
+        response: Response,
+        user: UserDep,
+        session: SessionDep,
+    ) -> AddEntriesOut:
+        """Put a past item back on the List with the same Note (a new unchecked Entry)."""
+        lst = _member_list(session, user, list_id)
+        snap = session.scalar(
+            select(models.PurchaseEntry)
+            .join(models.Purchase)
+            .where(
+                models.PurchaseEntry.id == item_id,
+                models.PurchaseEntry.purchase_id == purchase_id,
+                models.Purchase.list_id == lst.id,
+            )
+        )
+        if snap is None:
+            raise HTTPException(404, "purchase item not found")
+        key = f"{body.client_id}:0" if body.client_id else None
+
+        def replay() -> AddEntriesOut | None:
+            if key is None:
+                return None
+            existing = session.scalar(
+                select(models.Entry).where(
+                    models.Entry.list_id == lst.id, models.Entry.client_id == key
+                )
+            )
+            if existing is None:
+                return None
+            response.status_code = 200
+            return AddEntriesOut(version=lst.version, entries=[_entry_out(existing)])
+
+        if (replayed := replay()) is not None:
+            return replayed
+        product = session.get(models.Product, snap.product_id)
+        assert product is not None
+        product.hidden = False  # putting it back restores the memory, like typing it again
+        entry = models.Entry(
+            list_id=lst.id,
+            product=product,
+            name=snap.name,
+            note=snap.note,
+            added_by=user.id,
+            client_id=key,
+        )
+        session.add(entry)
+        try:
+            _touch(session, lst)
+            session.commit()
+        except IntegrityError:  # concurrent replay of the same client_id
+            session.rollback()
+            lst = _member_list(session, user, list_id)
+            if (replayed := replay()) is not None:
+                return replayed
+            raise
+        session.refresh(lst)
+        return AddEntriesOut(version=lst.version, entries=[_entry_out(entry)])
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
