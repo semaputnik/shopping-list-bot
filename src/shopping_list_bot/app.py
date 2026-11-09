@@ -1,0 +1,1416 @@
+"""FastAPI application factory."""
+
+import asyncio
+import base64
+import binascii
+import hashlib
+import hmac
+import json
+import logging
+from collections.abc import Iterator
+from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
+from typing import Annotated, Literal
+
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request, Response
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field, StringConstraints
+from sqlalchemy import and_, delete, event, func, inspect, or_, select, text, update
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session, selectinload
+from starlette.concurrency import run_in_threadpool
+from starlette.middleware.gzip import GZipMiddleware
+
+from . import models
+from .auth import (
+    AuthError,
+    TelegramUser,
+    issue_session_token,
+    read_session_token,
+    verify_init_data,
+)
+from .categories import CATEGORIES, CATEGORY_BY_KEY, guess_category
+from .config import Settings
+from .db import Base, make_engine, make_session_factory
+from .i18n import FIRST_LIST_NAME, effective_language
+from .normalize import normalize
+from .parsing import parse_input
+from .suggest import MAX_SUGGESTIONS, rank
+from .sync import Hub
+
+MAX_ITEMS_PER_ADD = 100
+
+logger = logging.getLogger(__name__)
+
+
+class UserOut(BaseModel):
+    id: int
+    telegram_id: int
+    first_name: str
+    last_name: str | None
+    username: str | None
+    photo_url: str | None
+    language_code: str | None
+    # Effective interface language, "ru" or "es": the user's choice, else from language_code.
+    language: str
+    # True when the user overrode Telegram's language in Settings.
+    language_overridden: bool
+
+
+class MemberOut(BaseModel):
+    id: int
+    first_name: str
+    last_name: str | None
+    username: str | None
+    photo_url: str | None
+
+
+ListName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+
+
+class ListIn(BaseModel):
+    name: ListName
+
+
+class ImmutableStaticFiles(StaticFiles):
+    """Vite's /assets file names carry a content hash: cache them for a year, never revalidate."""
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
+
+
+class ListOut(BaseModel):
+    id: int
+    name: str
+    share_code: str
+    # The Share link, `https://t.me/<bot>?startapp=<code>`; null while SL_BOT_USERNAME is unset.
+    share_url: str | None
+    # Members in the order they joined (the creator first).
+    members: list[MemberOut]
+    version: int
+    updated_at: datetime
+
+
+class EntryOut(BaseModel):
+    id: int
+    product_id: int
+    name: str
+    note: str | None
+    category: str
+    added_by: int | None
+    # First name of whoever added the Entry; null if that user is gone.
+    added_by_name: str | None
+    created_at: datetime
+    checked: bool
+    checked_by: int | None
+
+
+class CategoryGroupOut(BaseModel):
+    key: str
+    emoji: str
+    # Name in the user's interface language.
+    name: str
+    count: int
+    entries: list[EntryOut]
+
+
+class ListContentsOut(BaseModel):
+    list: ListOut
+    # Only non-empty groups, in the fixed system order ("Без категории" last).
+    categories: list[CategoryGroupOut]
+
+
+class AddEntriesIn(BaseModel):
+    # Raw input line(s): `;` and line breaks separate Entries, the first comma starts the Note.
+    text: str = Field(max_length=20000)
+    # Client-generated idempotency id; replaying the same id returns the same Entries.
+    client_id: str | None = Field(default=None, min_length=1, max_length=64)
+
+
+class AddEntriesOut(BaseModel):
+    version: int
+    entries: list[EntryOut]
+
+
+class EntryUpdate(BaseModel):
+    # Only the fields that are sent change; an empty body is a no-op. A blank Note clears it.
+    note: str | None = Field(default=None, max_length=500)
+    # Key of a system Category; moves the whole Product.
+    category: str | None = Field(default=None, max_length=32)
+    # The wanted state, not a toggle: replaying a request is harmless.
+    checked: bool | None = None
+
+
+class ChangeOut(BaseModel):
+    """One version bump of a List: what kind of change it was, and the Entry it touched."""
+
+    version: int
+    kind: str
+    entry_id: int | None
+
+
+class ChangesOut(BaseModel):
+    """What happened to a List since a version.
+
+    Either `changes` (the missed bumps, oldest first; empty when up to date) or, when the client
+    is too far behind (or ahead of) the List, `snapshot`: the List's full contents.
+    """
+
+    version: int
+    changes: list[ChangeOut]
+    snapshot: ListContentsOut | None
+
+
+class SuggestionOut(BaseModel):
+    product_id: int
+    name: str
+    category: str
+    # True when the Product already has an Entry on the List (a duplicate is still allowed).
+    on_list: bool
+
+
+class ProductHiddenOut(BaseModel):
+    version: int
+
+
+class EntryChangeOut(BaseModel):
+    version: int
+    entry: EntryOut
+
+
+class EntryDeleteOut(BaseModel):
+    version: int
+
+
+class UncheckAllOut(BaseModel):
+    version: int
+    # How many Entries were Checked and are not any more.
+    unchecked: int
+
+
+class ProductOut(BaseModel):
+    id: int
+    name: str
+    category: str
+    purchase_count: int
+    last_purchased_at: datetime | None
+
+
+class PurchasedEntryOut(BaseModel):
+    """An Entry as it was when bought (name and Note snapshots)."""
+
+    name: str
+    note: str | None
+
+
+class PurchaseOut(BaseModel):
+    """The Purchase record; History reuses this shape (with `id`)."""
+
+    id: int
+    version: int
+    purchased_at: datetime
+    # The Member who pressed «Куплено».
+    purchased_by: int | None
+    entries: list[PurchasedEntryOut]
+    # How many Entries left the List.
+    count: int
+
+
+class HistoryEntryOut(BaseModel):
+    """One item of a past Purchase: a snapshot, never the live Entry."""
+
+    id: int
+    name: str
+    note: str | None
+
+
+class HistoryPurchaseOut(BaseModel):
+    id: int
+    purchased_at: datetime
+    # The Member who pressed «Куплено»; null if that user is gone.
+    purchased_by: int | None
+    purchased_by_name: str | None
+    entries: list[HistoryEntryOut]
+
+
+class HistoryPageOut(BaseModel):
+    purchases: list[HistoryPurchaseOut]
+    # Pass as `cursor` to get the next (older) page; null on the last page.
+    next_cursor: str | None
+
+
+class ReaddIn(BaseModel):
+    # Client-generated idempotency id; replaying it returns the same Entry.
+    client_id: str | None = Field(default=None, min_length=1, max_length=64)
+
+
+class UndoPurchaseOut(BaseModel):
+    version: int
+    # How many Entries came back, Checked.
+    restored: int
+
+
+class MeUpdate(BaseModel):
+    # "ru" or "es" sets the language; null goes back to following Telegram.
+    language: Literal["ru", "es"] | None
+
+
+class CategoryOut(BaseModel):
+    key: str
+    name: str
+    emoji: str
+
+
+class JoinIn(BaseModel):
+    code: str = Field(max_length=64)
+
+
+class AuthIn(BaseModel):
+    init_data: str
+
+
+class AuthOut(BaseModel):
+    token: str
+    expires_at: int
+    user: UserOut
+    # The raw `startapp` value of the launch link, if any (a Share link's code).
+    start_param: str | None
+    # The user's Lists, as GET /api/lists returns them: saves the client a round trip on start-up.
+    lists: list[ListOut] = []
+
+
+def user_out(user: models.User) -> UserOut:
+    return UserOut(
+        id=user.id,
+        telegram_id=user.telegram_id,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        username=user.username,
+        photo_url=user.photo_url,
+        language_code=user.language_code,
+        language=effective_language(user.language, user.language_code),
+        language_overridden=user.language is not None,
+    )
+
+
+def member_out(user: models.User) -> MemberOut:
+    return MemberOut(
+        id=user.id,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        username=user.username,
+        photo_url=user.photo_url,
+    )
+
+
+def share_url(bot_username: str, share_code: str) -> str | None:
+    username = bot_username.lstrip("@")
+    return f"https://t.me/{username}?startapp={share_code}" if username else None
+
+
+def list_out(lst: models.List, lang: str, bot_username: str = "") -> ListOut:
+    members = sorted(lst.members, key=lambda m: m.id)
+    return ListOut(
+        id=lst.id,
+        # An auto-created name is rendered in the viewer's language until a Member renames it.
+        name=FIRST_LIST_NAME[lang] if lst.name_is_default else lst.name,
+        share_code=lst.share_code,
+        share_url=share_url(bot_username, lst.share_code),
+        members=[member_out(m.user) for m in members],
+        version=lst.version,
+        updated_at=lst.updated_at,
+    )
+
+
+def _upsert_user(session: Session, tg: TelegramUser) -> tuple[models.User, bool]:
+    """Create or refresh the user from verified Telegram data. Returns (user, created)."""
+    user = session.scalar(select(models.User).where(models.User.telegram_id == tg.id))
+    created = user is None
+    if user is None:
+        user = models.User(telegram_id=tg.id, first_name=tg.first_name)
+        session.add(user)
+    user.first_name = tg.first_name
+    user.last_name = tg.last_name
+    user.username = tg.username
+    user.photo_url = tg.photo_url
+    user.language_code = tg.language_code
+    return user, created
+
+
+def _aware(moment: datetime) -> datetime:
+    """SQLite hands datetimes back naive; they are UTC."""
+    return moment if moment.tzinfo else moment.replace(tzinfo=UTC)
+
+
+def _add_missing_columns(engine) -> None:
+    """create_all does not alter existing tables; add columns introduced later.
+
+    Ad-hoc stopgap: replace with a migration tool (e.g. Alembic) once one is introduced.
+    """
+    inspector = inspect(engine)
+    additions = [
+        ("user", "language", "VARCHAR(8)"),
+        ("list", "name_is_default", "BOOLEAN NOT NULL DEFAULT 0"),
+        ("entry", "deleted_at", "DATETIME"),
+        ("product", "purchase_count", "INTEGER NOT NULL DEFAULT 0"),
+        ("product", "hidden", "BOOLEAN NOT NULL DEFAULT 0"),
+        ("entry", "checked_at", "DATETIME"),
+        ("entry", "checked_by", "INTEGER REFERENCES user (id) ON DELETE SET NULL"),
+        ("product", "last_purchased_at", "DATETIME"),
+    ]
+    for table, column, ddl in additions:
+        if column not in {c["name"] for c in inspector.get_columns(table)}:
+            with engine.begin() as conn:
+                conn.execute(text(f'ALTER TABLE "{table}" ADD COLUMN {column} {ddl}'))
+
+
+def create_app(settings: Settings | None = None) -> FastAPI:
+    settings = settings or Settings()
+    engine = make_engine(settings.database_url)
+    session_factory = make_session_factory(engine)
+    # Fail closed: with neither SL_SESSION_SECRET nor a bot token there is no secret, and
+    # no session is issued (sign-in needs the bot token anyway) or accepted.
+    secret = settings.session_secret or (
+        hmac.new(b"shared-lists-session", settings.bot_token.encode(), hashlib.sha256).hexdigest()
+        if settings.bot_token
+        else ""
+    )
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        if not settings.bot_username.lstrip("@"):
+            logger.warning("SL_BOT_USERNAME is not set: Share links cannot be built")
+        Base.metadata.create_all(engine)
+        _add_missing_columns(engine)
+        yield
+        engine.dispose()
+
+    app = FastAPI(title="Shared Lists", lifespan=lifespan)
+
+    hub = Hub()
+
+    # Change events are queued on the session by `_touch`/`_emit` and published only once the
+    # transaction that made the change has committed; a rollback drops them.
+    @event.listens_for(session_factory, "after_commit")
+    def _publish_committed(session: Session) -> None:
+        for recipients, payload in session.info.pop("pending_events", ()):
+            hub.publish(recipients, payload)
+
+    @event.listens_for(session_factory, "after_rollback")
+    def _drop_rolled_back(session: Session) -> None:
+        session.info.pop("pending_events", None)
+
+    def get_session() -> Iterator[Session]:
+        with session_factory() as session:
+            yield session
+
+    SessionDep = Annotated[Session, Depends(get_session)]
+
+    def current_user(
+        session: SessionDep, authorization: Annotated[str | None, Header()] = None
+    ) -> models.User:
+        scheme, _, token = (authorization or "").partition(" ")
+        if scheme.lower() != "bearer" or not token:
+            raise HTTPException(401, "not authenticated")
+        if not secret:
+            raise HTTPException(401, "invalid session")
+        try:
+            user_id = read_session_token(token, secret)
+        except AuthError:
+            raise HTTPException(401, "invalid session") from None
+        user = session.get(models.User, user_id)
+        if user is None:
+            raise HTTPException(401, "invalid session")
+        return user
+
+    UserDep = Annotated[models.User, Depends(current_user)]
+
+    api = APIRouter(prefix="/api")
+
+    @api.post("/auth", response_model=AuthOut)
+    def auth(body: AuthIn, session: SessionDep) -> AuthOut:
+        try:
+            data = verify_init_data(
+                body.init_data,
+                settings.bot_token,
+                max_age_seconds=settings.init_data_max_age_seconds,
+            )
+        except AuthError as exc:
+            raise HTTPException(401, f"invalid initData: {exc}") from None
+
+        try:
+            user, created = _upsert_user(session, data.user)
+            session.flush()
+        except IntegrityError:  # concurrent first sign-in of the same user
+            session.rollback()
+            user, created = _upsert_user(session, data.user)
+            created = False
+        # A first-time user gets their own first List, unless they arrived through a Share
+        # link of an existing List (the client then joins that one through POST /api/lists/join). An unknown
+        # or stale code does not count: they would be left with no List at all.
+        arrived_by_share_link = bool(data.start_param) and (
+            session.scalar(select(models.List.id).where(models.List.share_code == data.start_param))
+            is not None
+        )
+        if created and not arrived_by_share_link:
+            lst = models.List(
+                name=FIRST_LIST_NAME[effective_language(user.language, user.language_code)],
+                name_is_default=True,
+                created_by=user.id,
+            )
+            lst.members.append(models.ListMember(user_id=user.id))
+            session.add(lst)
+        session.commit()
+
+        token, expires_at = issue_session_token(user.id, secret, settings.session_ttl_seconds)
+        # Re-read from the database so a List created just now serialises exactly as GET /lists does.
+        session.expire_all()
+        stmt = _member_lists(user).order_by(models.List.updated_at.desc(), models.List.id.desc())
+        lang = _lang(user)
+        return AuthOut(
+            token=token,
+            expires_at=expires_at,
+            user=user_out(user),
+            start_param=data.start_param,
+            lists=[list_out(lst, lang, settings.bot_username) for lst in session.scalars(stmt)],
+        )
+
+    @api.get("/me", response_model=UserOut)
+    def me(user: UserDep) -> UserOut:
+        return user_out(user)
+
+    @api.patch("/me", response_model=UserOut)
+    def update_me(body: MeUpdate, user: UserDep, session: SessionDep) -> UserOut:
+        user.language = body.language
+        session.commit()
+        return user_out(user)
+
+    @api.get("/categories", response_model=list[CategoryOut])
+    def categories(user: UserDep) -> list[CategoryOut]:
+        """System Categories named in the user's effective language."""
+        lang = effective_language(user.language, user.language_code)
+        return [CategoryOut(key=c.key, name=c.name(lang), emoji=c.emoji) for c in CATEGORIES]
+
+    def _lang(user: models.User) -> str:
+        return effective_language(user.language, user.language_code)
+
+    def _member_lists(user: models.User):
+        return (
+            select(models.List)
+            .join(models.ListMember)
+            .where(models.ListMember.user_id == user.id)
+            .options(selectinload(models.List.members).selectinload(models.ListMember.user))
+        )
+
+    @api.get("/lists", response_model=list[ListOut])
+    def my_lists(user: UserDep, session: SessionDep) -> list[ListOut]:
+        stmt = _member_lists(user).order_by(models.List.updated_at.desc(), models.List.id.desc())
+        lang = _lang(user)
+        return [list_out(lst, lang, settings.bot_username) for lst in session.scalars(stmt)]
+
+    @api.get("/lists/{list_id}", response_model=ListOut)
+    def get_list(list_id: int, user: UserDep, session: SessionDep) -> ListOut:
+        lst = session.scalar(_member_lists(user).where(models.List.id == list_id))
+        if lst is None:  # also hides the existence of Lists the user is not a Member of
+            raise HTTPException(404, "list not found")
+        return list_out(lst, _lang(user), settings.bot_username)
+
+    def _emit(session: Session, recipients: set[int], payload: dict) -> None:
+        session.info.setdefault("pending_events", []).append((frozenset(recipients), payload))
+
+    def _touch(
+        session: Session,
+        lst: models.List,
+        kind: str,
+        entry_id: int | None = None,
+        also_notify: frozenset[int] = frozenset(),
+    ) -> None:
+        """Record a mutation: bump the List's version and change time, log it, announce it.
+
+        One atomic UPDATE (version = version + 1), so concurrent mutations cannot lose an
+        increment the way a read-modify-write on the loaded object could. The change goes to
+        the List's change log (for `changes?since=`) and, after commit, to every Member's
+        stream (plus `also_notify`, e.g. a Member who just left).
+        """
+        session.execute(
+            update(models.List)
+            .where(models.List.id == lst.id)
+            .values(version=models.List.version + 1, updated_at=models.utcnow())
+        )
+        session.flush()
+        session.refresh(lst)
+        session.add(
+            models.ListChange(list_id=lst.id, version=lst.version, kind=kind, entry_id=entry_id)
+        )
+        session.execute(
+            delete(models.ListChange).where(
+                models.ListChange.list_id == lst.id,
+                models.ListChange.version <= lst.version - settings.changes_retention,
+            )
+        )
+        recipients = set(
+            session.scalars(
+                select(models.ListMember.user_id).where(models.ListMember.list_id == lst.id)
+            )
+        )
+        _emit(
+            session,
+            recipients | also_notify,
+            {"list_id": lst.id, "version": lst.version, "kind": kind, "entry_id": entry_id},
+        )
+
+    def _member_list(session: Session, user: models.User, list_id: int) -> models.List:
+        lst = session.scalar(_member_lists(user).where(models.List.id == list_id))
+        if lst is None:
+            raise HTTPException(404, "list not found")
+        return lst
+
+    @api.post("/lists/join", response_model=ListOut)
+    def join_list(body: JoinIn, user: UserDep, session: SessionDep) -> ListOut:
+        """Open a Share link: make the user a Member of the List (idempotent for Members)."""
+        lst = session.scalar(select(models.List).where(models.List.share_code == body.code))
+        if lst is None:
+            raise HTTPException(404, "share link is not valid")
+        if all(m.user_id != user.id for m in lst.members):
+            lst.members.append(models.ListMember(user_id=user.id))
+            try:
+                session.flush()
+            except IntegrityError:  # concurrent join by the same user: already a Member
+                session.rollback()
+            else:
+                _touch(session, lst, "member.joined")
+                session.commit()
+        return list_out(_member_list(session, user, lst.id), _lang(user), settings.bot_username)
+
+    @api.post("/lists", response_model=ListOut, status_code=201)
+    def create_list(body: ListIn, user: UserDep, session: SessionDep) -> ListOut:
+        lst = models.List(name=body.name, created_by=user.id)
+        lst.members.append(models.ListMember(user_id=user.id))
+        session.add(lst)
+        session.flush()
+        # A new List has no version bump; the event lets the creator's other devices show it.
+        _emit(
+            session,
+            {user.id},
+            {"list_id": lst.id, "version": lst.version, "kind": "list.created", "entry_id": None},
+        )
+        session.commit()
+        return list_out(_member_list(session, user, lst.id), _lang(user), settings.bot_username)
+
+    @api.patch("/lists/{list_id}", response_model=ListOut)
+    def rename_list(list_id: int, body: ListIn, user: UserDep, session: SessionDep) -> ListOut:
+        lst = _member_list(session, user, list_id)
+        lst.name = body.name
+        lst.name_is_default = False  # an explicit name replaces the localized default
+        _touch(session, lst, "list.renamed")
+        session.commit()
+        return list_out(_member_list(session, user, lst.id), _lang(user), settings.bot_username)
+
+    def _forget_list(session: Session, lst: models.List, recipients: set[int]) -> None:
+        """Announce the List's deletion to `recipients` and drop its change log."""
+        session.execute(delete(models.ListChange).where(models.ListChange.list_id == lst.id))
+        _emit(
+            session,
+            recipients,
+            {
+                "list_id": lst.id,
+                "version": lst.version + 1,
+                "kind": "list.deleted",
+                "entry_id": None,
+            },
+        )
+
+    @api.post("/lists/{list_id}/leave", status_code=204)
+    def leave_list(list_id: int, user: UserDep, session: SessionDep) -> Response:
+        lst = _member_list(session, user, list_id)
+        membership = next(m for m in lst.members if m.user_id == user.id)
+        # Delete the membership first (this takes the write lock), then count what is left in
+        # the same transaction, so two last Members leaving at once cannot both see "not last".
+        session.delete(membership)
+        session.flush()
+        session.expire(lst, ["members"])
+        remaining = session.scalar(
+            select(func.count())
+            .select_from(models.ListMember)
+            .where(models.ListMember.list_id == list_id)
+        )
+        if remaining == 0:  # the last Member left: the List goes with them
+            _forget_list(session, lst, {user.id})
+            session.delete(lst)
+        else:
+            # A leave counts as a change for the switcher order (version + updated_at bump).
+            # The leaver hears it too, so their other devices drop the List.
+            _touch(session, lst, "member.left", also_notify=frozenset({user.id}))
+        session.commit()
+        return Response(status_code=204)
+
+    @api.delete("/lists/{list_id}", status_code=204)
+    def delete_list(list_id: int, user: UserDep, session: SessionDep) -> Response:
+        # Any Member may delete the List for everyone; the UI asks for confirmation first.
+        # Members (and, in later tickets, Entries, Products and History) go by FK cascade.
+        lst = _member_list(session, user, list_id)
+        _forget_list(session, lst, {m.user_id for m in lst.members})
+        session.delete(lst)
+        session.commit()
+        return Response(status_code=204)
+
+    def _entry_out(entry: models.Entry) -> EntryOut:
+        return EntryOut(
+            id=entry.id,
+            product_id=entry.product_id,
+            name=entry.name,
+            note=entry.note,
+            category=entry.product.category_key,
+            added_by=entry.added_by,
+            added_by_name=entry.author.first_name if entry.author else None,
+            created_at=entry.created_at,
+            checked=entry.checked_at is not None,
+            checked_by=entry.checked_by if entry.checked_at is not None else None,
+        )
+
+    def _contents(session: Session, user: models.User, lst: models.List) -> ListContentsOut:
+        entries = session.scalars(
+            select(models.Entry)
+            .where(models.Entry.list_id == lst.id, models.Entry.deleted_at.is_(None))
+            .options(selectinload(models.Entry.product), selectinload(models.Entry.author))
+            .order_by(models.Entry.created_at, models.Entry.id)
+        ).all()
+        language = effective_language(user.language, user.language_code)
+        groups = []
+        for category in CATEGORIES:
+            members = [_entry_out(e) for e in entries if e.product.category_key == category.key]
+            if members:
+                groups.append(
+                    CategoryGroupOut(
+                        key=category.key,
+                        emoji=category.emoji,
+                        name=category.name(language),
+                        count=len(members),
+                        entries=members,
+                    )
+                )
+        return ListContentsOut(
+            list=list_out(lst, language, settings.bot_username), categories=groups
+        )
+
+    @api.get("/lists/{list_id}/entries", response_model=ListContentsOut)
+    def list_entries(list_id: int, user: UserDep, session: SessionDep) -> ListContentsOut:
+        return _contents(session, user, _member_list(session, user, list_id))
+
+    @api.get("/lists/{list_id}/changes", response_model=ChangesOut)
+    def list_changes(
+        list_id: int,
+        user: UserDep,
+        session: SessionDep,
+        since: Annotated[int, Query(ge=0)],
+    ) -> ChangesOut:
+        """Catch-up: the bumps after version `since`, or a snapshot if that gap is too big."""
+        lst = _member_list(session, user, list_id)
+        if since == lst.version:
+            return ChangesOut(version=lst.version, changes=[], snapshot=None)
+        gap = lst.version - since
+        rows = []
+        if 0 < gap <= settings.changes_max_gap:
+            rows = session.scalars(
+                select(models.ListChange)
+                .where(models.ListChange.list_id == lst.id, models.ListChange.version > since)
+                .order_by(models.ListChange.version)
+            ).all()
+        # A client ahead of the List (e.g. a restored database), a big gap, or a log that no
+        # longer covers the gap (pruned, or versions from before the log existed): resync.
+        if gap < 0 or gap > settings.changes_max_gap or len(rows) != gap:
+            return ChangesOut(
+                version=lst.version, changes=[], snapshot=_contents(session, user, lst)
+            )
+        return ChangesOut(
+            version=lst.version,
+            changes=[ChangeOut(version=r.version, kind=r.kind, entry_id=r.entry_id) for r in rows],
+            snapshot=None,
+        )
+
+    @api.post("/lists/{list_id}/entries", response_model=AddEntriesOut, status_code=201)
+    def add_entries(
+        list_id: int,
+        body: AddEntriesIn,
+        response: Response,
+        user: UserDep,
+        session: SessionDep,
+    ) -> AddEntriesOut:
+        lst = _member_list(session, user, list_id)
+        items = parse_input(body.text)
+        if not items:
+            raise HTTPException(422, "no items in the input")
+        if len(items) > MAX_ITEMS_PER_ADD:
+            raise HTTPException(422, f"at most {MAX_ITEMS_PER_ADD} items per request")
+
+        def keys() -> list[str | None]:
+            if body.client_id is None:
+                return [None] * len(items)
+            return [f"{body.client_id}:{i}" for i in range(len(items))]
+
+        def replay() -> AddEntriesOut | None:
+            if body.client_id is None:
+                return None
+            found = session.scalars(
+                select(models.Entry)
+                .where(models.Entry.list_id == lst.id, models.Entry.client_id.in_(keys()))
+                .order_by(models.Entry.id)
+            ).all()
+            if not found:
+                return None
+            response.status_code = 200
+            # Known limitation for the sync ticket: a replay reports the List's *current*
+            # version, not the version the original add produced.
+            return AddEntriesOut(version=lst.version, entries=[_entry_out(e) for e in found])
+
+        if (replayed := replay()) is not None:
+            return replayed
+
+        created: list[models.Entry] = []
+        for attempt in range(2):
+            products = {
+                p.name_norm: p
+                for p in session.scalars(
+                    select(models.Product).where(models.Product.list_id == lst.id)
+                )
+            }
+            created = []
+            try:
+                for item, client_key in zip(items, keys(), strict=True):
+                    norm = normalize(item.name)
+                    product = products.get(norm)
+                    if product is not None:
+                        product.hidden = False  # entering the name again restores the memory
+                    if product is None:
+                        product = models.Product(
+                            list_id=lst.id,
+                            name=item.name,
+                            name_norm=norm,
+                            category_key=guess_category(item.name),
+                        )
+                        session.add(product)
+                        products[norm] = product
+                    entry = models.Entry(
+                        list_id=lst.id,
+                        product=product,
+                        name=item.name,
+                        note=item.note,
+                        added_by=user.id,
+                        client_id=client_key,
+                    )
+                    session.add(entry)
+                    created.append(entry)
+                session.flush()
+                _touch(session, lst, "entries.added")
+                session.commit()
+                break
+            except IntegrityError:
+                # A concurrent request won a race: the same client_id (a replay) or the same
+                # new Product name. Replays return the winner's Entries; otherwise retry once.
+                session.rollback()
+                lst = _member_list(session, user, list_id)
+                if (replayed := replay()) is not None:
+                    return replayed
+                if attempt == 1:
+                    raise
+        session.refresh(lst)
+        return AddEntriesOut(version=lst.version, entries=[_entry_out(e) for e in created])
+
+    def _entry_or_404(
+        session: Session, lst: models.List, entry_id: int, *, include_deleted: bool = False
+    ) -> models.Entry:
+        entry = session.scalar(
+            select(models.Entry).where(models.Entry.id == entry_id, models.Entry.list_id == lst.id)
+        )
+        if entry is None or (entry.deleted_at is not None and not include_deleted):
+            raise HTTPException(404, "entry not found")
+        return entry
+
+    def _fresh_check_by_other(entry: models.Entry, user: models.User) -> bool:
+        """True while another Member's check of the Entry is too recent to be undone."""
+        if entry.checked_at is None or entry.checked_by == user.id:
+            return False
+        age = (models.utcnow() - _aware(entry.checked_at)).total_seconds()
+        return age < settings.check_wins_window_seconds
+
+    @api.patch("/lists/{list_id}/entries/{entry_id}", response_model=EntryChangeOut)
+    def update_entry(
+        list_id: int, entry_id: int, body: EntryUpdate, user: UserDep, session: SessionDep
+    ) -> EntryChangeOut:
+        """Edit the Note, move the whole Product to another Category, or check/uncheck it."""
+        lst = _member_list(session, user, list_id)
+        entry = _entry_or_404(session, lst, entry_id)
+        sent = body.model_fields_set
+        if "category" in sent and body.category not in CATEGORY_BY_KEY:
+            raise HTTPException(422, "unknown category")
+        if "note" in sent:
+            entry.note = (body.note or "").strip() or None
+        if "category" in sent:
+            # The Category lives on the Product: every Entry of it in this List moves, and
+            # Entries added later find the Product by name and follow.
+            assert body.category is not None
+            entry.product.category_key = body.category
+        changed = bool(sent & {"note", "category"})
+        if "checked" in sent:
+            if body.checked is None:
+                raise HTTPException(422, "checked must be true or false")
+            if (entry.checked_at is not None) != body.checked:
+                # Conflict rule: a check beats a near-simultaneous uncheck by someone else.
+                if not body.checked and _fresh_check_by_other(entry, user):
+                    pass  # the uncheck is dropped; the Entry stays Checked
+                else:
+                    entry.checked_at = models.utcnow() if body.checked else None
+                    entry.checked_by = user.id if body.checked else None
+                    changed = True
+        if changed:
+            _touch(session, lst, "entry.updated", entry.id)
+            session.commit()
+        return EntryChangeOut(version=lst.version, entry=_entry_out(entry))
+
+    @api.delete("/lists/{list_id}/entries/{entry_id}", response_model=EntryDeleteOut)
+    def delete_entry(
+        list_id: int, entry_id: int, user: UserDep, session: SessionDep
+    ) -> EntryDeleteOut:
+        """Remove an Entry from the List. Idempotent; the Product stays in memory."""
+        lst = _member_list(session, user, list_id)
+        entry = _entry_or_404(session, lst, entry_id, include_deleted=True)
+        if entry.deleted_at is None:
+            entry.deleted_at = models.utcnow()
+            _touch(session, lst, "entry.deleted", entry.id)
+            session.commit()
+        return EntryDeleteOut(version=lst.version)
+
+    @api.post("/lists/{list_id}/entries/{entry_id}/restore", response_model=EntryChangeOut)
+    def restore_entry(
+        list_id: int, entry_id: int, user: UserDep, session: SessionDep
+    ) -> EntryChangeOut:
+        """Undo a delete: the Entry comes back where it was. A no-op for a live Entry."""
+        lst = _member_list(session, user, list_id)
+        entry = _entry_or_404(session, lst, entry_id, include_deleted=True)
+        if entry.deleted_at is not None:
+            entry.deleted_at = None
+            _touch(session, lst, "entry.restored", entry.id)
+            session.commit()
+        return EntryChangeOut(version=lst.version, entry=_entry_out(entry))
+
+    @api.get("/lists/{list_id}/suggestions", response_model=list[SuggestionOut])
+    def suggestions(
+        list_id: int,
+        user: UserDep,
+        session: SessionDep,
+        q: Annotated[str, Query(max_length=200)] = "",
+    ) -> list[SuggestionOut]:
+        """Products of this List matching the typed text (never other Lists' Products)."""
+        lst = _member_list(session, user, list_id)
+        query = normalize(q)
+        if not query:
+            return []
+        products = session.scalars(
+            select(models.Product).where(
+                models.Product.list_id == lst.id, models.Product.hidden.is_(False)
+            )
+        ).all()
+        top = rank(query, products)[:MAX_SUGGESTIONS]
+        on_list = set(
+            session.scalars(
+                select(models.Entry.product_id)
+                .where(models.Entry.list_id == lst.id, models.Entry.deleted_at.is_(None))
+                .where(models.Entry.product_id.in_([p.id for p in top]))
+            )
+        )
+        return [
+            SuggestionOut(
+                product_id=p.id, name=p.name, category=p.category_key, on_list=p.id in on_list
+            )
+            for p in top
+        ]
+
+    @api.delete("/lists/{list_id}/products/{product_id}", response_model=ProductHiddenOut)
+    def hide_product(
+        list_id: int, product_id: int, user: UserDep, session: SessionDep
+    ) -> ProductHiddenOut:
+        """Remove a Product from the List's memory. It is only hidden from suggestions."""
+        lst = _member_list(session, user, list_id)
+        product = session.scalar(
+            select(models.Product).where(
+                models.Product.id == product_id, models.Product.list_id == lst.id
+            )
+        )
+        if product is None:
+            raise HTTPException(404, "product not found")
+        if not product.hidden:
+            product.hidden = True
+            _touch(session, lst, "product.hidden")
+            session.commit()
+        return ProductHiddenOut(version=lst.version)
+
+    @api.post("/lists/{list_id}/entries/uncheck-all", response_model=UncheckAllOut)
+    def uncheck_all(list_id: int, user: UserDep, session: SessionDep) -> UncheckAllOut:
+        """Uncheck every Checked Entry of the List (the «Снять все отметки» menu action)."""
+        lst = _member_list(session, user, list_id)
+        # A check made by someone else in the last moments survives (check beats uncheck).
+        cutoff = models.utcnow() - timedelta(seconds=settings.check_wins_window_seconds)
+        result = session.execute(
+            update(models.Entry)
+            .where(
+                models.Entry.list_id == lst.id,
+                models.Entry.deleted_at.is_(None),
+                models.Entry.checked_at.is_not(None),
+                or_(models.Entry.checked_at <= cutoff, models.Entry.checked_by == user.id),
+            )
+            .values(checked_at=None, checked_by=None)
+        )
+        count = result.rowcount
+        if count:
+            _touch(session, lst, "entries.unchecked")
+        session.commit()
+        session.refresh(lst)
+        return UncheckAllOut(version=lst.version, unchecked=count)
+
+    @api.get("/lists/{list_id}/products", response_model=list[ProductOut])
+    def list_products(list_id: int, user: UserDep, session: SessionDep) -> list[ProductOut]:
+        """The List's memory of Products with their purchase stats (hidden Products are forgotten)."""
+        lst = _member_list(session, user, list_id)
+        products = session.scalars(
+            select(models.Product)
+            .where(models.Product.list_id == lst.id, models.Product.hidden.is_(False))
+            .order_by(models.Product.id)
+        )
+        return [
+            ProductOut(
+                id=p.id,
+                name=p.name,
+                category=p.category_key,
+                purchase_count=p.purchase_count,
+                last_purchased_at=p.last_purchased_at,
+            )
+            for p in products
+        ]
+
+    @api.post("/lists/{list_id}/purchases", response_model=PurchaseOut, status_code=201)
+    def buy(list_id: int, user: UserDep, session: SessionDep) -> PurchaseOut:
+        """«Куплено»: all Checked Entries leave the List as one Purchase, in one transaction."""
+        lst = _member_list(session, user, list_id)
+        checked = session.scalars(
+            select(models.Entry)
+            .where(models.Entry.list_id == lst.id, models.Entry.checked_at.is_not(None))
+            .order_by(models.Entry.created_at, models.Entry.id)
+        ).all()
+        if not checked:
+            raise HTTPException(409, "nothing is checked")
+        now = models.utcnow()
+        purchase = models.Purchase(list_id=lst.id, purchased_at=now, purchased_by=user.id)
+        session.add(purchase)
+        session.flush()
+        for entry in checked:
+            session.add(
+                models.PurchaseEntry(
+                    purchase_id=purchase.id,
+                    product_id=entry.product_id,
+                    name=entry.name,
+                    note=entry.note,
+                    added_by=entry.added_by,
+                    entry_created_at=entry.created_at,
+                    checked_at=entry.checked_at,
+                    checked_by=entry.checked_by,
+                )
+            )
+        # Stats move here, once per bought Entry (two Entries of one Product count twice).
+        for product_id in {e.product_id for e in checked}:
+            bought = sum(1 for e in checked if e.product_id == product_id)
+            session.execute(
+                update(models.Product)
+                .where(models.Product.id == product_id)
+                .values(
+                    purchase_count=models.Product.purchase_count + bought, last_purchased_at=now
+                )
+            )
+        # Delete by id and require every row to go: a concurrent «Куплено» or uncheck that got
+        # in between means this one must not record a Purchase for Entries it did not remove.
+        deleted = session.execute(
+            delete(models.Entry).where(
+                models.Entry.id.in_([e.id for e in checked]),
+                models.Entry.checked_at.is_not(None),
+            )
+        ).rowcount
+        if deleted != len(checked):
+            session.rollback()
+            raise HTTPException(409, "the List changed, try again")
+        _touch(session, lst, "purchase.created")
+        session.commit()
+        return PurchaseOut(
+            id=purchase.id,
+            version=lst.version,
+            purchased_at=now,
+            purchased_by=user.id,
+            entries=[PurchasedEntryOut(name=e.name, note=e.note) for e in checked],
+            count=len(checked),
+        )
+
+    @api.delete("/lists/{list_id}/purchases/{purchase_id}", response_model=UndoPurchaseOut)
+    def undo_purchase(
+        list_id: int, purchase_id: int, user: UserDep, session: SessionDep
+    ) -> UndoPurchaseOut:
+        """Undo «Куплено»: Entries return Checked, the Purchase is deleted, stats roll back."""
+        lst = _member_list(session, user, list_id)
+        purchase = session.scalar(
+            select(models.Purchase).where(
+                models.Purchase.id == purchase_id, models.Purchase.list_id == lst.id
+            )
+        )
+        if purchase is None:
+            raise HTTPException(404, "purchase not found")
+        bought_at = purchase.purchased_at
+        if bought_at.tzinfo is None:  # SQLite hands back naive UTC
+            bought_at = bought_at.replace(tzinfo=UTC)
+        if (models.utcnow() - bought_at).total_seconds() > settings.purchase_undo_grace_seconds:
+            raise HTTPException(409, "too late to undo this purchase")
+        snapshots = sorted(purchase.entries, key=lambda s: (s.entry_created_at, s.id))
+        product_ids = {s.product_id for s in snapshots}
+        # Guarded delete, like buy: of two concurrent Undos only the one that removes the row
+        # restores the Entries; the other sees rowcount 0 and answers 404.
+        deleted = session.execute(
+            delete(models.Purchase).where(models.Purchase.id == purchase.id)
+        ).rowcount
+        if deleted != 1:
+            session.rollback()
+            raise HTTPException(404, "purchase not found")
+        for snap in snapshots:
+            session.add(
+                models.Entry(
+                    list_id=lst.id,
+                    product_id=snap.product_id,
+                    name=snap.name,
+                    note=snap.note,
+                    added_by=snap.added_by,
+                    created_at=snap.entry_created_at,
+                    checked_at=snap.checked_at,
+                    checked_by=snap.checked_by,
+                )
+            )
+        session.flush()
+        # Roll the stats back by recomputing them from the Purchases that remain.
+        for product_id in product_ids:
+            count, last = session.execute(
+                select(func.count(models.PurchaseEntry.id), func.max(models.Purchase.purchased_at))
+                .join(models.Purchase)
+                .where(models.PurchaseEntry.product_id == product_id)
+            ).one()
+            session.execute(
+                update(models.Product)
+                .where(models.Product.id == product_id)
+                .values(purchase_count=count, last_purchased_at=last)
+            )
+        _touch(session, lst, "purchase.undone")
+        session.commit()
+        return UndoPurchaseOut(version=lst.version, restored=len(snapshots))
+
+    @api.get("/events")
+    async def events(request: Request, user: UserDep) -> StreamingResponse:
+        """Server-sent events: one stream per signed-in user, for all their Lists.
+
+        Each `change` event is `{list_id, version, kind, entry_id}`; the client then fetches
+        what it is missing (`changes?since=`). Only Lists the user is a Member of appear, plus
+        the deletion of a List and the user's own departure from one. The first event, `ready`,
+        says the stream is subscribed: a client that reconnects should catch up after it.
+        """
+        sub = hub.subscribe(user.id)
+
+        async def stream():
+            try:
+                yield "retry: 2000\nevent: ready\ndata: {}\n\n"
+                while True:
+                    try:
+                        payload = await asyncio.wait_for(
+                            sub.queue.get(), timeout=settings.sse_heartbeat_seconds
+                        )
+                    except TimeoutError:
+                        if await request.is_disconnected():
+                            return
+                        yield ": ping\n\n"
+                        continue
+                    yield f"event: change\ndata: {json.dumps(payload)}\n\n"
+            finally:
+                hub.unsubscribe(sub)
+
+        return StreamingResponse(
+            stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    # Commands sent with an `Idempotency-Key` header are executed once per (user, key): a replay
+    # returns the stored answer instead of running the command again. A key reused for another
+    # method, path or body is refused with 409. Known limit: the command and its stored answer
+    # are committed in separate transactions, so a crash between the two lets a replay run the
+    # command a second time (the per-key lock covers concurrent twins, not a crash).
+    key_locks: dict[tuple[int, str], list] = {}
+
+    def _stored_answer(user_id: int, key: str) -> models.IdempotencyRecord | None:
+        with session_factory() as session:
+            record = session.scalar(
+                select(models.IdempotencyRecord).where(
+                    models.IdempotencyRecord.user_id == user_id,
+                    models.IdempotencyRecord.key == key,
+                )
+            )
+            if record is not None:
+                session.expunge(record)
+            return record
+
+    def _store_answer(
+        user_id: int,
+        key: str,
+        request: Request,
+        response: Response,
+        body: bytes,
+        request_hash: str,
+    ):
+        cutoff = models.utcnow() - timedelta(seconds=settings.idempotency_ttl_seconds)
+        with session_factory() as session:
+            session.execute(
+                delete(models.IdempotencyRecord).where(models.IdempotencyRecord.created_at < cutoff)
+            )
+            session.add(
+                models.IdempotencyRecord(
+                    user_id=user_id,
+                    key=key,
+                    method=request.method,
+                    path=request.url.path,
+                    body_hash=request_hash,
+                    status_code=response.status_code,
+                    body=body.decode(),
+                    content_type=response.headers.get("content-type"),
+                )
+            )
+            try:
+                session.commit()
+            except IntegrityError:  # stored by a concurrent twin; either answer is the same
+                session.rollback()
+
+    @app.middleware("http")
+    async def idempotency(request: Request, call_next):
+        key = request.headers.get("idempotency-key")
+        path = request.url.path
+        if (
+            not key
+            or request.method not in {"POST", "PATCH", "PUT", "DELETE"}
+            or not path.startswith("/api/")
+            or path == "/api/auth"
+            or not secret
+        ):
+            return await call_next(request)
+        if len(key) > 80:
+            return JSONResponse({"detail": "Idempotency-Key is too long"}, status_code=422)
+        scheme, _, token = request.headers.get("authorization", "").partition(" ")
+        try:
+            user_id = read_session_token(token, secret) if scheme.lower() == "bearer" else None
+        except AuthError:
+            user_id = None
+        if user_id is None:
+            return await call_next(request)  # the endpoint answers 401
+
+        request_hash = hashlib.sha256(await request.body()).hexdigest()
+        lock_key = (user_id, key)
+        holder = key_locks.setdefault(lock_key, [asyncio.Lock(), 0])
+        holder[1] += 1
+        try:
+            async with holder[0]:
+                record = await run_in_threadpool(_stored_answer, user_id, key)
+                if record is not None:
+                    if (record.method, record.path, record.body_hash) != (
+                        request.method,
+                        path,
+                        request_hash,
+                    ):
+                        return JSONResponse(
+                            {"detail": "Idempotency-Key was used for another request"},
+                            status_code=409,
+                        )
+                    return Response(
+                        content=record.body,
+                        status_code=record.status_code,
+                        media_type=None,
+                        headers={
+                            **(
+                                {"content-type": record.content_type} if record.content_type else {}
+                            ),
+                            "Idempotent-Replayed": "true",
+                        },
+                    )
+                response = await call_next(request)
+                if not 200 <= response.status_code < 300:
+                    return response  # failures are not remembered: a retry may succeed
+                body = b"".join([chunk async for chunk in response.body_iterator])
+                await run_in_threadpool(
+                    _store_answer, user_id, key, request, response, body, request_hash
+                )
+                return Response(
+                    content=body,
+                    status_code=response.status_code,
+                    headers=dict(response.headers),
+                )
+        finally:
+            holder[1] -= 1
+            if holder[1] == 0:
+                key_locks.pop(lock_key, None)
+
+    def _utc(at: datetime) -> datetime:
+        return at.replace(tzinfo=UTC) if at.tzinfo is None else at  # SQLite hands back naive UTC
+
+    def _encode_cursor(purchase: models.Purchase) -> str:
+        raw = f"{_utc(purchase.purchased_at).replace(tzinfo=None).isoformat()}|{purchase.id}"
+        return base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
+
+    def _decode_cursor(cursor: str) -> tuple[datetime, int]:
+        try:
+            raw = base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)).decode()
+            at, _, pid = raw.partition("|")
+            return datetime.fromisoformat(at), int(pid)
+        except ValueError, binascii.Error:
+            raise HTTPException(422, "invalid cursor") from None
+
+    @api.get("/lists/{list_id}/purchases", response_model=HistoryPageOut)
+    def history(
+        list_id: int,
+        user: UserDep,
+        session: SessionDep,
+        cursor: Annotated[str | None, Query(max_length=200)] = None,
+        limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    ) -> HistoryPageOut:
+        """The List's History, newest Purchase first, in pages (keyset cursor)."""
+        lst = _member_list(session, user, list_id)
+        stmt = select(models.Purchase).where(models.Purchase.list_id == lst.id)
+        if cursor:
+            at, pid = _decode_cursor(cursor)
+            stmt = stmt.where(
+                or_(
+                    models.Purchase.purchased_at < at,
+                    and_(models.Purchase.purchased_at == at, models.Purchase.id < pid),
+                )
+            )
+        rows = session.scalars(
+            stmt.options(selectinload(models.Purchase.entries))
+            .order_by(models.Purchase.purchased_at.desc(), models.Purchase.id.desc())
+            .limit(limit + 1)
+        ).all()
+        page = rows[:limit]
+        buyer_ids = {p.purchased_by for p in page if p.purchased_by is not None}
+        names = {
+            uid: name
+            for uid, name in session.execute(
+                select(models.User.id, models.User.first_name).where(models.User.id.in_(buyer_ids))
+            )
+        }
+        purchases = [
+            HistoryPurchaseOut(
+                id=p.id,
+                purchased_at=_utc(p.purchased_at),
+                purchased_by=p.purchased_by,
+                purchased_by_name=names.get(p.purchased_by),
+                entries=[
+                    HistoryEntryOut(id=e.id, name=e.name, note=e.note)
+                    for e in sorted(p.entries, key=lambda e: (e.entry_created_at, e.id))
+                ],
+            )
+            for p in page
+        ]
+        next_cursor = _encode_cursor(page[-1]) if len(rows) > limit else None
+        return HistoryPageOut(purchases=purchases, next_cursor=next_cursor)
+
+    @api.post(
+        "/lists/{list_id}/purchases/{purchase_id}/entries/{item_id}/readd",
+        response_model=AddEntriesOut,
+        status_code=201,
+    )
+    def readd_from_history(
+        list_id: int,
+        purchase_id: int,
+        item_id: int,
+        body: ReaddIn,
+        response: Response,
+        user: UserDep,
+        session: SessionDep,
+    ) -> AddEntriesOut:
+        """Put a past item back on the List with the same Note (a new unchecked Entry)."""
+        lst = _member_list(session, user, list_id)
+        snap = session.scalar(
+            select(models.PurchaseEntry)
+            .join(models.Purchase)
+            .where(
+                models.PurchaseEntry.id == item_id,
+                models.PurchaseEntry.purchase_id == purchase_id,
+                models.Purchase.list_id == lst.id,
+            )
+        )
+        if snap is None:
+            raise HTTPException(404, "purchase item not found")
+        key = f"{body.client_id}:0" if body.client_id else None
+
+        def replay() -> AddEntriesOut | None:
+            if key is None:
+                return None
+            existing = session.scalar(
+                select(models.Entry).where(
+                    models.Entry.list_id == lst.id, models.Entry.client_id == key
+                )
+            )
+            if existing is None:
+                return None
+            response.status_code = 200
+            return AddEntriesOut(version=lst.version, entries=[_entry_out(existing)])
+
+        if (replayed := replay()) is not None:
+            return replayed
+        product = session.get(models.Product, snap.product_id)
+        assert product is not None
+        product.hidden = False  # putting it back restores the memory, like typing it again
+        entry = models.Entry(
+            list_id=lst.id,
+            product=product,
+            name=snap.name,
+            note=snap.note,
+            added_by=user.id,
+            client_id=key,
+        )
+        session.add(entry)
+        try:
+            _touch(session, lst, "entries.added")
+            session.commit()
+        except IntegrityError:  # concurrent replay of the same client_id
+            session.rollback()
+            lst = _member_list(session, user, list_id)
+            if (replayed := replay()) is not None:
+                return replayed
+            raise
+        session.refresh(lst)
+        return AddEntriesOut(version=lst.version, entries=[_entry_out(entry)])
+
+    @app.get("/healthz")
+    def healthz() -> dict[str, str]:
+        return {"status": "ok"}
+
+    app.include_router(api)
+    # Text responses travel compressed (the bundle is ~3x smaller); the SSE stream is excluded by
+    # Starlette's defaults, so events still flush immediately.
+    app.add_middleware(GZipMiddleware, minimum_size=1024)
+
+    dist = settings.frontend_dist
+    if dist.is_dir():
+        if (dist / "assets").is_dir():
+            app.mount("/assets", ImmutableStaticFiles(directory=dist / "assets"), name="assets")
+
+        @app.get("/{path:path}", include_in_schema=False)
+        def frontend(path: str, request: Request) -> FileResponse:
+            if path.startswith("api/"):
+                raise HTTPException(404, "not found")
+            candidate = (dist / path).resolve()
+            if path and candidate.is_file() and dist.resolve() in candidate.parents:
+                return FileResponse(candidate)
+            # The HTML names the hashed bundle, so it must be revalidated to pick up a new build.
+            return FileResponse(dist / "index.html", headers={"Cache-Control": "no-cache"})
+
+    return app

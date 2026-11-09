@@ -1,0 +1,55 @@
+# Local dev stack: API + Mini App, the bot, and an ngrok tunnel that gives the Mini App a public https URL.
+#   docker compose -f docker-compose.dev.yml up --build
+# Needs in .env: SL_BOT_TOKEN, SL_BOT_USERNAME, NGROK_AUTHTOKEN (and optionally NGROK_URL for a static domain).
+# The ngrok inspector is at http://localhost:4040.
+
+services:
+  app:
+    build: .
+    image: shared-lists:dev
+    env_file: .env
+    environment:
+      SL_DATABASE_URL: sqlite:////data/shared_lists.db
+    volumes:
+      - data:/data
+    ports:
+      - "8000:8000"
+
+  ngrok:
+    image: ngrok/ngrok:3-alpine
+    # NGROK_URL is optional: a static domain such as https://name.ngrok-free.app. Without it ngrok picks a
+    # random https URL, which the bot reads from the inspector API on start.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      # The inspector API must listen on all interfaces so the bot container can read the tunnel URL.
+      - >-
+        printf 'version: "2"\nweb_addr: 0.0.0.0:4040\n' > /tmp/ngrok.yml &&
+        exec ngrok http app:8000 --log stdout --config /tmp/ngrok.yml $${NGROK_URL:+--url "$$NGROK_URL"}
+    env_file: .env
+    ports:
+      - "4040:4040"
+    depends_on:
+      app:
+        condition: service_healthy
+
+  bot:
+    image: shared-lists:dev
+    env_file: .env
+    environment:
+      SL_DATABASE_URL: sqlite:////data/shared_lists.db
+      NGROK_API: http://ngrok:4040/api/tunnels
+    volumes:
+      - data:/data
+      - ./docker/dev-bot-entrypoint.py:/app/dev-bot-entrypoint.py:ro
+    command: ["python", "/app/dev-bot-entrypoint.py"]
+    healthcheck:
+      disable: true
+    depends_on:
+      app:
+        condition: service_healthy
+      ngrok:
+        condition: service_started
+    restart: on-failure
+
+volumes:
+  data:

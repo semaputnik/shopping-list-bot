@@ -1,0 +1,102 @@
+"""Test harness: the HTTP API is the only seam.
+
+Each test gets its own app on a fresh SQLite database file, and authenticates with
+``initData`` signed by a test bot token, so sign-in runs exactly as in production.
+"""
+
+import hashlib
+import hmac
+import json
+import time
+from collections.abc import Callable, Iterator
+from pathlib import Path
+from urllib.parse import urlencode
+
+import pytest
+from fastapi.testclient import TestClient
+
+from shopping_list_bot.app import create_app
+from shopping_list_bot.config import Settings
+
+TEST_BOT_TOKEN = "123456:TEST-bot-token-not-real"
+
+
+def sign_init_data(
+    user: dict | None,
+    *,
+    bot_token: str = TEST_BOT_TOKEN,
+    auth_date: int | None = None,
+    start_param: str | None = None,
+    extra: dict[str, str] | None = None,
+) -> str:
+    """Build a Telegram ``initData`` query string signed like Telegram does."""
+    fields = {"auth_date": str(auth_date if auth_date is not None else int(time.time()))}
+    if user is not None:
+        fields["user"] = json.dumps(user, ensure_ascii=False, separators=(",", ":"))
+    if start_param is not None:
+        fields["start_param"] = start_param
+    fields.update(extra or {})
+    data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(fields.items()))
+    secret_key = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
+    fields["hash"] = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+    return urlencode(fields)
+
+
+@pytest.fixture
+def settings_overrides() -> dict:
+    """Override per test with ``@pytest.mark.parametrize("settings_overrides", [{...}])``."""
+    return {}
+
+
+@pytest.fixture
+def client(tmp_path: Path, settings_overrides: dict) -> Iterator[TestClient]:
+    settings = Settings(
+        bot_token=TEST_BOT_TOKEN,
+        bot_username="shared_lists_test_bot",
+        database_url=f"sqlite:///{tmp_path / 'test.db'}",
+        frontend_dist=tmp_path / "no-frontend",
+        _env_file=None,
+        **settings_overrides,
+    )
+    with TestClient(create_app(settings)) as c:
+        yield c
+
+
+@pytest.fixture
+def sign_in(client: TestClient) -> Callable[..., dict]:
+    """Sign a user in and return {"headers": ..., "response": ...} for further calls."""
+
+    def _sign_in(user: dict, **kwargs) -> dict:
+        response = client.post("/api/auth", json={"init_data": sign_init_data(user, **kwargs)})
+        assert response.status_code == 200, response.text
+        return {
+            "headers": {"Authorization": f"Bearer {response.json()['token']}"},
+            "response": response.json(),
+        }
+
+    return _sign_in
+
+
+@pytest.fixture
+def add_member(client: TestClient) -> Callable[[dict, dict], dict]:
+    """Make a signed-in user a Member of a List by opening its Share link (POST /lists/join)."""
+
+    def _add(lst: dict, session: dict) -> dict:
+        response = client.post(
+            "/api/lists/join", json={"code": lst["share_code"]}, headers=session["headers"]
+        )
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    return _add
+
+
+@pytest.fixture
+def count_rows(tmp_path: Path) -> Callable[[str], int]:
+    import sqlite3
+
+    def _count(table: str) -> int:
+        with sqlite3.connect(tmp_path / "test.db") as db:
+            return db.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
+
+    return _count

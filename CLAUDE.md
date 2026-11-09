@@ -4,22 +4,60 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project state
 
-Greenfield. The repo is a bare `uv init --package` scaffold: `src/shopping_list_bot/__init__.py` holds only a hello-world `main()`. There are no dependencies, tests, linter, or frontend yet. Treat the product spec as the source of truth until real code exists.
+The walking skeleton exists: Telegram sign-in, the first List, and an empty List screen, plus Share links (`POST /api/lists/join`) and the Members screen. Suggestions from the List's memory: `GET /api/lists/{id}/suggestions?q=` (ranking in `suggest.py`) and `DELETE /api/lists/{id}/products/{product_id}` (hides a Product from memory). Purchase History: `GET /api/lists/{id}/purchases?cursor=&limit=` (newest first, keyset cursor) and `POST /api/lists/{id}/purchases/{purchase_id}/entries/{item_id}/readd` (puts a past item back on the List); the History screen opens from the List menu. Backend is in `src/shopping_list_bot/` (FastAPI + SQLAlchemy + SQLite, see `docs/adr/0003-sqlite-database.md`), the Mini App in `frontend/` (React + Vite + TypeScript), and the bot in `src/shopping_list_bot/bot.py` (aiogram). Realtime sync: every List mutation goes through `_touch` in `app.py` (bumps the version, writes the `list_change` log, queues an event published after commit). `GET /api/events` is the per-user SSE stream, `GET /api/lists/{id}/changes?since=<version>` the catch-up (a snapshot when the gap exceeds `SL_CHANGES_MAX_GAP` or the log was pruned), and the `Idempotency-Key` header makes any command replay-safe (middleware in `app.py`, answers stored in `idempotency_record`). The client side is `frontend/src/sync.ts` (stream with reconnect) plus the handlers in `App.tsx` and `ListScreen.tsx`. Everything else is built ticket by ticket from GitHub issue #1.
 
 **Product spec:** [docs/ui-spec.md](docs/ui-spec.md) (Russian). It covers scope, screens, input parsing, sync, Telegram Mini App rules, the data model, MVP staging, and acceptance criteria. Read the relevant section before building a feature.
 
 ## Commands
 
-Tooling is `uv` with the `uv_build` backend. Python is **3.14**, pinned in `.python-version` and `requires-python`.
+Tooling is `uv` with the `uv_build` backend. Python is **3.14**, pinned in `.python-version` and `requires-python`. The frontend needs Node 20+ and npm.
 
 ```bash
-uv sync                      # create .venv and install
-uv run shopping-list-bot     # run the console entry point (shopping_list_bot:main)
-uv add <pkg>                 # add a runtime dependency
-uv add --dev <pkg>           # add a dev dependency (e.g. pytest, ruff)
+uv sync                                  # create .venv and install
+uv add <pkg>                             # add a runtime dependency
+uv add --dev <pkg>                       # add a dev dependency
+
+uv run pytest                            # run the whole backend suite
+uv run pytest tests/test_auth_and_first_list.py::TestFirstList::test_first_time_russian_user_gets_pokupki  # one test
+uv run pytest -k pokupki                 # tests by keyword
+uv run ruff check . && uv run ruff format --check .   # lint and format check
+
+uv run shopping-list-bot serve           # backend on :8000 (serves frontend/dist if built)
+uv run shopping-list-bot bot             # the Telegram bot (long polling); needs SL_BOT_TOKEN
+
+cd frontend && npm install               # once
+cd frontend && npm run dev               # Vite dev server on :5173, proxies /api to :8000
+cd frontend && npm run build             # typecheck (tsc) + production build into frontend/dist
+cd frontend && npm run typecheck         # typecheck only
 ```
 
-There is no test runner or linter configured yet. When one is added, document how to run the full suite and a single test here.
+**Docker and CI.** One image serves both processes. The default is `serve` (API plus the built Mini App on :8000, SQLite at `/data/shared_lists.db`); the bot runs from the same image with the `bot` command.
+
+```bash
+docker build -t shared-lists .
+docker run -p 8000:8000 -v shared-lists-data:/data --env-file .env shared-lists           # API + Mini App
+docker run -v shared-lists-data:/data --env-file .env shared-lists shopping-list-bot bot  # bot
+```
+
+**Local dev stack with Telegram.** `docker-compose.dev.yml` runs three services: `app`, the bot, and an ngrok tunnel. The tunnel gives the Mini App the public https URL that Telegram requires. `.env` needs `SL_BOT_TOKEN`, `SL_BOT_USERNAME` and `NGROK_AUTHTOKEN`. `NGROK_URL` is optional; without it, the bot reads the tunnel URL from the ngrok inspector API through `docker/dev-bot-entrypoint.py`. The ngrok inspector is at http://localhost:4040.
+
+```bash
+docker compose -f docker-compose.dev.yml up -d --build   # start / rebuild after code changes
+docker compose -f docker-compose.dev.yml logs -f bot app # follow logs
+docker compose -f docker-compose.dev.yml down            # stop (the SQLite volume `data` is kept)
+```
+
+GitHub Actions has two workflows:
+- `.github/workflows/ci.yml` runs on every pull request: ruff lint and format check, pytest, the frontend typecheck and build, and a Docker build with a smoke test (`/healthz`, the frontend served, the bot module importable).
+- `.github/workflows/release.yml` runs on a `v*` tag push. It builds an amd64 and arm64 image and pushes it to `ghcr.io/semaputnik/shopping-list-bot`, tagged with the version, `major.minor`, the tag itself and the commit sha.
+
+**Sync tuning** (all optional, `SL_` prefix): `CHECK_WINS_WINDOW_SECONDS` (2.0; another Member's uncheck within this long after a check is dropped), `CHANGES_MAX_GAP` (100), `CHANGES_RETENTION` (500 versions of log per List), `SSE_HEARTBEAT_SECONDS` (15), `IDEMPOTENCY_TTL_SECONDS` (24 h).
+
+**Configuration** is read from `SL_*` environment variables or a `.env` file: `SL_BOT_TOKEN`, `SL_BOT_USERNAME` (the bot's @username without `@`; builds Share links `https://t.me/<bot>?startapp=<code>`, `share_url` is null without it), `SL_WEBAPP_URL` (public https URL of the Mini App), `SL_DATABASE_URL` (default `sqlite:///./shared_lists.db`), `SL_SESSION_SECRET` (optional; derived from the bot token if empty; with neither set, no session is issued or accepted). The bot also reads `SL_DATABASE_URL` (to look up a user's chosen language for `/start`), so it must point at the same database as the backend; the backend owns the schema, and if the database is unreachable or not yet migrated the bot falls back to Telegram's language. No real bot token is needed to run tests or build.
+
+**Tests:** the only automated seam is the backend HTTP API. `tests/test_event_stream.py` is the exception in transport only: Starlette's `TestClient` buffers a response until it ends, so the never-ending SSE stream is tested against a real uvicorn server on a local port (the `server` fixture), still through HTTP only. Run it alone with `uv run pytest tests/test_event_stream.py`. `tests/conftest.py` gives each test a fresh SQLite file and a `sign_in` fixture that authenticates with `initData` signed by a test bot token. Test external behaviour (request in, response out), never internals. The frontend has no automated tests; it must typecheck and build.
+
+**Telegram setup (manual, once):** in @BotFather set the bot's menu button and Main Mini App to `SL_WEBAPP_URL` so `t.me/<bot>?startapp=<code>` links work. The bot also sets the menu button itself on startup.
 
 ## What is being built
 

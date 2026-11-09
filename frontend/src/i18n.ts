@@ -1,0 +1,293 @@
+export type Language = "ru" | "es";
+
+type StringKey =
+  | "loading"
+  | "emptyTitle"
+  | "emptyHint"
+  | "errorTitle"
+  | "errorHint"
+  | "retry"
+  | "offline"
+  | "notTelegramTitle"
+  | "notTelegramHint"
+  | "noList"
+  | "switchList"
+  | "newList"
+  | "createList"
+  | "listName"
+  | "listNamePlaceholder"
+  | "save"
+  | "cancel"
+  | "listMenu"
+  | "renameList"
+  | "leaveList"
+  | "deleteList"
+  | "leaveTitle"
+  | "leaveMessage"
+  | "leaveLastMessage"
+  | "deleteTitle"
+  | "deleteMessage"
+  | "membersCount"
+  | "actionFailed"
+  | "inputPlaceholder"
+  | "inputLabel"
+  | "addFailed"
+  | "loadFailed"
+  | "emptyInputHint"
+  | "share"
+  | "linkCopied"
+  | "linkUnavailable"
+  | "members"
+  | "you"
+  | "membersHint"
+  | "badLinkTitle"
+  | "badLinkHint"
+  | "openMyLists"
+  | "settings"
+  | "languageSection"
+  | "languageAsTelegram"
+  | "languageSaveError"
+  | "entryNote"
+  | "entryDetails"
+  | "entryNotePlaceholder"
+  | "entryCategory"
+  | "entryAddedBy"
+  | "entryDelete"
+  | "entryDeleted"
+  | "undo"
+  | "close"
+  | "entrySaveFailed"
+  | "entryDeleteFailed"
+  | "undoFailed"
+  | "listDeletedNotice"
+  | "listLeftNotice"
+  | "suggestions"
+  | "alreadyOnList"
+  | "addNew"
+  | "forgetProduct"
+  | "forgetConfirm"
+  | "shareList"
+  | "shareText"
+  | "remaining"
+  | "progress"
+  | "allInBasket"
+  | "boughtSaved"
+  | "doneTitle"
+  | "doneHint"
+  | "andMore"
+  | "uncheckAll"
+  | "checkFailed"
+  | "bought"
+  | "buyFailed"
+  | "undoBuyFailed"
+  | "history"
+  | "historyEmpty"
+  | "historyAdded"
+  | "historyAddFailed"
+  | "historyAddBack"
+  | "historyLoadFailed";
+
+const strings: Record<Language, Record<StringKey, string>> = {
+  ru: {
+    loading: "Загрузка…",
+    emptyTitle: "Список пуст",
+    emptyHint: "Здесь появятся товары, которые нужно купить. Или добавьте популярное:",
+    errorTitle: "Не удалось войти",
+    errorHint: "Закройте приложение и откройте его снова из Telegram.",
+    retry: "Повторить",
+    offline: "Нет сети. Изменения не сохранятся, пока связь не вернётся.",
+    notTelegramTitle: "Откройте в Telegram",
+    notTelegramHint: "Shared Lists работает как мини-приложение внутри Telegram.",
+    noList: "Нет доступных списков",
+    switchList: "Ваши списки",
+    newList: "Новый список",
+    createList: "Создать",
+    listName: "Название списка",
+    listNamePlaceholder: "Например, Дача",
+    save: "Сохранить",
+    cancel: "Отмена",
+    listMenu: "Действия со списком",
+    renameList: "Переименовать",
+    leaveList: "Покинуть список",
+    deleteList: "Удалить список",
+    leaveTitle: "Покинуть список?",
+    leaveMessage: "Список исчезнет только у вас, у остальных участников он останется.",
+    leaveLastMessage: "Вы последний участник: список будет удалён.",
+    deleteTitle: "Удалить список?",
+    deleteMessage:
+      "Список удалится у всех участников ({n}) вместе с историей. Восстановить его будет нельзя.",
+    membersCount: "Участников: {n}",
+    actionFailed: "Не получилось. Попробуйте ещё раз.",
+    inputPlaceholder: "Добавить в список",
+    inputLabel: "Что нужно купить",
+    addFailed: "Не удалось добавить. Попробуйте ещё раз.",
+    loadFailed: "Не удалось обновить список.",
+    emptyInputHint: "Напишите название и отправьте. Через запятую — заметка: молоко, 2 л.",
+    share: "Поделиться",
+    linkCopied: "Ссылка скопирована",
+    linkUnavailable: "Не удалось получить ссылку",
+    members: "Участники",
+    you: "вы",
+    membersHint: "У всех участников одинаковые права. Отправьте ссылку, чтобы добавить ещё кого-то.",
+    badLinkTitle: "Ссылка недействительна",
+    badLinkHint: "Попросите прислать ссылку на список ещё раз.",
+    openMyLists: "Открыть мои списки",
+    settings: "Настройки",
+    languageSection: "Язык",
+    languageAsTelegram: "Как в Telegram",
+    languageSaveError: "Не удалось сохранить язык. Попробуйте ещё раз.",
+    entryNote: "Заметка",
+    entryNotePlaceholder: "Количество или детали",
+    entryCategory: "Отдел",
+    entryAddedBy: "Добавлено:",
+    entryDelete: "Удалить",
+    entryDeleted: "Удалено",
+    undo: "Отменить",
+    close: "Закрыть",
+    entryDetails: "Подробнее",
+    entrySaveFailed: "Не удалось сохранить. Попробуйте ещё раз.",
+    entryDeleteFailed: "Не удалось удалить. Попробуйте ещё раз.",
+    undoFailed: "Не удалось вернуть позицию.",
+    listDeletedNotice: "Список «{name}» удалён",
+    listLeftNotice: "Вы больше не участник списка «{name}»",
+    suggestions: "Подсказки",
+    alreadyOnList: "уже в списке",
+    addNew: "Добавить",
+    forgetProduct: "Убрать из подсказок",
+    forgetConfirm: "Убрать",
+    shareList: "Поделиться списком",
+    shareText: "Присоединяйтесь к списку «{name}»",
+    remaining: "Осталось: {n}",
+    progress: "Осталось купить: {left} из {total}",
+    allInBasket: "Всё в корзине — нажмите «Куплено»",
+    boughtSaved: "в истории",
+    doneTitle: "Всё куплено",
+    doneHint: "Покупка сохранена в истории.",
+    andMore: "и ещё {n}",
+    uncheckAll: "Снять все отметки",
+    checkFailed: "Отметка не сохранилась. Проверьте связь.",
+    bought: "Куплено",
+    buyFailed: "Покупка не сохранилась. Проверьте связь.",
+    undoBuyFailed: "Не удалось отменить покупку. Проверьте связь.",
+    history: "История покупок",
+    historyEmpty: "Пока пусто. Здесь появятся покупки после нажатия «Куплено».",
+    historyAdded: "Добавлено в список",
+    historyAddFailed: "Не удалось добавить. Попробуйте ещё раз.",
+    historyAddBack: "Добавить в список снова",
+    historyLoadFailed: "Не удалось загрузить историю.",
+  },
+  es: {
+    loading: "Cargando…",
+    emptyTitle: "La lista está vacía",
+    emptyHint: "Aquí aparecerán los productos que hay que comprar. O añade algo popular:",
+    errorTitle: "No se pudo iniciar sesión",
+    errorHint: "Cierra la aplicación y ábrela de nuevo desde Telegram.",
+    retry: "Reintentar",
+    offline: "Sin conexión. Los cambios no se guardarán hasta que vuelva la red.",
+    notTelegramTitle: "Abre en Telegram",
+    notTelegramHint: "Shared Lists funciona como mini aplicación dentro de Telegram.",
+    noList: "No hay listas disponibles",
+    switchList: "Tus listas",
+    newList: "Nueva lista",
+    createList: "Crear",
+    listName: "Nombre de la lista",
+    listNamePlaceholder: "Por ejemplo, Casa de campo",
+    save: "Guardar",
+    cancel: "Cancelar",
+    listMenu: "Acciones de la lista",
+    renameList: "Renombrar",
+    leaveList: "Salir de la lista",
+    deleteList: "Eliminar lista",
+    leaveTitle: "¿Salir de la lista?",
+    leaveMessage: "La lista desaparecerá solo para ti; los demás miembros la conservan.",
+    leaveLastMessage: "Eres el último miembro: la lista se eliminará.",
+    deleteTitle: "¿Eliminar la lista?",
+    deleteMessage:
+      "La lista se eliminará para todos los miembros ({n}), con su historial. No se puede recuperar.",
+    membersCount: "Miembros: {n}",
+    actionFailed: "No se pudo. Inténtalo de nuevo.",
+    inputPlaceholder: "Añadir a la lista",
+    inputLabel: "Qué hay que comprar",
+    addFailed: "No se pudo añadir. Inténtalo de nuevo.",
+    loadFailed: "No se pudo actualizar la lista.",
+    emptyInputHint: "Escribe el nombre y envíalo. Tras una coma va la nota: leche, 2 l.",
+    share: "Compartir",
+    linkCopied: "Enlace copiado",
+    linkUnavailable: "No se pudo obtener el enlace",
+    members: "Miembros",
+    you: "tú",
+    membersHint: "Todos los miembros tienen los mismos derechos. Envía el enlace para añadir a alguien más.",
+    badLinkTitle: "El enlace no es válido",
+    badLinkHint: "Pide que te envíen de nuevo el enlace de la lista.",
+    openMyLists: "Abrir mis listas",
+    settings: "Ajustes",
+    languageSection: "Idioma",
+    languageAsTelegram: "Como en Telegram",
+    languageSaveError: "No se pudo guardar el idioma. Inténtalo de nuevo.",
+    entryNote: "Nota",
+    entryNotePlaceholder: "Cantidad o detalles",
+    entryCategory: "Sección",
+    entryAddedBy: "Añadido por:",
+    entryDelete: "Eliminar",
+    entryDeleted: "Eliminado",
+    undo: "Deshacer",
+    close: "Cerrar",
+    entryDetails: "Detalles",
+    entrySaveFailed: "No se pudo guardar. Inténtalo de nuevo.",
+    entryDeleteFailed: "No se pudo eliminar. Inténtalo de nuevo.",
+    undoFailed: "No se pudo recuperar el producto.",
+    listDeletedNotice: "La lista «{name}» fue eliminada",
+    listLeftNotice: "Ya no eres miembro de la lista «{name}»",
+    suggestions: "Sugerencias",
+    alreadyOnList: "ya está en la lista",
+    addNew: "Añadir",
+    forgetProduct: "Quitar de las sugerencias",
+    forgetConfirm: "Quitar",
+    shareList: "Compartir la lista",
+    shareText: "Únete a la lista «{name}»",
+    remaining: "Quedan: {n}",
+    progress: "Por comprar: {left} de {total}",
+    allInBasket: "Todo en la cesta: pulsa «Comprado»",
+    boughtSaved: "en el historial",
+    doneTitle: "Todo comprado",
+    doneHint: "La compra se guardó en el historial.",
+    andMore: "y {n} más",
+    uncheckAll: "Quitar todas las marcas",
+    checkFailed: "La marca no se guardó. Revisa la conexión.",
+    bought: "Comprado",
+    buyFailed: "La compra no se guardó. Revisa la conexión.",
+    undoBuyFailed: "No se pudo deshacer la compra. Revisa la conexión.",
+    history: "Historial de compras",
+    historyEmpty: "Aún no hay nada. Las compras aparecerán aquí al pulsar «Comprado».",
+    historyAdded: "Añadido a la lista",
+    historyAddFailed: "No se pudo añadir. Inténtalo de nuevo.",
+    historyAddBack: "Volver a añadir a la lista",
+    historyLoadFailed: "No se pudo cargar el historial.",
+  },
+};
+
+/** Popular items offered as quick-add buttons on an empty List. */
+export const QUICK_ADD: Record<Language, string[]> = {
+  ru: ["Молоко", "Хлеб", "Яйца", "Бананы", "Картошка", "Сыр", "Курица", "Вода"],
+  es: ["Leche", "Pan", "Huevos", "Plátanos", "Patatas", "Queso", "Pollo", "Agua"],
+};
+
+/** Each language is always shown in its own name, whatever the interface language is. */
+export const LANGUAGE_NAMES: Record<Language, string> = { ru: "Русский", es: "Español" };
+
+export type Strings = Record<StringKey, string>;
+
+/** Fills the `{n}` placeholder of a string. */
+export function withCount(template: string, n: number): string {
+  return template.replace("{n}", String(n));
+}
+
+/** Map a Telegram `language_code` (e.g. "es-MX") to a supported UI language. */
+export function pickLanguage(code: string | null | undefined): Language {
+  const base = (code ?? "").toLowerCase().replace("_", "-").split("-")[0];
+  return base === "es" ? "es" : "ru";
+}
+
+export function t(lang: Language): Strings {
+  return strings[lang];
+}

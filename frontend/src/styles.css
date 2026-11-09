@@ -1,0 +1,1157 @@
+/*
+ * Colors come only from Telegram themeParams (--tg-theme-* variables, bound at startup).
+ * Hex values appear only as fallbacks for a missing key, so light and dark follow Telegram.
+ */
+:root {
+  --bg: var(--tg-theme-bg-color, #ffffff);
+  --ground: var(--tg-theme-secondary-bg-color, #efeff4);
+  --section: var(--tg-theme-section-bg-color, var(--bg));
+  --text: var(--tg-theme-text-color, #000000);
+  --separator: var(--tg-theme-section-separator-color, rgba(60, 60, 67, 0.2));
+  --hint: var(--tg-theme-hint-color, #8e8e93);
+  --accent: var(--tg-theme-button-color, #3390ec);
+  --destructive: var(--tg-theme-destructive-text-color, #e53935);
+  --accent-text: var(--tg-theme-button-text-color, #ffffff);
+  --safe-top: var(--tg-viewport-content-safe-area-inset-top, 0px);
+  --safe-bottom: var(--tg-viewport-safe-area-inset-bottom, 0px);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--ground);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", Roboto, "Helvetica Neue", Arial,
+    sans-serif;
+  font-size: 17px;
+  line-height: 1.3;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.screen {
+  min-height: 100vh;
+  padding: calc(var(--safe-top) + 12px) 16px calc(var(--safe-bottom) + 24px);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 52px;
+  padding: 0 4px 8px;
+}
+
+.header__title {
+  margin: 0;
+  min-width: 0;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.avatars-button {
+  flex-shrink: 0;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.avatars {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.avatars > .avatar + .avatar {
+  margin-left: -8px;
+}
+
+.avatar {
+  flex-shrink: 0;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--ground);
+}
+
+.avatar--sm {
+  width: 24px;
+  height: 24px;
+  font-size: 10px;
+}
+
+.avatar--md {
+  width: 36px;
+  height: 36px;
+  font-size: 13px;
+}
+
+.avatar--lg {
+  width: 44px;
+  height: 44px;
+  font-size: 16px;
+  border-color: var(--section);
+}
+
+.avatar--initials,
+.avatar--more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.avatar--more {
+  background: var(--section);
+  color: var(--hint);
+}
+
+.screen__title {
+  margin: 0 4px 12px;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.members {
+  margin: 0;
+  padding: 0 16px;
+  list-style: none;
+  border-radius: 12px;
+  background: var(--section);
+}
+
+.members__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 60px;
+}
+
+.members__row + .members__row {
+  border-top: 0.5px solid var(--separator);
+}
+
+.members__name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.members__line {
+  overflow-wrap: anywhere;
+}
+
+.members__you,
+.members__username {
+  color: var(--hint);
+  font-size: 15px;
+}
+
+.members__you {
+  display: inline;
+}
+
+.share-button {
+  display: block;
+  width: 100%;
+  margin-top: 16px;
+}
+
+.members__hint {
+  margin: 12px 4px 0;
+  font-size: 15px;
+  color: var(--hint);
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--safe-bottom) + 24px);
+  transform: translateX(-50%);
+  max-width: calc(100vw - 32px);
+  padding: 10px 16px;
+  border-radius: 12px;
+  background: var(--text);
+  color: var(--bg);
+  font-size: 15px;
+}
+
+/* The App-level notice sits at the top so it never covers the List screen's own toast. */
+.toast--top {
+  bottom: auto;
+  top: calc(var(--safe-top, 0px) + 16px);
+}
+
+/* Inset grouped section, as in Telegram settings. */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 8px;
+  padding: 40px 24px;
+  border-radius: 12px;
+  background: var(--section);
+  text-align: center;
+}
+
+.empty__emoji {
+  font-size: 48px;
+  line-height: 1;
+  margin-bottom: 12px;
+}
+
+.empty__title {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 600;
+}
+
+.empty__hint {
+  margin: 6px 0 0;
+  max-width: 28ch;
+  font-size: 15px;
+  color: var(--hint);
+}
+
+.message {
+  display: flex;
+  min-height: 100vh;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  text-align: center;
+}
+
+.message__title {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 600;
+}
+
+.message__hint {
+  margin: 8px 0 0;
+  max-width: 32ch;
+  font-size: 15px;
+  color: var(--hint);
+}
+
+.message__action {
+  margin-top: 20px;
+  min-height: 48px;
+  padding: 0 24px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font: inherit;
+  font-weight: 600;
+}
+
+/* The pinned, search-style input line. */
+.composer {
+  position: sticky;
+  top: var(--safe-top);
+  z-index: 1;
+  margin: 0 0 8px;
+  padding: 8px 0 4px;
+  background: var(--ground); /* rows scroll underneath, not through */
+}
+
+/* Suggestions panel: overlays the rows right under the input line. */
+
+.suggest {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: 50vh;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+  border-radius: 12px;
+  background: var(--section);
+  box-shadow: 0 0 0 0.5px var(--separator);
+}
+
+.suggest__item {
+  display: flex;
+  align-items: stretch;
+}
+
+.suggest__item + .suggest__item {
+  border-top: 0.5px solid var(--separator);
+}
+
+.suggest__option {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+}
+
+.suggest__option--active {
+  background: var(--ground);
+}
+
+.suggest__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.suggest__hint {
+  flex: none;
+  color: var(--hint);
+  font-size: 14px;
+}
+
+.suggest__forget {
+  flex: none;
+  width: 44px;
+  border: 0;
+  background: transparent;
+  color: var(--hint);
+  font: inherit;
+}
+
+.composer__input {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  max-height: 120px;
+  padding: 11px 14px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--section);
+  color: var(--text);
+  font: inherit;
+  resize: none;
+  outline: none;
+  overflow-y: auto;
+}
+
+.composer__input::placeholder {
+  color: var(--hint);
+}
+
+/* Typing focus reads like Telegram's own fields: no ring, only the caret. */
+.composer__input:focus {
+  outline: none;
+}
+
+/* Keyboard focus (never pointer focus) is visible on every control, in the accent colour. */
+.row__toggle:focus-visible,
+.row__open:focus-visible,
+.sheet-row:focus-visible,
+.header__switch:focus-visible,
+.header__menu:focus-visible,
+.avatars-button:focus-visible,
+.suggest__option:focus-visible,
+.suggest__forget:focus-visible,
+.alert__action:focus-visible,
+.alert__close:focus-visible,
+.snackbar__action:focus-visible,
+.quick__button:focus-visible,
+.empty__action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 10px;
+}
+
+.notice {
+  margin: 0 0 12px;
+  padding: 0 4px;
+  font-size: 15px;
+  color: var(--hint);
+}
+
+.empty__hint + .empty__hint {
+  margin-top: 14px;
+}
+
+.quick {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.quick__button {
+  min-height: 44px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 22px;
+  background: var(--ground);
+  color: var(--accent);
+  font: inherit;
+  font-size: 15px;
+}
+
+/* A Category section: caps-style header, then an inset grouped list of rows. */
+.group {
+  margin-bottom: 20px;
+}
+
+/* Category header: the emoji tile carries the only colour the product owns. */
+.group__header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 0 16px 8px 12px;
+  font-size: 13px;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--tg-theme-section-header-text-color, var(--hint));
+}
+
+.group__emoji {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: var(--section);
+  font-size: 18px;
+  line-height: 1;
+  text-transform: none;
+}
+
+.group__count {
+  font-variant-numeric: tabular-nums;
+}
+
+.group__name {
+  flex: 1;
+}
+
+.rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-radius: 12px;
+  background: var(--section);
+  overflow: hidden;
+}
+
+/* Header controls: the List name opens the switcher, "⋯" opens the List menu. */
+.header__heading {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: inherit;
+}
+
+.header__switch {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.header__chevron {
+  flex-shrink: 0;
+  color: var(--hint);
+  font-size: 16px;
+}
+
+.header__menu {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.empty__action {
+  margin-top: 16px;
+  min-height: 48px;
+  padding: 0 24px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font: inherit;
+  font-weight: 600;
+}
+
+/* Bottom sheets (List switcher, List menu, name form). */
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: flex-end;
+  background: color-mix(in srgb, var(--text) 40%, transparent);
+}
+
+.sheet {
+  width: 100%;
+  max-height: 85vh;
+  overflow-y: auto;
+  padding: 16px 16px calc(var(--safe-bottom) + 16px);
+  border-radius: 16px 16px 0 0;
+  background: var(--ground);
+}
+
+.sheet__title {
+  margin: 0 0 12px;
+  font-size: 17px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.sheet-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--section);
+}
+
+.sheet-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  padding: 0 16px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.sheet-list li {
+  position: relative;
+}
+
+.sheet-list li + li::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 16px;
+  right: 0;
+  height: 0.5px;
+  background: var(--separator);
+}
+
+.sheet-row[aria-current="true"] .sheet-row__name {
+  font-weight: 600;
+}
+
+.sheet-row__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sheet-row__meta {
+  flex-shrink: 0;
+  color: var(--hint);
+  font-size: 15px;
+}
+
+.sheet-row--accent {
+  color: var(--accent);
+}
+
+.sheet-row--destructive {
+  color: var(--destructive);
+}
+
+.sheet__cancel,
+.sheet__submit {
+  width: 100%;
+  min-height: 48px;
+  border: 0;
+  border-radius: 12px;
+  font: inherit;
+  font-weight: 600;
+}
+
+.sheet__cancel {
+  background: var(--section);
+  color: var(--accent);
+}
+
+.sheet__submit {
+  margin-bottom: 12px;
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.sheet__submit:disabled {
+  opacity: 0.5;
+}
+
+.field {
+  display: block;
+  margin-bottom: 12px;
+}
+
+.field__label {
+  display: block;
+  margin: 0 4px 6px;
+  color: var(--hint);
+  font-size: 13px;
+}
+
+.field__input {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--section);
+  color: var(--text);
+  font: inherit;
+}
+
+
+.text-button {
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  min-height: 44px;
+  padding: 0 4px;
+}
+
+.settings__section-title {
+  margin: 20px 16px 6px;
+  font-size: 13px;
+  font-weight: 400;
+  text-transform: uppercase;
+  color: var(--tg-theme-section-header-text-color, var(--hint));
+}
+
+.settings__group {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-radius: 12px;
+  background: var(--section);
+  overflow: hidden;
+}
+
+/* The whole row toggles; the trailing chevron opens the Entry card. Checking only restyles the row. */
+.row {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+}
+
+.row__toggle {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 10px 4px 10px 16px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.row__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.row__name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.row__open {
+  flex-shrink: 0;
+  width: 44px;
+  min-height: 52px;
+  padding: 0 12px 0 0;
+  border: 0;
+  background: none;
+  color: var(--hint);
+  font: inherit;
+  font-size: 22px;
+  line-height: 1;
+  text-align: right;
+}
+
+.row__check {
+  flex-shrink: 0;
+  position: relative;
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--hint);
+  border-radius: 50%;
+}
+
+.row--checked .row__check {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.row--checked .row__check::after {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 2px;
+  width: 5px;
+  height: 10px;
+  border: solid var(--accent-text);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.row--checked .row__name,
+.row--checked .row__note {
+  color: var(--hint);
+}
+
+.row--checked .row__note {
+  text-decoration: line-through;
+}
+
+/* Crossing off is a pen stroke drawn across the name, left to right, and undrawn on uncheck. */
+.row__label {
+  background: linear-gradient(currentColor, currentColor) no-repeat 0 58% / 0% 1.5px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  transition:
+    background-size 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+    color 0.22s ease-out;
+}
+
+.row--checked .row__label {
+  background-size: 100% 1.5px;
+}
+
+.row--checked .row__check {
+  animation: check-pop 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes check-pop {
+  0% {
+    transform: scale(0.82);
+  }
+  60% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Hairline separators start at the text, as in Telegram's own lists (16 + 22 check + 12 gap). */
+.row + .row::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50px;
+  right: 0;
+  height: 0.5px;
+  background: var(--separator);
+}
+
+/* The Entry card (inside the shared Sheet). */
+.entry-card__note {
+  display: block;
+  width: 100%;
+  padding: 12px 16px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--section);
+  color: var(--text);
+  font: inherit;
+  resize: none;
+}
+
+.entry-card__meta {
+  margin: 0 4px 12px;
+}
+
+.entry-card__error {
+  margin: 0 4px 12px;
+  color: var(--destructive);
+}
+
+.snackbar {
+  position: fixed;
+  right: 16px;
+  bottom: calc(var(--safe-bottom) + 16px);
+  left: 16px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  padding: 4px 8px 4px 16px;
+  border-radius: 12px;
+  background: var(--text);
+  color: var(--bg);
+}
+
+/* Two lines before clamping: the snackbar confirms *what* was removed, so the name must fit. */
+.snackbar__text {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+}
+
+.snackbar__action {
+  flex-shrink: 0;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+}
+
+.row__note {
+  font-size: 15px;
+  color: var(--hint);
+  overflow-wrap: anywhere;
+}
+
+/* A just-added Entry fades from an accent wash to nothing. */
+.row--new {
+  animation: row-new 1.6s ease-out;
+}
+
+@keyframes row-new {
+  from {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+  to {
+    background: transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row--new,
+  .row--checked .row__check,
+  .group--done .group__emoji {
+    animation-duration: 0.01s;
+  }
+
+  .row__label,
+  .progress__fill {
+    transition-duration: 0.01s;
+  }
+}
+
+.settings__option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 48px;
+  padding: 0 16px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+}
+
+/* Hairline separator, inset from the leading edge. */
+.settings__group li + li {
+  position: relative;
+}
+
+.settings__group li + li::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 16px;
+  border-top: 1px solid
+    var(--tg-theme-section-separator-color, color-mix(in srgb, var(--hint) 30%, transparent));
+}
+
+.settings__option[aria-checked="true"]::after {
+  content: "✓";
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.settings__error {
+  margin: 8px 16px 0;
+  font-size: 13px;
+  color: var(--destructive);
+}
+
+/* History */
+.history,
+.history__items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.history__purchase {
+  margin-bottom: 16px;
+}
+
+.history__when {
+  margin: 0 4px 6px;
+  color: var(--hint);
+  font-size: 15px;
+}
+
+.history__items {
+  border-radius: 12px;
+  background: var(--section);
+  padding: 0 16px;
+}
+
+.history__items li + li {
+  border-top: 0.5px solid var(--separator);
+}
+
+.history__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+}
+
+.history__note {
+  color: var(--hint);
+}
+
+.history__add {
+  flex-shrink: 0;
+  color: var(--accent);
+  font-size: 22px;
+}
+
+.history__sentinel {
+  height: 1px;
+}
+
+.history__status,
+.history__empty {
+  margin: 16px 4px;
+  color: var(--hint);
+  text-align: center;
+}
+
+/* Failures and connectivity float over the screen: rows never move under the finger (Still Row). */
+.alert {
+  position: fixed;
+  top: calc(var(--safe-top) + 8px);
+  right: 12px;
+  left: 12px;
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 48px;
+  margin: 0;
+  padding: 4px 4px 4px 16px;
+  border-radius: 12px;
+  background: var(--section);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.3;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.16);
+}
+
+.alert--status {
+  justify-content: center;
+  padding: 8px 16px;
+  color: var(--destructive);
+  text-align: center;
+}
+
+.alert__text {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 0;
+}
+
+.alert__action,
+.alert__close {
+  flex-shrink: 0;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 10px;
+  border: 0;
+  background: none;
+  font: inherit;
+}
+
+.alert__action {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.alert__close {
+  color: var(--hint);
+}
+
+.sheet-row:disabled {
+  color: var(--hint);
+}
+
+.suggest__forget--armed {
+  width: auto;
+  padding: 0 12px;
+  color: var(--destructive);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* Trip progress under the List name: a line of text and a hairline that fills as items go in. */
+.progress {
+  margin: -4px 4px 6px;
+}
+
+.progress__text {
+  margin: 0 0 6px;
+  color: var(--hint);
+  font-size: 15px;
+}
+
+.progress--full .progress__text {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.progress__track {
+  display: block;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--hint) 22%, transparent);
+}
+
+.progress__fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transform-origin: left center;
+  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* A Category with everything in the basket: its tile earns a small check. */
+.group--done .group__emoji {
+  position: relative;
+  animation: tile-done 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.group--done .group__emoji::after {
+  content: "";
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--ground);
+  border-radius: 50%;
+  background: var(--accent)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 6.2 5 8.2 9 4' fill='none' stroke='white' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+    center / 12px no-repeat;
+}
+
+@keyframes tile-done {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.empty__summary {
+  max-width: 30ch;
+  margin: 0 auto 8px;
+  color: var(--text);
+  font-size: 17px;
+}
+
+/* Who added the Entry, when the List is shared. */
+.row__by {
+  display: flex;
+  flex-shrink: 0;
+  margin-left: auto;
+  padding-left: 8px;
+}
+
+/* On a row the avatar sits on the section surface, so its ring matches that, not the page ground. */
+.row__by .avatar {
+  border-color: var(--section);
+}
