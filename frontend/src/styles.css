@@ -1,0 +1,147 @@
+/*
+ * Colors come only from Telegram themeParams (--tg-theme-* variables, bound at startup).
+ * Hex values appear only as fallbacks for a missing key, so light and dark follow Telegram.
+ */
+:root {
+  --bg: var(--tg-theme-bg-color, #ffffff);
+  --ground: var(--tg-theme-secondary-bg-color, #efeff4);
+  --section: var(--tg-theme-section-bg-color, var(--bg));
+  --text: var(--tg-theme-text-color, #000000);
+  --hint: var(--tg-theme-hint-color, #8e8e93);
+  --accent: var(--tg-theme-button-color, #3390ec);
+  --accent-text: var(--tg-theme-button-text-color, #ffffff);
+  --safe-top: var(--tg-viewport-content-safe-area-inset-top, 0px);
+  --safe-bottom: var(--tg-viewport-safe-area-inset-bottom, 0px);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--ground);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", Roboto, "Helvetica Neue", Arial,
+    sans-serif;
+  font-size: 17px;
+  line-height: 1.3;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.screen {
+  min-height: 100vh;
+  padding: calc(var(--safe-top) + 12px) 16px calc(var(--safe-bottom) + 24px);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 52px;
+  padding: 0 4px 8px;
+}
+
+.header__title {
+  margin: 0;
+  min-width: 0;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.avatars {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--ground);
+}
+
+.avatar--initials {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* Inset grouped section, as in Telegram settings. */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 8px;
+  padding: 40px 24px;
+  border-radius: 12px;
+  background: var(--section);
+  text-align: center;
+}
+
+.empty__emoji {
+  font-size: 48px;
+  line-height: 1;
+  margin-bottom: 12px;
+}
+
+.empty__title {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 600;
+}
+
+.empty__hint {
+  margin: 6px 0 0;
+  max-width: 28ch;
+  font-size: 15px;
+  color: var(--hint);
+}
+
+.message {
+  display: flex;
+  min-height: 100vh;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  text-align: center;
+}
+
+.message__title {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 600;
+}
+
+.message__hint {
+  margin: 8px 0 0;
+  max-width: 32ch;
+  font-size: 15px;
+  color: var(--hint);
+}
+
+.message__action {
+  margin-top: 20px;
+  min-height: 48px;
+  padding: 0 24px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font: inherit;
+  font-weight: 600;
+}
