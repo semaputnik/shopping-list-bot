@@ -400,17 +400,35 @@ body {
   margin-bottom: 20px;
 }
 
+/* Category header: the emoji tile carries the only colour the product owns. */
 .group__header {
   display: flex;
-  align-items: baseline;
-  gap: 6px;
+  align-items: center;
+  gap: 10px;
   margin: 0;
-  padding: 0 16px 6px;
+  padding: 0 16px 8px 12px;
   font-size: 13px;
   font-weight: 400;
   text-transform: uppercase;
   letter-spacing: 0.02em;
-  color: var(--hint);
+  color: var(--tg-theme-section-header-text-color, var(--hint));
+}
+
+.group__emoji {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: var(--section);
+  font-size: 18px;
+  line-height: 1;
+  text-transform: none;
+}
+
+.group__count {
+  font-variant-numeric: tabular-nums;
 }
 
 .group__name {
@@ -928,7 +946,7 @@ body {
 }
 
 /* Failures and connectivity float over the screen: rows never move under the finger (Still Row). */
-.toast {
+.alert {
   position: fixed;
   top: calc(var(--safe-top) + 8px);
   right: 12px;
@@ -948,21 +966,21 @@ body {
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.16);
 }
 
-.toast--status {
+.alert--status {
   justify-content: center;
   padding: 8px 16px;
   color: var(--destructive);
   text-align: center;
 }
 
-.toast__text {
+.alert__text {
   flex: 1;
   min-width: 0;
   padding: 8px 0;
 }
 
-.toast__action,
-.toast__close {
+.alert__action,
+.alert__close {
   flex-shrink: 0;
   min-width: 44px;
   min-height: 44px;
@@ -972,12 +990,12 @@ body {
   font: inherit;
 }
 
-.toast__action {
+.alert__action {
   color: var(--accent);
   font-weight: 600;
 }
 
-.toast__close {
+.alert__close {
   color: var(--hint);
 }
 
@@ -991,4 +1009,19 @@ body {
   color: var(--destructive);
   font-size: 15px;
   font-weight: 600;
+}
+
+/* Trip progress under the List name. */
+.progress {
+  margin: -4px 4px 4px;
+  color: var(--hint);
+  font-size: 15px;
+}
+
+/* Who added the Entry, when the List is shared. */
+.row__by {
+  display: flex;
+  flex-shrink: 0;
+  margin-left: auto;
+  padding-left: 8px;
 }

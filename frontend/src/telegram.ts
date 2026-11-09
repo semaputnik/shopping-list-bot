@@ -23,6 +23,7 @@ import {
   onBackButtonClick,
   onMainButtonClick,
   openPopup,
+  openTelegramLink,
   retrieveLaunchParams,
   retrieveRawInitData,
   setMainButtonParams,
@@ -209,4 +210,16 @@ export function onActivated(callback: () => void): () => void {
     document.removeEventListener("visibilitychange", onVisible);
     offSignal?.();
   };
+}
+
+/**
+ * Opens Telegram's own "share to chat" picker for a link. Returns false outside Telegram (or on a
+ * client without openTelegramLink), so the caller can fall back to copying.
+ */
+export function shareToChat(url: string, text: string): boolean {
+  if (!openTelegramLink.isAvailable()) return false;
+  openTelegramLink(
+    `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`,
+  );
+  return true;
 }

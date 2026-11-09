@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ShoppingList, User } from "../api";
 import { Avatar, memberName } from "../components/Avatar";
 import type { Strings } from "../i18n";
-import { copyText } from "../share";
+import { shareList } from "../share";
 import { bindBackButton, haptic } from "../telegram";
 
 interface Props {
@@ -21,10 +21,11 @@ export function MembersScreen({ user, list, strings, onBack }: Props) {
   useEffect(() => bindBackButton(onBack), [onBack]);
 
   const share = async () => {
-    const copied = list.share_url ? await copyText(list.share_url) : false;
-    if (copied) haptic.success();
-    else haptic.error();
-    setToast(copied ? strings.linkCopied : strings.linkUnavailable);
+    const result = await shareList(list.share_url, strings.shareText.replace("{name}", list.name));
+    if (result === "unavailable") haptic.error();
+    else haptic.success();
+    if (result === "shared") return; // Telegram's own picker is the feedback
+    setToast(result === "copied" ? strings.linkCopied : strings.linkUnavailable);
     window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => setToast(null), 2500);
   };

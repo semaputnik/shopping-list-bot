@@ -66,6 +66,14 @@ type StringKey =
   | "addNew"
   | "forgetProduct"
   | "forgetConfirm"
+  | "shareList"
+  | "shareText"
+  | "remaining"
+  | "progress"
+  | "allInBasket"
+  | "boughtSaved"
+  | "doneTitle"
+  | "doneHint"
   | "uncheckAll"
   | "checkFailed"
   | "bought"
@@ -146,6 +154,14 @@ const strings: Record<Language, Record<StringKey, string>> = {
     addNew: "Добавить",
     forgetProduct: "Убрать из подсказок",
     forgetConfirm: "Убрать",
+    shareList: "Поделиться списком",
+    shareText: "Присоединяйтесь к списку «{name}»",
+    remaining: "Осталось: {n}",
+    progress: "Осталось купить: {left} из {total}",
+    allInBasket: "Всё в корзине — нажмите «Куплено»",
+    boughtSaved: "в истории",
+    doneTitle: "Всё куплено",
+    doneHint: "Покупка сохранена в истории.",
     uncheckAll: "Снять все отметки",
     checkFailed: "Отметка не сохранилась. Проверьте связь.",
     bought: "Куплено",
@@ -225,6 +241,14 @@ const strings: Record<Language, Record<StringKey, string>> = {
     addNew: "Añadir",
     forgetProduct: "Quitar de las sugerencias",
     forgetConfirm: "Quitar",
+    shareList: "Compartir la lista",
+    shareText: "Únete a la lista «{name}»",
+    remaining: "Quedan: {n}",
+    progress: "Por comprar: {left} de {total}",
+    allInBasket: "Todo en la cesta: pulsa «Comprado»",
+    boughtSaved: "en el historial",
+    doneTitle: "Todo comprado",
+    doneHint: "La compra se guardó en el historial.",
     uncheckAll: "Quitar todas las marcas",
     checkFailed: "La marca no se guardó. Revisa la conexión.",
     bought: "Comprado",
