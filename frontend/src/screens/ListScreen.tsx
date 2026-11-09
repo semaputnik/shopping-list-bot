@@ -7,7 +7,14 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from "react";
-import { addEntries, fetchContents, type ListContents, type ShoppingList } from "../api";
+import {
+  addEntries,
+  fetchContents,
+  setChecked,
+  uncheckAll,
+  type ListContents,
+  type ShoppingList,
+} from "../api";
 import { AvatarStack } from "../components/Avatar";
 import { QUICK_ADD, withCount, type Language, type Strings } from "../i18n";
 import { confirmDestructive, haptic } from "../telegram";
@@ -74,7 +81,7 @@ export function ListScreen({
 
   const [contents, setContents] = useState<ListContents | null>(null);
   const [fresh, setFresh] = useState<ReadonlySet<number>>(new Set());
-  const [error, setError] = useState<"add" | "load" | null>(null);
+  const [error, setError] = useState<"add" | "load" | "check" | null>(null);
   const [text, setText] = useState("");
   const [pendingQuick, setPendingQuick] = useState<ReadonlySet<string>>(new Set());
   const input = useRef<HTMLTextAreaElement>(null);
@@ -136,6 +143,62 @@ export function ListScreen({
     },
     [token, listId, showContents],
   );
+
+  /** Applies a Checked state to the local copy right away; the Entry never moves. */
+  const applyChecked = useCallback((match: (id: number) => boolean, checked: boolean) => {
+    setContents((prev) =>
+      prev && {
+        ...prev,
+        categories: prev.categories.map((g) => ({
+          ...g,
+          entries: g.entries.map((e) => (match(e.id) ? { ...e, checked } : e)),
+        })),
+      },
+    );
+  }, []);
+
+  const reload = useCallback(
+    (failure: "check" | "load") => {
+      if (listId === undefined) return;
+      setError(failure);
+      fetchContents(token, listId).then(showContents, console.error);
+    },
+    [token, listId, showContents],
+  );
+
+  const toggle = useCallback(
+    (id: number, checked: boolean) => {
+      if (listId === undefined) return;
+      haptic.select();
+      setError(null);
+      applyChecked((x) => x === id, checked);
+      setChecked(token, listId, id, checked).then(
+        (result) => setContents((prev) => prev && { ...prev, list: { ...prev.list, version: Math.max(prev.list.version, result.version) } }),
+        (e) => {
+          console.error(e);
+          reload("check");
+        },
+      );
+    },
+    [token, listId, applyChecked, reload],
+  );
+
+  const anyChecked = (contents?.categories ?? []).some((g) => g.entries.some((e) => e.checked));
+
+  const onUncheckAll = () => {
+    close();
+    if (listId === undefined) return;
+    haptic.select();
+    setError(null);
+    applyChecked(() => true, false);
+    uncheckAll(token, listId).then(
+      (result) => setContents((prev) => prev && { ...prev, list: { ...prev.list, version: Math.max(prev.list.version, result.version) } }),
+      (e) => {
+        console.error(e);
+        reload("check");
+      },
+    );
+  };
 
   const send = () => {
     const raw = text;
@@ -227,15 +290,8 @@ export function ListScreen({
               </button>
             </li>
             <li>
-              <button
-                type="button"
-                className="sheet-row"
-                onClick={() => {
-                  close();
-                  onOpenSettings();
-                }}
-              >
-                {strings.settings}
+              <button type="button" className="sheet-row" disabled={!anyChecked} onClick={onUncheckAll}>
+                {strings.uncheckAll}
               </button>
             </li>
             <li>
@@ -360,7 +416,7 @@ export function ListScreen({
       </form>
       {error && (
         <p className="notice" role="alert">
-          {error === "add" ? strings.addFailed : strings.loadFailed}
+          {error === "add" ? strings.addFailed : error === "check" ? strings.checkFailed : strings.loadFailed}
         </p>
       )}
 
@@ -407,8 +463,17 @@ export function ListScreen({
           <ul className="rows">
             {group.entries.map((entry) => (
               <li key={entry.id} className={fresh.has(entry.id) ? "row row--new" : "row"}>
-                <span className="row__name">{entry.name}</span>
-                {entry.note && <span className="row__note">{entry.note}</span>}
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={entry.checked}
+                  className={entry.checked ? "row__button row__button--checked" : "row__button"}
+                  onClick={() => toggle(entry.id, !entry.checked)}
+                >
+                  <span className="row__check" aria-hidden="true" />
+                  <span className="row__name">{entry.name}</span>
+                  {entry.note && <span className="row__note">{entry.note}</span>}
+                </button>
               </li>
             ))}
           </ul>
