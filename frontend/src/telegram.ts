@@ -5,6 +5,7 @@ import {
   expandViewport,
   hideBackButton,
   hapticFeedbackNotificationOccurred,
+  hapticFeedbackSelectionChanged,
   init,
   isTMA,
   miniAppReady,
@@ -90,4 +91,9 @@ export function showNativeBackButton(onClick: () => void): () => void {
 /** Success/error haptic tick for an action; a no-op outside Telegram. */
 export function notifyHaptic(type: "success" | "error"): void {
   if (hapticFeedbackNotificationOccurred.isAvailable()) hapticFeedbackNotificationOccurred(type);
+}
+
+/** Light tick for a check or uncheck; a no-op outside Telegram. */
+export function selectionHaptic(): void {
+  if (hapticFeedbackSelectionChanged.isAvailable()) hapticFeedbackSelectionChanged();
 }

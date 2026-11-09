@@ -103,5 +103,8 @@ class Entry(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     # Client-generated idempotency id (a replayed add must not duplicate the Entry).
     client_id: Mapped[str | None] = mapped_column(String(80))
+    # When the Entry was Checked and by whom; null while unchecked.
+    checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    checked_by: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"))
 
     product: Mapped[Product] = relationship()

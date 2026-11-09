@@ -27,7 +27,10 @@ type StringKey =
   | "settings"
   | "languageSection"
   | "languageAsTelegram"
-  | "languageSaveError";
+  | "languageSaveError"
+  | "menu"
+  | "uncheckAll"
+  | "checkFailed";
 
 const strings: Record<Language, Record<StringKey, string>> = {
   ru: {
@@ -58,6 +61,9 @@ const strings: Record<Language, Record<StringKey, string>> = {
     languageSection: "Язык",
     languageAsTelegram: "Как в Telegram",
     languageSaveError: "Не удалось сохранить язык. Попробуйте ещё раз.",
+    menu: "Меню",
+    uncheckAll: "Снять все отметки",
+    checkFailed: "Не удалось сохранить отметку. Список обновлён.",
   },
   es: {
     loading: "Cargando…",
@@ -87,6 +93,9 @@ const strings: Record<Language, Record<StringKey, string>> = {
     languageSection: "Idioma",
     languageAsTelegram: "Como en Telegram",
     languageSaveError: "No se pudo guardar el idioma. Inténtalo de nuevo.",
+    menu: "Menú",
+    uncheckAll: "Quitar todas las marcas",
+    checkFailed: "No se pudo guardar la marca. Lista actualizada.",
   },
 };
 

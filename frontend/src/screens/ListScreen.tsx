@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import { addEntries, fetchContents, type ListContents, type ShoppingList } from "../api";
+import {
+  addEntries,
+  fetchContents,
+  setChecked,
+  uncheckAll,
+  type ListContents,
+  type ShoppingList,
+} from "../api";
 import { AvatarStack } from "../components/Avatar";
 import { QUICK_ADD, type Language, type Strings } from "../i18n";
+import { selectionHaptic } from "../telegram";
 
 interface Props {
   token: string;
@@ -18,9 +26,10 @@ const HIGHLIGHT_MS = 1600;
 export function ListScreen({ token, list, language, strings, onOpenMembers, onOpenSettings }: Props) {
   const [contents, setContents] = useState<ListContents | null>(null);
   const [fresh, setFresh] = useState<ReadonlySet<number>>(new Set());
-  const [error, setError] = useState<"add" | "load" | null>(null);
+  const [error, setError] = useState<"add" | "load" | "check" | null>(null);
   const [text, setText] = useState("");
   const [pendingQuick, setPendingQuick] = useState<ReadonlySet<string>>(new Set());
+  const [menuOpen, setMenuOpen] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
   const listId = list?.id;
 
@@ -36,6 +45,22 @@ export function ListScreen({ token, list, language, strings, onOpenMembers, onOp
       setError("load");
     });
   }, [token, listId, showContents]);
+
+  // Close the menu on any tap outside it or on Escape.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (event: Event) => {
+      if (event instanceof KeyboardEvent && event.key !== "Escape") return;
+      if (event instanceof PointerEvent && (event.target as Element | null)?.closest(".menu")) return;
+      setMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", close);
+    document.addEventListener("keydown", close);
+    return () => {
+      document.removeEventListener("pointerdown", close);
+      document.removeEventListener("keydown", close);
+    };
+  }, [menuOpen]);
 
   // Grow the textarea with its content (field-sizing is not available in older iOS WebKit).
   useLayoutEffect(() => {
@@ -81,6 +106,60 @@ export function ListScreen({ token, list, language, strings, onOpenMembers, onOp
     [token, listId, showContents],
   );
 
+  /** Applies a Checked state to the local copy right away; the Entry never moves. */
+  const applyChecked = useCallback((match: (id: number) => boolean, checked: boolean) => {
+    setContents((prev) =>
+      prev && {
+        ...prev,
+        categories: prev.categories.map((g) => ({
+          ...g,
+          entries: g.entries.map((e) => (match(e.id) ? { ...e, checked } : e)),
+        })),
+      },
+    );
+  }, []);
+
+  const reload = useCallback(
+    (failure: "check" | "load") => {
+      if (listId === undefined) return;
+      setError(failure);
+      fetchContents(token, listId).then(showContents, console.error);
+    },
+    [token, listId, showContents],
+  );
+
+  const toggle = useCallback(
+    (id: number, checked: boolean) => {
+      if (listId === undefined) return;
+      selectionHaptic();
+      setError(null);
+      applyChecked((x) => x === id, checked);
+      setChecked(token, listId, id, checked).then(
+        (result) => setContents((prev) => prev && { ...prev, list: { ...prev.list, version: Math.max(prev.list.version, result.version) } }),
+        (e) => {
+          console.error(e);
+          reload("check");
+        },
+      );
+    },
+    [token, listId, applyChecked, reload],
+  );
+
+  const onUncheckAll = () => {
+    setMenuOpen(false);
+    if (listId === undefined) return;
+    selectionHaptic();
+    setError(null);
+    applyChecked(() => true, false);
+    uncheckAll(token, listId).then(
+      (result) => setContents((prev) => prev && { ...prev, list: { ...prev.list, version: Math.max(prev.list.version, result.version) } }),
+      (e) => {
+        console.error(e);
+        reload("check");
+      },
+    );
+  };
+
   const send = () => {
     const raw = text;
     if (!raw.trim()) return;
@@ -115,6 +194,7 @@ export function ListScreen({ token, list, language, strings, onOpenMembers, onOp
   }
 
   const groups = contents?.categories ?? [];
+  const anyChecked = groups.some((g) => g.entries.some((e) => e.checked));
   return (
     <main className="screen">
       <header className="header">
@@ -135,6 +215,31 @@ export function ListScreen({ token, list, language, strings, onOpenMembers, onOp
         >
           ⚙︎
         </button>
+        <div className="menu">
+          <button
+            type="button"
+            className="icon-button"
+            aria-label={strings.menu}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((open) => !open)}
+          >
+            ⋯
+          </button>
+          {menuOpen && (
+            <div className="menu__list" role="menu">
+              <button
+                type="button"
+                role="menuitem"
+                className="menu__item"
+                disabled={!anyChecked}
+                onClick={onUncheckAll}
+              >
+                {strings.uncheckAll}
+              </button>
+            </div>
+          )}
+        </div>
       </header>
 
       <form className="composer" onSubmit={onSubmit}>
@@ -153,7 +258,7 @@ export function ListScreen({ token, list, language, strings, onOpenMembers, onOp
       </form>
       {error && (
         <p className="notice" role="alert">
-          {error === "add" ? strings.addFailed : strings.loadFailed}
+          {error === "add" ? strings.addFailed : error === "check" ? strings.checkFailed : strings.loadFailed}
         </p>
       )}
 
@@ -200,8 +305,17 @@ export function ListScreen({ token, list, language, strings, onOpenMembers, onOp
           <ul className="rows">
             {group.entries.map((entry) => (
               <li key={entry.id} className={fresh.has(entry.id) ? "row row--new" : "row"}>
-                <span className="row__name">{entry.name}</span>
-                {entry.note && <span className="row__note">{entry.note}</span>}
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={entry.checked}
+                  className={entry.checked ? "row__button row__button--checked" : "row__button"}
+                  onClick={() => toggle(entry.id, !entry.checked)}
+                >
+                  <span className="row__check" aria-hidden="true" />
+                  <span className="row__name">{entry.name}</span>
+                  {entry.note && <span className="row__note">{entry.note}</span>}
+                </button>
               </li>
             ))}
           </ul>

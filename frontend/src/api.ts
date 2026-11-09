@@ -82,6 +82,8 @@ export interface Entry {
   category: string;
   added_by: number | null;
   created_at: string;
+  checked: boolean;
+  checked_by: number | null;
 }
 
 export interface CategoryGroup {
@@ -128,4 +130,23 @@ export function joinList(token: string, code: string): Promise<ShoppingList> {
     { method: "POST", body: JSON.stringify({ code }) },
     token,
   );
+}
+
+/** Sets the wanted Checked state of one Entry (idempotent; the Entry stays in place). */
+export function setChecked(
+  token: string,
+  listId: number,
+  entryId: number,
+  checked: boolean,
+): Promise<{ version: number; entry: Entry }> {
+  return request(
+    `/api/lists/${listId}/entries/${entryId}`,
+    { method: "PATCH", body: JSON.stringify({ checked }) },
+    token,
+  );
+}
+
+/** Unchecks every Entry of the List. */
+export function uncheckAll(token: string, listId: number): Promise<{ version: number; unchecked: number }> {
+  return request(`/api/lists/${listId}/entries/uncheck-all`, { method: "POST" }, token);
 }
