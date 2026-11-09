@@ -190,6 +190,34 @@ body {
   font-size: 15px;
 }
 
+/* Snackbar with Undo after «Куплено». */
+.snackbar {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--safe-bottom) + 72px);
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  padding: 10px 8px 10px 16px;
+  border-radius: 12px;
+  background: var(--text);
+  color: var(--bg);
+  font-size: 15px;
+}
+
+.snackbar__undo {
+  padding: 4px 8px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
 /* Inset grouped section, as in Telegram settings. */
 .empty {
   display: flex;

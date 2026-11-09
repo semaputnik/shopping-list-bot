@@ -86,6 +86,9 @@ class Product(Base):
     name_norm: Mapped[str] = mapped_column(String(200))
     category_key: Mapped[str] = mapped_column(String(32))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # Purchase stats: they change on «Куплено» (and its Undo), never on check.
+    purchase_count: Mapped[int] = mapped_column(default=0, server_default="0")
+    last_purchased_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Entry(Base):
@@ -108,3 +111,34 @@ class Entry(Base):
     checked_by: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"))
 
     product: Mapped[Product] = relationship()
+
+
+class Purchase(Base):
+    """One press of «Куплено»: the Checked Entries it removed, when, and who pressed it."""
+
+    __tablename__ = "purchase"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    list_id: Mapped[int] = mapped_column(ForeignKey("list.id", ondelete="CASCADE"), index=True)
+    purchased_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    purchased_by: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"))
+
+    entries: Mapped[list[PurchaseEntry]] = relationship(
+        cascade="all, delete-orphan", passive_deletes=True
+    )
+
+
+class PurchaseEntry(Base):
+    """Snapshot of an Entry at the moment it was bought; enough to restore it on Undo."""
+
+    __tablename__ = "purchase_entry"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    purchase_id: Mapped[int] = mapped_column(ForeignKey("purchase.id", ondelete="CASCADE"))
+    product_id: Mapped[int] = mapped_column(ForeignKey("product.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(String(200))
+    note: Mapped[str | None] = mapped_column(String(500))
+    added_by: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"))
+    entry_created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    checked_by: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"))
