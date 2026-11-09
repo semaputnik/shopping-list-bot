@@ -204,12 +204,16 @@ export function App() {
   useEffect(() => {
     if (token === null) return;
     const catchUp = () => {
-      // Coming back to the app fires visibilitychange and isMiniAppActive together: run once.
+      void syncLists();
+      setRemote((r) => ({ seq: r.seq + 1, kind: "catchup", listId: null, version: 0 }));
+    };
+    // Coming back to the app fires visibilitychange and isMiniAppActive together: run once.
+    // Only these duplicate signals are throttled; a stream (re)connect always catches up.
+    const onActive = () => {
       const now = Date.now();
       if (now - lastCatchUp.current < 1000) return;
       lastCatchUp.current = now;
-      void syncLists();
-      setRemote((r) => ({ seq: r.seq + 1, kind: "catchup", listId: null, version: 0 }));
+      catchUp();
     };
     const close = openEventStream(token, {
       onReady: catchUp,
@@ -232,7 +236,7 @@ export function App() {
         }));
       },
     });
-    const stopListening = onActivated(catchUp);
+    const stopListening = onActivated(onActive);
     return () => {
       close();
       stopListening();

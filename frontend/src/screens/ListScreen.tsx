@@ -196,6 +196,8 @@ export function ListScreen({
   }, []);
 
   // Entries this user is editing right now: the echo of their own command is not news.
+  // Deliberate: for these 3 s another Member's change to the same Entry is not highlighted
+  // either (cosmetic; the data still updates).
   const ownEntries = useRef(new Set<number>());
   const markOwn = useCallback((id: number) => {
     ownEntries.current.add(id);
@@ -439,10 +441,9 @@ export function ListScreen({
           // The server may overrule us (check beats a near-simultaneous uncheck): its verdict wins.
           setContents((prev) => {
             if (!prev) return prev;
-            const next =
-              result.entry.checked !== checked
-                ? applyEntryChange(prev, result.entry, version, categories)
-                : null;
+            // Always apply the answer: a remote snapshot shown while this command was in
+            // flight may have wiped the optimistic state, and the own echo is ignored.
+            const next = applyEntryChange(prev, result.entry, version, categories);
             return next ?? { ...prev, list: { ...prev.list, version } };
           });
         },
@@ -524,14 +525,14 @@ export function ListScreen({
     if (listId === undefined) return;
     haptic.select();
     setError(null);
-    const cleared = checkedCount;
     applyChecked(() => true, false);
     uncheckAll(token, listId).then(
       (result) => {
         const version = ownVersion(result.version);
         setContents((prev) => prev && { ...prev, list: { ...prev.list, version } });
-        // The server spared some Entries (another Member's fresh check wins): show its truth.
-        if (result.unchecked < cleared) void refresh();
+        // Always show the server's truth: it may have spared Entries (another Member's fresh
+        // check wins), and a remote snapshot shown meanwhile may have undone the optimistic state.
+        void refresh();
       },
       (e) => {
         console.error(e);
