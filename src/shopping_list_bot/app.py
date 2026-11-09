@@ -27,7 +27,7 @@ from .auth import (
 from .categories import CATEGORIES, CATEGORY_BY_KEY, guess_category
 from .config import Settings
 from .db import Base, make_engine, make_session_factory
-from .i18n import FIRST_LIST_NAME, SYSTEM_CATEGORIES, effective_language
+from .i18n import FIRST_LIST_NAME, effective_language
 from .normalize import normalize
 from .parsing import parse_input
 
@@ -333,7 +333,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def categories(user: UserDep) -> list[CategoryOut]:
         """System Categories named in the user's effective language."""
         lang = effective_language(user.language, user.language_code)
-        return [CategoryOut(key=key, name=names[lang]) for key, names in SYSTEM_CATEGORIES]
+        return [CategoryOut(key=c.key, name=c.name(lang)) for c in CATEGORIES]
 
     def _member_lists(user: models.User):
         return (
@@ -523,9 +523,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return entry
 
     def _bump(session: Session, lst: models.List) -> None:
-        lst.version += 1
-        lst.updated_at = models.utcnow()
+        session.execute(
+            update(models.List)
+            .where(models.List.id == lst.id)
+            .values(version=models.List.version + 1, updated_at=models.utcnow())
+        )
         session.commit()
+        session.refresh(lst)
 
     @api.patch("/lists/{list_id}/entries/{entry_id}", response_model=EntryChangeOut)
     def update_entry(

@@ -60,6 +60,14 @@ class TestNote:
         patch(client, anna, milk["id"], note="")
         assert all_entries(contents(client, anna))[0]["note"] is None
 
+    def test_note_is_cleared_with_an_explicit_null(self, client, anna):
+        (milk,) = add(client, anna, "молоко")
+        patch(client, anna, milk["id"], note="2 л")
+        r = patch(client, anna, milk["id"], note=None)
+        assert r.status_code == 200, r.text
+        assert r.json()["entry"]["note"] is None
+        assert all_entries(contents(client, anna))[0]["note"] is None
+
     def test_blank_note_is_cleared_and_text_is_trimmed(self, client, anna):
         (milk,) = add(client, anna, "молоко, 2 л")
         patch(client, anna, milk["id"], note="  крупные  ")
@@ -129,6 +137,23 @@ class TestCategory:
         (theirs,) = add(client, carlos_who, "молоко")
         patch(client, anna, mine["id"], category="other")
         assert category_of(contents(client, carlos_who), theirs["id"]) == "dairy"
+
+    def test_every_listed_category_is_accepted_and_groups_the_entry(self, client, anna):
+        listed = client.get("/api/categories", headers=anna["headers"]).json()
+        keys = [c["key"] for c in listed]
+        (milk,) = add(client, anna, "молоко")
+        for key in keys:
+            r = patch(client, anna, milk["id"], category=key)
+            assert r.status_code == 200, (key, r.text)
+            assert r.json()["entry"]["category"] == key
+            assert category_of(contents(client, anna), milk["id"]) == key
+
+    def test_guessed_categories_are_listed_categories(self, client, anna):
+        keys = {c["key"] for c in client.get("/api/categories", headers=anna["headers"]).json()}
+        entries = add(client, anna, "яблоки, молоко, хлеб, вода, мыло, батарейки, абракадабра")
+        assert {e["category"] for e in entries} <= keys
+        assert "produce" in {e["category"] for e in entries}
+        assert {e["category"] for e in all_entries(contents(client, anna))} <= keys
 
     def test_unknown_category_is_rejected(self, client, anna):
         (milk,) = add(client, anna, "молоко")
@@ -232,6 +257,16 @@ class TestAccess:
             client.delete(entry_url(anna, theirs["id"]), headers=anna["headers"]).status_code == 404
         )
 
+    def test_restore_through_another_lists_url_is_404(self, client, anna, sign_in):
+        carlos = sign_in(CARLOS)
+        carlos_list = client.get("/api/lists", headers=carlos["headers"]).json()[0]["id"]
+        theirs_who = {"headers": carlos["headers"], "list_id": carlos_list}
+        (theirs,) = add(client, theirs_who, "молоко")
+        client.delete(entry_url(theirs_who, theirs["id"]), headers=carlos["headers"])
+        r = client.post(entry_url(anna, theirs["id"], "/restore"), headers=anna["headers"])
+        assert r.status_code == 404
+        assert contents(client, theirs_who)["categories"] == []
+
     def test_unknown_entry_is_404(self, client, anna):
         assert client.delete(entry_url(anna, 9999), headers=anna["headers"]).status_code == 404
 
@@ -239,3 +274,4 @@ class TestAccess:
         (milk,) = add(client, anna, "молоко")
         assert client.patch(entry_url(anna, milk["id"]), json={"note": "x"}).status_code == 401
         assert client.delete(entry_url(anna, milk["id"])).status_code == 401
+        assert client.post(entry_url(anna, milk["id"], "/restore")).status_code == 401

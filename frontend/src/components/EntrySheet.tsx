@@ -6,12 +6,16 @@ import { showNativeBackButton } from "../telegram";
 interface Props {
   entry: Entry;
   categories: Category[];
+  /** Name of the Entry's current Category; shown while the Category list is unavailable. */
+  categoryName: string;
   language: Language;
   strings: Strings;
   /** Saves the Note; rejects on failure. Called one at a time, in order. */
   onSaveNote: (note: string) => Promise<void>;
   onChangeCategory: (category: string) => Promise<void>;
   onDelete: () => void;
+  /** A Note save failed after the sheet had already closed. */
+  onSaveFailed: () => void;
   onClose: () => void;
 }
 
@@ -26,11 +30,13 @@ function parseTime(value: string): Date {
 export function EntrySheet({
   entry,
   categories,
+  categoryName,
   language,
   strings,
   onSaveNote,
   onChangeCategory,
   onDelete,
+  onSaveFailed,
   onClose,
 }: Props) {
   const [note, setNote] = useState(entry.note ?? "");
@@ -39,6 +45,7 @@ export function EntrySheet({
   const saved = useRef(entry.note ?? "");
   const latest = useRef(note);
   const timer = useRef<number | undefined>(undefined);
+  const mounted = useRef(true);
   const chain = useRef<Promise<void>>(Promise.resolve());
 
   // Saves run one after another so an older request can never land after a newer one.
@@ -50,14 +57,15 @@ export function EntrySheet({
       try {
         await onSaveNote(value);
         saved.current = value;
-        setFailed(false);
+        if (mounted.current) setFailed(false);
       } catch (e) {
         console.error(e);
-        setFailed(true);
+        if (mounted.current) setFailed(true);
+        else onSaveFailed();
       }
     });
     return chain.current;
-  }, [onSaveNote]);
+  }, [onSaveNote, onSaveFailed]);
 
   const close = useCallback(() => {
     void flush();
@@ -74,7 +82,19 @@ export function EntrySheet({
     return () => window.removeEventListener("keydown", onKey);
   }, [close]);
 
-  useEffect(() => () => window.clearTimeout(timer.current), []);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      window.clearTimeout(timer.current);
+    };
+  }, []);
+
+  // Save the pending Note first, so Undo brings back what was typed, not the old Note.
+  const remove = async () => {
+    await flush();
+    onDelete();
+  };
 
   const onNoteChange = (value: string) => {
     setNote(value);
@@ -133,8 +153,10 @@ export function EntrySheet({
           <select
             className="sheet__input"
             value={category}
+            disabled={categories.length === 0}
             onChange={(e) => void pickCategory(e.target.value)}
           >
+            {categories.length === 0 && <option value={category}>{categoryName}</option>}
             {categories.map((c) => (
               <option key={c.key} value={c.key}>
                 {c.name}
@@ -144,8 +166,8 @@ export function EntrySheet({
         </label>
 
         <p className="sheet__meta">
-          {strings.entryAddedBy}
-          {entry.added_by_name ? ` ${entry.added_by_name}` : ""} · {when}
+          {entry.added_by_name ? `${strings.entryAddedBy} ${entry.added_by_name} · ` : ""}
+          {when}
         </p>
 
         {failed && (
@@ -154,7 +176,7 @@ export function EntrySheet({
           </p>
         )}
 
-        <button type="button" className="sheet__delete" onClick={onDelete}>
+        <button type="button" className="sheet__delete" onClick={() => void remove()}>
           {strings.entryDelete}
         </button>
       </div>

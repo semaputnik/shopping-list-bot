@@ -103,8 +103,11 @@ class Entry(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     # Client-generated idempotency id (a replayed add must not duplicate the Entry).
     client_id: Mapped[str | None] = mapped_column(String(80))
-    # Set while the Entry is deleted: a deleted Entry is hidden everywhere but can be
-    # restored (the 5 s Undo after deleting).
+    # Soft delete. INVARIANT: every query that lists, counts or edits Entries MUST filter
+    # ``deleted_at IS NULL`` (only delete/restore look at deleted Entries). A deleted Entry
+    # stays restorable with no time limit: the 5 s Undo is a UI affordance, not a server rule.
+    # A replayed add whose client_id belongs to a deleted Entry returns 200 with that Entry,
+    # which is now invisible; it is not re-created.
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     product: Mapped[Product] = relationship()

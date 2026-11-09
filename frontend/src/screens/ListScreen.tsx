@@ -36,7 +36,7 @@ interface Removed {
 export function ListScreen({ token, list, language, strings, onOpenMembers, onOpenSettings }: Props) {
   const [contents, setContents] = useState<ListContents | null>(null);
   const [fresh, setFresh] = useState<ReadonlySet<number>>(new Set());
-  const [error, setError] = useState<"add" | "load" | "delete" | "undo" | null>(null);
+  const [error, setError] = useState<"add" | "load" | "delete" | "undo" | "save" | null>(null);
   const [text, setText] = useState("");
   const [pendingQuick, setPendingQuick] = useState<ReadonlySet<string>>(new Set());
   const input = useRef<HTMLTextAreaElement>(null);
@@ -68,11 +68,16 @@ export function ListScreen({ token, list, language, strings, onOpenMembers, onOp
     }
   }, [token, listId, showContents]);
 
+  const loadCategories = useCallback(() => {
+    fetchCategories(token).then(setCategories, (e) => console.error(e));
+  }, [token]);
+
+  // Fetched up front so the sheet's select is ready; retried on open if that failed.
+  useEffect(loadCategories, [loadCategories]);
+
   const openSheet = (id: number) => {
     setOpenId(id);
-    if (categories.length === 0) {
-      fetchCategories(token).then(setCategories, (e) => console.error(e));
-    }
+    if (categories.length === 0) loadCategories();
   };
 
   const closeSheet = useCallback(() => setOpenId(null), []);
@@ -205,7 +210,7 @@ export function ListScreen({ token, list, language, strings, onOpenMembers, onOp
   }
 
   const groups = contents?.categories ?? [];
-  const openEntry_ =
+  const openEntry =
     openId === null ? null : groups.flatMap((g) => g.entries).find((e) => e.id === openId) ?? null;
   return (
     <main className="screen">
@@ -251,6 +256,7 @@ export function ListScreen({ token, list, language, strings, onOpenMembers, onOp
               load: strings.loadFailed,
               delete: strings.entryDeleteFailed,
               undo: strings.undoFailed,
+              save: strings.entrySaveFailed,
             }[error]
           }
         </p>
@@ -309,16 +315,18 @@ export function ListScreen({ token, list, language, strings, onOpenMembers, onOp
         </section>
       ))}
 
-      {openEntry_ && (
+      {openEntry && (
         <EntrySheet
-          key={openEntry_.id}
-          entry={openEntry_}
+          key={openEntry.id}
+          entry={openEntry}
           categories={categories}
+          categoryName={groups.find((g) => g.key === openEntry.category)?.name ?? ""}
           language={language}
           strings={strings}
           onSaveNote={saveNote}
           onChangeCategory={changeCategory}
-          onDelete={() => void removeEntry(openEntry_.id, openEntry_.name)}
+          onDelete={() => void removeEntry(openEntry.id, openEntry.name)}
+          onSaveFailed={() => setError("save")}
           onClose={closeSheet}
         />
       )}
