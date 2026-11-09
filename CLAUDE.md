@@ -31,6 +31,18 @@ cd frontend && npm run build             # typecheck (tsc) + production build in
 cd frontend && npm run typecheck         # typecheck only
 ```
 
+**Docker and CI.** One image serves both processes. The default is `serve` (API plus the built Mini App on :8000, SQLite at `/data/shared_lists.db`); the bot runs from the same image with the `bot` command.
+
+```bash
+docker build -t shared-lists .
+docker run -p 8000:8000 -v shared-lists-data:/data --env-file .env shared-lists           # API + Mini App
+docker run -v shared-lists-data:/data --env-file .env shared-lists shopping-list-bot bot  # bot
+```
+
+GitHub Actions has two workflows:
+- `.github/workflows/ci.yml` runs on every pull request: ruff lint and format check, pytest, the frontend typecheck and build, and a Docker build with a smoke test (`/healthz`, the frontend served, the bot module importable).
+- `.github/workflows/release.yml` runs on a `v*` tag push. It builds an amd64 and arm64 image and pushes it to `ghcr.io/semaputnik/shopping-list-bot`, tagged with the version, `major.minor`, the tag itself and the commit sha.
+
 **Sync tuning** (all optional, `SL_` prefix): `CHECK_WINS_WINDOW_SECONDS` (2.0; another Member's uncheck within this long after a check is dropped), `CHANGES_MAX_GAP` (100), `CHANGES_RETENTION` (500 versions of log per List), `SSE_HEARTBEAT_SECONDS` (15), `IDEMPOTENCY_TTL_SECONDS` (24 h).
 
 **Configuration** is read from `SL_*` environment variables or a `.env` file: `SL_BOT_TOKEN`, `SL_BOT_USERNAME` (the bot's @username without `@`; builds Share links `https://t.me/<bot>?startapp=<code>`, `share_url` is null without it), `SL_WEBAPP_URL` (public https URL of the Mini App), `SL_DATABASE_URL` (default `sqlite:///./shared_lists.db`), `SL_SESSION_SECRET` (optional; derived from the bot token if empty; with neither set, no session is issued or accepted). The bot also reads `SL_DATABASE_URL` (to look up a user's chosen language for `/start`), so it must point at the same database as the backend; the backend owns the schema, and if the database is unreachable or not yet migrated the bot falls back to Telegram's language. No real bot token is needed to run tests or build.
