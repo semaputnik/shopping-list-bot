@@ -6,6 +6,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Index,
     String,
     UniqueConstraint,
     false,
@@ -91,6 +92,8 @@ class Product(Base):
     # and entering the name again brings it back.
     hidden: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # Stats change on «Куплено» (and its Undo), never on check.
+    last_purchased_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Entry(Base):
@@ -120,3 +123,41 @@ class Entry(Base):
 
     product: Mapped[Product] = relationship()
     author: Mapped[User | None] = relationship(foreign_keys=[added_by])
+
+
+class Purchase(Base):
+    """One press of «Куплено»: the Checked Entries it removed, when, and who pressed it."""
+
+    __tablename__ = "purchase"
+    # History pages a List's Purchases newest first.
+    __table_args__ = (Index("ix_purchase_list_id_purchased_at", "list_id", "purchased_at"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    list_id: Mapped[int] = mapped_column(ForeignKey("list.id", ondelete="CASCADE"))
+    purchased_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    purchased_by: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"))
+
+    entries: Mapped[list[PurchaseEntry]] = relationship(
+        cascade="all, delete-orphan", passive_deletes=True
+    )
+
+
+class PurchaseEntry(Base):
+    """Snapshot of an Entry at the moment it was bought; enough to restore it on Undo."""
+
+    __tablename__ = "purchase_entry"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    purchase_id: Mapped[int] = mapped_column(
+        ForeignKey("purchase.id", ondelete="CASCADE"), index=True
+    )
+    # Indexed: Undo recomputes a Product's stats from its PurchaseEntries.
+    product_id: Mapped[int] = mapped_column(
+        ForeignKey("product.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(200))
+    note: Mapped[str | None] = mapped_column(String(500))
+    added_by: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"))
+    entry_created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    checked_by: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"))

@@ -9,6 +9,7 @@ import {
 } from "react";
 import {
   addEntries,
+  buy,
   deleteEntry,
   fetchCategories,
   fetchContents,
@@ -17,6 +18,7 @@ import {
   restoreEntry,
   updateEntry,
   uncheckAll,
+  undoPurchase,
   type Category,
   type ListContents,
   type ShoppingList,
@@ -26,7 +28,7 @@ import { AvatarStack } from "../components/Avatar";
 import { EntrySheet } from "../components/EntrySheet";
 import { applyEntryChange } from "../entryChange";
 import { QUICK_ADD, withCount, type Language, type Strings } from "../i18n";
-import { confirmDestructive, haptic } from "../telegram";
+import { bindMainButton, confirmDestructive, haptic, setMainButtonText } from "../telegram";
 import { NameSheet, Sheet } from "./Sheet";
 
 interface Props {
@@ -110,7 +112,13 @@ export function ListScreen({
 
   const [contents, setContents] = useState<ListContents | null>(null);
   const [fresh, setFresh] = useState<ReadonlySet<number>>(new Set());
-  const [error, setError] = useState<"add" | "load" | "check" | "delete" | "undo" | "save" | null>(null);
+  const [error, setError] = useState<
+    "add" | "load" | "check" | "delete" | "undo" | "save" | "buy" | "undoBuy" | null
+  >(null);
+  // The Purchase that can still be undone (the snackbar is up for UNDO_MS).
+  const [undoable, setUndoable] = useState<{ id: number; listId: number; count: number } | null>(null);
+  const undoTimer = useRef<number | undefined>(undefined);
+  const buying = useRef(false);
   const [text, setText] = useState("");
   const [pendingQuick, setPendingQuick] = useState<ReadonlySet<string>>(new Set());
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
@@ -308,7 +316,7 @@ export function ListScreen({
   }, []);
 
   const reload = useCallback(
-    (failure: "check" | "load") => {
+    (failure: "check" | "load" | "buy" | "undoBuy") => {
       if (listId === undefined) return;
       setError(failure);
       fetchContents(token, listId).then(showContents, console.error);
@@ -333,7 +341,69 @@ export function ListScreen({
     [token, listId, applyChecked, reload],
   );
 
-  const anyChecked = (contents?.categories ?? []).some((g) => g.entries.some((e) => e.checked));
+  const checkedCount = (contents?.categories ?? []).reduce(
+    (n, g) => n + g.entries.filter((e) => e.checked).length,
+    0,
+  );
+  const anyChecked = checkedCount > 0;
+
+  const dismissUndo = useCallback(() => {
+    window.clearTimeout(undoTimer.current);
+    setUndoable(null);
+  }, []);
+  useEffect(() => () => window.clearTimeout(undoTimer.current), []);
+  // The snackbar belongs to the List it was shown for.
+  useEffect(() => {
+    if (undoable && undoable.listId !== listId) dismissUndo();
+  }, [undoable, listId, dismissUndo]);
+
+  /** «Куплено»: Checked Entries leave as one Purchase; the snackbar offers Undo for 5 s. */
+  const onBuy = useCallback(async () => {
+    if (listId === undefined || buying.current) return;
+    buying.current = true;
+    haptic.success();
+    setError(null);
+    try {
+      const result = await buy(token, listId);
+      showContents(await fetchContents(token, listId));
+      window.clearTimeout(undoTimer.current);
+      setUndoable({ id: result.id, listId, count: result.count });
+      undoTimer.current = window.setTimeout(() => setUndoable(null), UNDO_MS);
+    } catch (e) {
+      console.error(e);
+      reload("buy");
+    } finally {
+      buying.current = false;
+    }
+  }, [token, listId, showContents, reload]);
+
+  const onUndo = async () => {
+    if (listId === undefined || !undoable || undoable.listId !== listId) return;
+    const { id } = undoable;
+    dismissUndo();
+    haptic.select();
+    try {
+      await undoPurchase(token, listId, id);
+      showContents(await fetchContents(token, listId));
+    } catch (e) {
+      console.error(e);
+      reload("undoBuy");
+    }
+  };
+
+  // The native «Куплено (N)» button exists only while something is Checked and no sheet covers
+  // the screen. Bound once per visibility change; the label is updated in place.
+  const boughtLabel = `${strings.bought} (${checkedCount})`;
+  const label = useRef(boughtLabel);
+  label.current = boughtLabel;
+  const buttonVisible = checkedCount > 0 && panel === null;
+  useEffect(() => {
+    if (!buttonVisible) return;
+    return bindMainButton(label.current, () => void onBuy());
+  }, [buttonVisible, onBuy]);
+  useEffect(() => {
+    if (buttonVisible) setMainButtonText(boughtLabel);
+  }, [buttonVisible, boughtLabel]);
 
   const onUncheckAll = () => {
     close();
@@ -669,9 +739,19 @@ export function ListScreen({
               delete: strings.entryDeleteFailed,
               undo: strings.undoFailed,
               save: strings.entrySaveFailed,
+              buy: strings.buyFailed,
+              undoBuy: strings.undoBuyFailed,
             }[error]
           }
         </p>
+      )}
+      {undoable && removed.length === 0 && (
+        <div className="snackbar" role="status">
+          <span className="snackbar__text">{`${strings.bought}: ${undoable.count}`}</span>
+          <button type="button" className="snackbar__action" onClick={() => void onUndo()}>
+            {strings.undo}
+          </button>
+        </div>
       )}
 
       {contents && groups.length === 0 && (

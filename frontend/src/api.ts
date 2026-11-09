@@ -225,6 +225,47 @@ export function joinList(token: string, code: string): Promise<ShoppingList> {
   );
 }
 
+/** Sets the wanted Checked state of one Entry (idempotent; the Entry stays in place). */
+export function setChecked(
+  token: string,
+  listId: number,
+  entryId: number,
+  checked: boolean,
+): Promise<{ version: number; entry: Entry }> {
+  return request(
+    `/api/lists/${listId}/entries/${entryId}`,
+    { method: "PATCH", body: JSON.stringify({ checked }) },
+    token,
+  );
+}
+
+/** The Purchase record «Куплено» creates (History reuses this shape). */
+export interface Purchase {
+  id: number;
+  version: number;
+  purchased_at: string;
+  purchased_by: number | null;
+  entries: { name: string; note: string | null }[];
+  count: number;
+}
+
+/** «Куплено»: every Checked Entry leaves the List as one Purchase. */
+export function buy(
+  token: string,
+  listId: number,
+): Promise<Purchase> {
+  return request(`/api/lists/${listId}/purchases`, { method: "POST" }, token);
+}
+
+/** Undo of «Куплено»: the Entries return Checked and the Purchase disappears. */
+export function undoPurchase(
+  token: string,
+  listId: number,
+  purchaseId: number,
+): Promise<{ version: number; restored: number }> {
+  return request(`/api/lists/${listId}/purchases/${purchaseId}`, { method: "DELETE" }, token);
+}
+
 /** Unchecks every Entry of the List. */
 export function uncheckAll(token: string, listId: number): Promise<{ version: number; unchecked: number }> {
   return request(`/api/lists/${listId}/entries/uncheck-all`, { method: "POST" }, token);

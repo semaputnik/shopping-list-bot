@@ -8,18 +8,23 @@ import {
   hideBackButton,
   init,
   isBackButtonMounted,
+  isMainButtonMounted,
   isTMA,
   miniAppReady,
   mountBackButton,
+  mountMainButton,
   mountMiniApp,
   mountSwipeBehavior,
   mountThemeParamsSync,
   mountViewport,
   offBackButtonClick,
+  offMainButtonClick,
   onBackButtonClick,
+  onMainButtonClick,
   openPopup,
   retrieveLaunchParams,
   retrieveRawInitData,
+  setMainButtonParams,
   setMiniAppBackgroundColor,
   setMiniAppBottomBarColor,
   setMiniAppHeaderColor,
@@ -65,6 +70,9 @@ async function doStartTelegram(): Promise<TelegramContext | null> {
 
   // Mounted once here: show/hide/onClick are only available on a mounted BackButton.
   if (mountBackButton.isAvailable() && !isBackButtonMounted()) mountBackButton();
+
+  // The native bottom button («Куплено (N)»); shown and hidden through bindMainButton.
+  if (mountMainButton.isAvailable() && !isMainButtonMounted()) mountMainButton();
 
   // Swipes on list rows must not close the app.
   if (mountSwipeBehavior.isAvailable()) mountSwipeBehavior();
@@ -112,6 +120,25 @@ export function bindBackButton(onBack: () => void): () => void {
     if (offBackButtonClick.isAvailable()) offBackButtonClick(onBack);
     if (hideBackButton.isAvailable()) hideBackButton();
   };
+}
+
+/**
+ * Shows Telegram's native MainButton with `text` and calls `onClick` when it is pressed. Returns
+ * a cleanup that removes the listener and hides the button. No-op outside Telegram.
+ */
+export function bindMainButton(text: string, onClick: () => void): () => void {
+  if (!setMainButtonParams.isAvailable() || !onMainButtonClick.isAvailable()) return () => {};
+  setMainButtonParams({ text, isVisible: true, isEnabled: true });
+  onMainButtonClick(onClick);
+  return () => {
+    if (offMainButtonClick.isAvailable()) offMainButtonClick(onClick);
+    if (setMainButtonParams.isAvailable()) setMainButtonParams({ isVisible: false });
+  };
+}
+
+/** Changes the label of the MainButton in place (no hide/show, so it does not flicker). */
+export function setMainButtonText(text: string): void {
+  if (setMainButtonParams.isAvailable()) setMainButtonParams({ text });
 }
 
 /** Haptics on state changes (no-ops outside Telegram or on clients without support). */

@@ -5,14 +5,14 @@ import hmac
 import logging
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, StringConstraints
-from sqlalchemy import func, inspect, select, text, update
+from sqlalchemy import delete, func, inspect, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -155,6 +155,40 @@ class UncheckAllOut(BaseModel):
     unchecked: int
 
 
+class ProductOut(BaseModel):
+    id: int
+    name: str
+    category: str
+    purchase_count: int
+    last_purchased_at: datetime | None
+
+
+class PurchasedEntryOut(BaseModel):
+    """An Entry as it was when bought (name and Note snapshots)."""
+
+    name: str
+    note: str | None
+
+
+class PurchaseOut(BaseModel):
+    """The Purchase record; History reuses this shape (with `id`)."""
+
+    id: int
+    version: int
+    purchased_at: datetime
+    # The Member who pressed «Куплено».
+    purchased_by: int | None
+    entries: list[PurchasedEntryOut]
+    # How many Entries left the List.
+    count: int
+
+
+class UndoPurchaseOut(BaseModel):
+    version: int
+    # How many Entries came back, Checked.
+    restored: int
+
+
 class MeUpdate(BaseModel):
     # "ru" or "es" sets the language; null goes back to following Telegram.
     language: Literal["ru", "es"] | None
@@ -254,6 +288,7 @@ def _add_missing_columns(engine) -> None:
         ("product", "hidden", "BOOLEAN NOT NULL DEFAULT 0"),
         ("entry", "checked_at", "DATETIME"),
         ("entry", "checked_by", "INTEGER REFERENCES user (id) ON DELETE SET NULL"),
+        ("product", "last_purchased_at", "DATETIME"),
     ]
     for table, column, ddl in additions:
         if column not in {c["name"] for c in inspector.get_columns(table)}:
@@ -757,6 +792,144 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         session.commit()
         session.refresh(lst)
         return UncheckAllOut(version=lst.version, unchecked=count)
+
+    @api.get("/lists/{list_id}/products", response_model=list[ProductOut])
+    def list_products(list_id: int, user: UserDep, session: SessionDep) -> list[ProductOut]:
+        """The List's memory of Products with their purchase stats (hidden Products are forgotten)."""
+        lst = _member_list(session, user, list_id)
+        products = session.scalars(
+            select(models.Product)
+            .where(models.Product.list_id == lst.id, models.Product.hidden.is_(False))
+            .order_by(models.Product.id)
+        )
+        return [
+            ProductOut(
+                id=p.id,
+                name=p.name,
+                category=p.category_key,
+                purchase_count=p.purchase_count,
+                last_purchased_at=p.last_purchased_at,
+            )
+            for p in products
+        ]
+
+    @api.post("/lists/{list_id}/purchases", response_model=PurchaseOut, status_code=201)
+    def buy(list_id: int, user: UserDep, session: SessionDep) -> PurchaseOut:
+        """«Куплено»: all Checked Entries leave the List as one Purchase, in one transaction."""
+        lst = _member_list(session, user, list_id)
+        checked = session.scalars(
+            select(models.Entry)
+            .where(models.Entry.list_id == lst.id, models.Entry.checked_at.is_not(None))
+            .order_by(models.Entry.created_at, models.Entry.id)
+        ).all()
+        if not checked:
+            raise HTTPException(409, "nothing is checked")
+        now = models.utcnow()
+        purchase = models.Purchase(list_id=lst.id, purchased_at=now, purchased_by=user.id)
+        session.add(purchase)
+        session.flush()
+        for entry in checked:
+            session.add(
+                models.PurchaseEntry(
+                    purchase_id=purchase.id,
+                    product_id=entry.product_id,
+                    name=entry.name,
+                    note=entry.note,
+                    added_by=entry.added_by,
+                    entry_created_at=entry.created_at,
+                    checked_at=entry.checked_at,
+                    checked_by=entry.checked_by,
+                )
+            )
+        # Stats move here, once per bought Entry (two Entries of one Product count twice).
+        for product_id in {e.product_id for e in checked}:
+            bought = sum(1 for e in checked if e.product_id == product_id)
+            session.execute(
+                update(models.Product)
+                .where(models.Product.id == product_id)
+                .values(
+                    purchase_count=models.Product.purchase_count + bought, last_purchased_at=now
+                )
+            )
+        # Delete by id and require every row to go: a concurrent «Куплено» or uncheck that got
+        # in between means this one must not record a Purchase for Entries it did not remove.
+        deleted = session.execute(
+            delete(models.Entry).where(
+                models.Entry.id.in_([e.id for e in checked]),
+                models.Entry.checked_at.is_not(None),
+            )
+        ).rowcount
+        if deleted != len(checked):
+            session.rollback()
+            raise HTTPException(409, "the List changed, try again")
+        _touch(session, lst)
+        session.commit()
+        return PurchaseOut(
+            id=purchase.id,
+            version=lst.version,
+            purchased_at=now,
+            purchased_by=user.id,
+            entries=[PurchasedEntryOut(name=e.name, note=e.note) for e in checked],
+            count=len(checked),
+        )
+
+    @api.delete("/lists/{list_id}/purchases/{purchase_id}", response_model=UndoPurchaseOut)
+    def undo_purchase(
+        list_id: int, purchase_id: int, user: UserDep, session: SessionDep
+    ) -> UndoPurchaseOut:
+        """Undo «Куплено»: Entries return Checked, the Purchase is deleted, stats roll back."""
+        lst = _member_list(session, user, list_id)
+        purchase = session.scalar(
+            select(models.Purchase).where(
+                models.Purchase.id == purchase_id, models.Purchase.list_id == lst.id
+            )
+        )
+        if purchase is None:
+            raise HTTPException(404, "purchase not found")
+        bought_at = purchase.purchased_at
+        if bought_at.tzinfo is None:  # SQLite hands back naive UTC
+            bought_at = bought_at.replace(tzinfo=UTC)
+        if (models.utcnow() - bought_at).total_seconds() > settings.purchase_undo_grace_seconds:
+            raise HTTPException(409, "too late to undo this purchase")
+        snapshots = sorted(purchase.entries, key=lambda s: (s.entry_created_at, s.id))
+        product_ids = {s.product_id for s in snapshots}
+        # Guarded delete, like buy: of two concurrent Undos only the one that removes the row
+        # restores the Entries; the other sees rowcount 0 and answers 404.
+        deleted = session.execute(
+            delete(models.Purchase).where(models.Purchase.id == purchase.id)
+        ).rowcount
+        if deleted != 1:
+            session.rollback()
+            raise HTTPException(404, "purchase not found")
+        for snap in snapshots:
+            session.add(
+                models.Entry(
+                    list_id=lst.id,
+                    product_id=snap.product_id,
+                    name=snap.name,
+                    note=snap.note,
+                    added_by=snap.added_by,
+                    created_at=snap.entry_created_at,
+                    checked_at=snap.checked_at,
+                    checked_by=snap.checked_by,
+                )
+            )
+        session.flush()
+        # Roll the stats back by recomputing them from the Purchases that remain.
+        for product_id in product_ids:
+            count, last = session.execute(
+                select(func.count(models.PurchaseEntry.id), func.max(models.Purchase.purchased_at))
+                .join(models.Purchase)
+                .where(models.PurchaseEntry.product_id == product_id)
+            ).one()
+            session.execute(
+                update(models.Product)
+                .where(models.Product.id == product_id)
+                .values(purchase_count=count, last_purchased_at=last)
+            )
+        _touch(session, lst)
+        session.commit()
+        return UndoPurchaseOut(version=lst.version, restored=len(snapshots))
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:

@@ -63,7 +63,10 @@ type StringKey =
   | "forgetProduct"
   | "menu"
   | "uncheckAll"
-  | "checkFailed";
+  | "checkFailed"
+  | "bought"
+  | "buyFailed"
+  | "undoBuyFailed";
 
 const strings: Record<Language, Record<StringKey, string>> = {
   ru: {
@@ -131,6 +134,9 @@ const strings: Record<Language, Record<StringKey, string>> = {
     menu: "Меню",
     uncheckAll: "Снять все отметки",
     checkFailed: "Не удалось сохранить отметку. Список обновлён.",
+    bought: "Куплено",
+    buyFailed: "Не удалось отметить покупку. Список обновлён.",
+    undoBuyFailed: "Не удалось отменить покупку. Список обновлён.",
   },
   es: {
     loading: "Cargando…",
@@ -197,6 +203,9 @@ const strings: Record<Language, Record<StringKey, string>> = {
     menu: "Menú",
     uncheckAll: "Quitar todas las marcas",
     checkFailed: "No se pudo guardar la marca. Lista actualizada.",
+    bought: "Comprado",
+    buyFailed: "No se pudo registrar la compra. Lista actualizada.",
+    undoBuyFailed: "No se pudo deshacer la compra. Lista actualizada.",
   },
 };
 
