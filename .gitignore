@@ -8,3 +8,7 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Impeccable session artifacts
+.impeccable/questions/
+.impeccable/config.local.json
