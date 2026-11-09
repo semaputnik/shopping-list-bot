@@ -68,3 +68,28 @@ def sign_in(client: TestClient) -> Callable[..., dict]:
         }
 
     return _sign_in
+
+
+@pytest.fixture
+def add_member(client: TestClient) -> Callable[[dict, dict], dict]:
+    """Make a signed-in user a Member of a List by opening its Share link (POST /lists/join)."""
+
+    def _add(lst: dict, session: dict) -> dict:
+        response = client.post(
+            "/api/lists/join", json={"code": lst["share_code"]}, headers=session["headers"]
+        )
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    return _add
+
+
+@pytest.fixture
+def count_rows(tmp_path: Path) -> Callable[[str], int]:
+    import sqlite3
+
+    def _count(table: str) -> int:
+        with sqlite3.connect(tmp_path / "test.db") as db:
+            return db.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
+
+    return _count

@@ -2,8 +2,12 @@ import { useCallback, useEffect, useState } from "react";
 import {
   ApiError,
   authenticate,
+  createList,
+  deleteList,
   fetchLists,
   joinList,
+  leaveList,
+  renameList,
   updateLanguage,
   type ShoppingList,
   type User,
@@ -13,7 +17,7 @@ import { ListScreen } from "./screens/ListScreen";
 import { MembersScreen } from "./screens/MembersScreen";
 import { Message } from "./screens/Message";
 import { SettingsScreen } from "./screens/SettingsScreen";
-import { startTelegram } from "./telegram";
+import { haptic, startTelegram } from "./telegram";
 
 type State =
   | { kind: "loading" }
@@ -40,6 +44,14 @@ export function App() {
   const [language, setLanguage] = useState<Language>(() =>
     pickLanguage(navigator.language),
   );
+  const [failed, setFailed] = useState(false);
+
+  // The failure toast hides itself.
+  useEffect(() => {
+    if (!failed) return;
+    const timer = setTimeout(() => setFailed(false), 4000);
+    return () => clearTimeout(timer);
+  }, [failed]);
 
   const boot = useCallback(async () => {
     setState({ kind: "loading" });
@@ -84,6 +96,33 @@ export function App() {
   useEffect(() => {
     void boot();
   }, [boot]);
+
+  /** Runs a List mutation, then reloads the Lists (ordered by recent change) from the server. */
+  const mutate = useCallback(
+    async (run: (token: string) => Promise<number | null | undefined>): Promise<boolean> => {
+      if (state.kind !== "ready") return false;
+      try {
+        // `run` returns the id to show next, or undefined to keep the current List.
+        const next = await run(state.token);
+        const lists = await fetchLists(state.token);
+        setFailed(false);
+        setState((prev) => {
+          if (prev.kind !== "ready") return prev;
+          const wanted = next === undefined ? prev.currentId : next;
+          const currentId = lists.some((l) => l.id === wanted) ? wanted : (lists[0]?.id ?? null);
+          return { ...prev, lists, currentId };
+        });
+        haptic.success();
+        return true;
+      } catch (error) {
+        console.error(error);
+        setFailed(true);
+        haptic.error();
+        return false;
+      }
+    },
+    [state],
+  );
 
   const changeLanguage = useCallback(async (token: string, next: Language | null) => {
     const user = await updateLanguage(token, next);
@@ -139,15 +178,10 @@ export function App() {
       );
     }
     case "ready": {
-      const list = state.lists.find((l) => l.id === state.currentId) ?? null;
-      if (list && state.screen === "members") {
+      const current = state.lists.find((l) => l.id === state.currentId) ?? null;
+      if (current && state.screen === "members") {
         return (
-          <MembersScreen
-            user={state.user}
-            list={list}
-            strings={strings}
-            onBack={backToList}
-          />
+          <MembersScreen user={state.user} list={current} strings={strings} onBack={backToList} />
         );
       }
       if (state.screen === "settings") {
@@ -163,12 +197,35 @@ export function App() {
       }
       return (
         <ListScreen
+          key={current?.id ?? "none"}
           token={state.token}
-          list={list}
+          lists={state.lists}
+          list={current}
           language={language}
           strings={strings}
+          failed={failed}
+          onSelect={(id) => setState({ ...state, currentId: id })}
           onOpenMembers={() => setState({ ...state, screen: "members" })}
           onOpenSettings={() => setState({ ...state, screen: "settings" })}
+          onCreate={(name) => mutate(async (token) => (await createList(token, name)).id)}
+          onRename={(id, name) =>
+            mutate(async (token) => {
+              await renameList(token, id, name);
+              return id;
+            })
+          }
+          onLeave={(id) =>
+            mutate(async (token) => {
+              await leaveList(token, id);
+              return null;
+            })
+          }
+          onDelete={(id) =>
+            mutate(async (token) => {
+              await deleteList(token, id);
+              return null;
+            })
+          }
         />
       );
     }
