@@ -63,7 +63,6 @@ type StringKey =
   | "alreadyOnList"
   | "addNew"
   | "forgetProduct"
-  | "menu"
   | "uncheckAll"
   | "checkFailed"
   | "bought"
@@ -141,7 +140,6 @@ const strings: Record<Language, Record<StringKey, string>> = {
     alreadyOnList: "уже в списке",
     addNew: "Добавить",
     forgetProduct: "Убрать из подсказок",
-    menu: "Меню",
     uncheckAll: "Снять все отметки",
     checkFailed: "Не удалось сохранить отметку. Список обновлён.",
     bought: "Куплено",
@@ -218,7 +216,6 @@ const strings: Record<Language, Record<StringKey, string>> = {
     alreadyOnList: "ya está en la lista",
     addNew: "Añadir",
     forgetProduct: "Quitar de las sugerencias",
-    menu: "Menú",
     uncheckAll: "Quitar todas las marcas",
     checkFailed: "No se pudo guardar la marca. Lista actualizada.",
     bought: "Comprado",

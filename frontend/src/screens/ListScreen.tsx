@@ -351,6 +351,10 @@ export function ListScreen({
     }
     haptic.error();
     setError(null);
+    // One snackbar at a time: the newest action owns it, so a pending Purchase Undo is dismissed
+    // rather than left to expire unseen behind this one.
+    window.clearTimeout(undoTimer.current);
+    setUndoable(null);
     setRemoved((prev) => [...prev, { id, name }]);
     window.setTimeout(() => setRemoved((prev) => prev.filter((r) => r.id !== id)), UNDO_MS);
     await refresh();
@@ -482,6 +486,7 @@ export function ListScreen({
       const result = await buy(token, listId);
       showContents(await fetchContents(token, listId));
       window.clearTimeout(undoTimer.current);
+      setRemoved([]); // the newest action owns the snackbar (see removeEntry)
       setUndoable({ id: result.id, listId, count: result.count });
       undoTimer.current = window.setTimeout(() => setUndoable(null), UNDO_MS);
     } catch (e) {

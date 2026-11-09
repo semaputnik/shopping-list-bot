@@ -705,38 +705,6 @@ body {
   text-decoration: line-through;
 }
 
-.menu {
-  position: relative;
-}
-
-.menu__list {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  z-index: 2;
-  min-width: 220px;
-  border-radius: 12px;
-  background: var(--section);
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.18);
-  overflow: hidden;
-}
-
-.menu__item {
-  display: block;
-  width: 100%;
-  min-height: 48px;
-  padding: 0 16px;
-  border: 0;
-  background: none;
-  color: var(--text);
-  font: inherit;
-  text-align: left;
-}
-
-.menu__item:disabled {
-  color: var(--hint);
-}
-
 .row + .row::before {
   content: "";
   position: absolute;
