@@ -361,8 +361,28 @@ body {
   color: var(--hint);
 }
 
-.composer__input:focus-visible {
-  box-shadow: 0 0 0 2px var(--accent);
+/* Typing focus reads like Telegram's own fields: no ring, only the caret. */
+.composer__input:focus {
+  outline: none;
+}
+
+/* Keyboard focus (never pointer focus) is visible on every control, in the accent colour. */
+.row__toggle:focus-visible,
+.row__open:focus-visible,
+.sheet-row:focus-visible,
+.header__switch:focus-visible,
+.header__menu:focus-visible,
+.avatars-button:focus-visible,
+.suggest__option:focus-visible,
+.suggest__forget:focus-visible,
+.alert__action:focus-visible,
+.alert__close:focus-visible,
+.snackbar__action:focus-visible,
+.quick__button:focus-visible,
+.empty__action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 10px;
 }
 
 .notice {

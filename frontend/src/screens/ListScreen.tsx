@@ -895,7 +895,6 @@ export function ListScreen({
           placeholder={strings.inputPlaceholder}
           aria-label={strings.inputLabel}
           enterKeyHint="send"
-          autoFocus
           role="combobox"
           aria-expanded={open}
           aria-controls="suggestions"
@@ -1084,7 +1083,7 @@ export function ListScreen({
                     {entry.note && <span className="row__note">{entry.note}</span>}
                   </span>
                   {shared && (
-                    <span className="row__by">
+                    <span className="row__by" aria-hidden="true">
                       <EntryAvatar members={list.members} addedBy={entry.added_by} />
                     </span>
                   )}
