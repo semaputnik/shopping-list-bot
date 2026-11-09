@@ -22,5 +22,15 @@ class Settings(BaseSettings):
     # Undo of «Куплено» is accepted this long after the Purchase (the client offers 5 s; the rest is
     # grace for slow networks). Later reverts are refused so History is not rewritten.
     purchase_undo_grace_seconds: int = 30
+    # A check beats an uncheck by another Member made within this many seconds of it.
+    check_wins_window_seconds: float = 2.0
+    # `changes?since=` answers with a full snapshot when the client is further behind than this.
+    changes_max_gap: int = 100
+    # Versions of change log kept per List; older ones are pruned (clients then get a snapshot).
+    changes_retention: int = 500
+    # An SSE comment line is sent this often to keep the stream alive through proxies.
+    sse_heartbeat_seconds: float = 15.0
+    # Stored answers to Idempotency-Key requests are kept this long.
+    idempotency_ttl_seconds: int = 24 * 3600
     # Built frontend served by the backend when the directory exists.
     frontend_dist: Path = Path("frontend/dist")

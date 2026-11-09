@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ApiError,
   authenticate,
@@ -18,7 +18,8 @@ import { ListScreen } from "./screens/ListScreen";
 import { MembersScreen } from "./screens/MembersScreen";
 import { Message } from "./screens/Message";
 import { SettingsScreen } from "./screens/SettingsScreen";
-import { haptic, startTelegram } from "./telegram";
+import { openEventStream, type Remote } from "./sync";
+import { haptic, onActivated, startTelegram } from "./telegram";
 
 type State =
   | { kind: "loading" }
@@ -46,6 +47,26 @@ export function App() {
     pickLanguage(navigator.language),
   );
   const [failed, setFailed] = useState(false);
+  // Told to the Member when the List they were viewing disappears under them.
+  const [notice, setNotice] = useState<string | null>(null);
+  const [remote, setRemote] = useState<Remote>({ seq: 0, kind: "catchup", listId: null, version: 0 });
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const languageRef = useRef(language);
+  languageRef.current = language;
+  // Lists this user left or deleted themselves: their disappearance is no news.
+  const ownRemovals = useRef(new Set<number>());
+  const syncing = useRef({ running: false, again: false });
+  // Why each List was last announced as changed or gone (event kind), to word the notice.
+  const lastKind = useRef(new Map<number, string>());
+  const lastCatchUp = useRef(0);
+  const syncTimer = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    if (notice === null) return;
+    const timer = setTimeout(() => setNotice(null), 5000);
+    return () => clearTimeout(timer);
+  }, [notice]);
 
   // The failure toast hides itself.
   useEffect(() => {
@@ -124,6 +145,115 @@ export function App() {
     },
     [state],
   );
+
+  /**
+   * Reloads the user's Lists after a change elsewhere (renames, Members, new or removed Lists).
+   * Overlapping calls coalesce into one more run. If the List on screen is gone, the Member is
+   * told and moved to another List.
+   */
+  const syncLists = useCallback(async () => {
+    const run = syncing.current;
+    if (run.running) {
+      run.again = true;
+      return;
+    }
+    run.running = true;
+    try {
+      do {
+        run.again = false;
+        const before = stateRef.current;
+        if (before.kind !== "ready") return;
+        const lists = await fetchLists(before.token);
+        const now = stateRef.current;
+        if (now.kind !== "ready") return;
+        const gone =
+          now.currentId !== null && !lists.some((l) => l.id === now.currentId)
+            ? now.lists.find((l) => l.id === now.currentId)
+            : undefined;
+        if (gone && !ownRemovals.current.has(gone.id)) {
+          const strings = t(languageRef.current);
+          const text =
+            lastKind.current.get(gone.id) === "member.left"
+              ? strings.listLeftNotice
+              : strings.listDeletedNotice;
+          setNotice(text.replace("{name}", gone.name));
+          haptic.error();
+        }
+        setState((prev) => {
+          if (prev.kind !== "ready") return prev;
+          const stillThere = lists.some((l) => l.id === prev.currentId);
+          return {
+            ...prev,
+            lists,
+            currentId: stillThere ? prev.currentId : (lists[0]?.id ?? null),
+            screen: stillThere ? prev.screen : "list",
+          };
+        });
+      } while (run.again);
+    } catch (error) {
+      console.warn("could not refresh the Lists", error);
+    } finally {
+      run.running = false;
+    }
+  }, []);
+
+  // Realtime: one event stream for all the user's Lists. Each change refreshes the Lists and
+  // tells the List screen; after a (re)connect or coming back to the app, everything is
+  // caught up through `changes?since=`.
+  const token = state.kind === "ready" ? state.token : null;
+  useEffect(() => {
+    if (token === null) return;
+    const catchUp = () => {
+      void syncLists();
+      setRemote((r) => ({ seq: r.seq + 1, kind: "catchup", listId: null, version: 0 }));
+    };
+    // Coming back to the app fires visibilitychange and isMiniAppActive together: run once.
+    // Only these duplicate signals are throttled; a stream (re)connect always catches up.
+    const onActive = () => {
+      const now = Date.now();
+      if (now - lastCatchUp.current < 1000) return;
+      lastCatchUp.current = now;
+      catchUp();
+    };
+    const close = openEventStream(token, {
+      onReady: catchUp,
+      onChange: (event) => {
+        lastKind.current.set(event.list_id, event.kind);
+        // Renames, Members and removals change the Lists now. Entry changes only reorder the
+        // switcher (most recently changed first), so a burst of checks is coalesced.
+        if (event.kind.startsWith("list.") || event.kind.startsWith("member.")) {
+          window.clearTimeout(syncTimer.current);
+          void syncLists();
+        } else {
+          window.clearTimeout(syncTimer.current);
+          syncTimer.current = window.setTimeout(() => void syncLists(), 1500);
+        }
+        setRemote((r) => ({
+          seq: r.seq + 1,
+          kind: "event",
+          listId: event.list_id,
+          version: event.version,
+        }));
+      },
+    });
+    const stopListening = onActivated(onActive);
+    return () => {
+      close();
+      stopListening();
+      window.clearTimeout(syncTimer.current);
+    };
+  }, [token, syncLists]);
+
+  /** Runs a request that removes a List from this user, so its disappearance is not announced. */
+  const ownRemoval = async (id: number, run: () => Promise<void>) => {
+    ownRemovals.current.add(id);
+    try {
+      await run();
+    } catch (error) {
+      ownRemovals.current.delete(id);
+      throw error;
+    }
+  };
 
   const changeLanguage = useCallback(async (token: string, next: Language | null) => {
     const user = await updateLanguage(token, next);
@@ -208,38 +338,46 @@ export function App() {
         );
       }
       return (
-        <ListScreen
-          key={current?.id ?? "none"}
-          token={state.token}
-          lists={state.lists}
-          list={current}
-          language={language}
-          strings={strings}
-          failed={failed}
-          onSelect={(id) => setState({ ...state, currentId: id })}
-          onOpenMembers={() => setState({ ...state, screen: "members" })}
-          onOpenSettings={() => setState({ ...state, screen: "settings" })}
-          onOpenHistory={() => setState({ ...state, screen: "history" })}
-          onCreate={(name) => mutate(async (token) => (await createList(token, name)).id)}
-          onRename={(id, name) =>
-            mutate(async (token) => {
-              await renameList(token, id, name);
-              return id;
-            })
-          }
-          onLeave={(id) =>
-            mutate(async (token) => {
-              await leaveList(token, id);
-              return null;
-            })
-          }
-          onDelete={(id) =>
-            mutate(async (token) => {
-              await deleteList(token, id);
-              return null;
-            })
-          }
-        />
+        <>
+          {notice !== null && (
+            <p className="toast toast--top" role="status">
+              {notice}
+            </p>
+          )}
+          <ListScreen
+            key={current?.id ?? "none"}
+            remote={remote}
+            token={state.token}
+            lists={state.lists}
+            list={current}
+            language={language}
+            strings={strings}
+            failed={failed}
+            onSelect={(id) => setState({ ...state, currentId: id })}
+            onOpenMembers={() => setState({ ...state, screen: "members" })}
+            onOpenSettings={() => setState({ ...state, screen: "settings" })}
+            onOpenHistory={() => setState({ ...state, screen: "history" })}
+            onCreate={(name) => mutate(async (token) => (await createList(token, name)).id)}
+            onRename={(id, name) =>
+              mutate(async (token) => {
+                await renameList(token, id, name);
+                return id;
+              })
+            }
+            onLeave={(id) =>
+              mutate(async (token) => {
+                await ownRemoval(id, () => leaveList(token, id));
+                return null;
+              })
+            }
+            onDelete={(id) =>
+              mutate(async (token) => {
+                await ownRemoval(id, () => deleteList(token, id));
+                return null;
+              })
+            }
+          />
+        </>
       );
     }
   }

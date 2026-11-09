@@ -1,22 +1,25 @@
 """FastAPI application factory."""
 
+import asyncio
 import base64
 import binascii
 import hashlib
 import hmac
+import json
 import logging
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request, Response
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, StringConstraints
-from sqlalchemy import and_, delete, func, inspect, or_, select, text, update
+from sqlalchemy import and_, delete, event, func, inspect, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
+from starlette.concurrency import run_in_threadpool
 
 from . import models
 from .auth import (
@@ -33,6 +36,7 @@ from .i18n import FIRST_LIST_NAME, effective_language
 from .normalize import normalize
 from .parsing import parse_input
 from .suggest import MAX_SUGGESTIONS, rank
+from .sync import Hub
 
 MAX_ITEMS_PER_ADD = 100
 
@@ -128,6 +132,26 @@ class EntryUpdate(BaseModel):
     category: str | None = Field(default=None, max_length=32)
     # The wanted state, not a toggle: replaying a request is harmless.
     checked: bool | None = None
+
+
+class ChangeOut(BaseModel):
+    """One version bump of a List: what kind of change it was, and the Entry it touched."""
+
+    version: int
+    kind: str
+    entry_id: int | None
+
+
+class ChangesOut(BaseModel):
+    """What happened to a List since a version.
+
+    Either `changes` (the missed bumps, oldest first; empty when up to date) or, when the client
+    is too far behind (or ahead of) the List, `snapshot`: the List's full contents.
+    """
+
+    version: int
+    changes: list[ChangeOut]
+    snapshot: ListContentsOut | None
 
 
 class SuggestionOut(BaseModel):
@@ -304,6 +328,11 @@ def _upsert_user(session: Session, tg: TelegramUser) -> tuple[models.User, bool]
     return user, created
 
 
+def _aware(moment: datetime) -> datetime:
+    """SQLite hands datetimes back naive; they are UTC."""
+    return moment if moment.tzinfo else moment.replace(tzinfo=UTC)
+
+
 def _add_missing_columns(engine) -> None:
     """create_all does not alter existing tables; add columns introduced later.
 
@@ -348,6 +377,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         engine.dispose()
 
     app = FastAPI(title="Shared Lists", lifespan=lifespan)
+
+    hub = Hub()
+
+    # Change events are queued on the session by `_touch`/`_emit` and published only once the
+    # transaction that made the change has committed; a rollback drops them.
+    @event.listens_for(session_factory, "after_commit")
+    def _publish_committed(session: Session) -> None:
+        for recipients, payload in session.info.pop("pending_events", ()):
+            hub.publish(recipients, payload)
+
+    @event.listens_for(session_factory, "after_rollback")
+    def _drop_rolled_back(session: Session) -> None:
+        session.info.pop("pending_events", None)
 
     def get_session() -> Iterator[Session]:
         with session_factory() as session:
@@ -459,11 +501,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(404, "list not found")
         return list_out(lst, _lang(user), settings.bot_username)
 
-    def _touch(session: Session, lst: models.List) -> None:
-        """Record a mutation: bump the List's version and its change time.
+    def _emit(session: Session, recipients: set[int], payload: dict) -> None:
+        session.info.setdefault("pending_events", []).append((frozenset(recipients), payload))
+
+    def _touch(
+        session: Session,
+        lst: models.List,
+        kind: str,
+        entry_id: int | None = None,
+        also_notify: frozenset[int] = frozenset(),
+    ) -> None:
+        """Record a mutation: bump the List's version and change time, log it, announce it.
 
         One atomic UPDATE (version = version + 1), so concurrent mutations cannot lose an
-        increment the way a read-modify-write on the loaded object could.
+        increment the way a read-modify-write on the loaded object could. The change goes to
+        the List's change log (for `changes?since=`) and, after commit, to every Member's
+        stream (plus `also_notify`, e.g. a Member who just left).
         """
         session.execute(
             update(models.List)
@@ -472,6 +525,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         session.flush()
         session.refresh(lst)
+        session.add(
+            models.ListChange(list_id=lst.id, version=lst.version, kind=kind, entry_id=entry_id)
+        )
+        session.execute(
+            delete(models.ListChange).where(
+                models.ListChange.list_id == lst.id,
+                models.ListChange.version <= lst.version - settings.changes_retention,
+            )
+        )
+        recipients = set(
+            session.scalars(
+                select(models.ListMember.user_id).where(models.ListMember.list_id == lst.id)
+            )
+        )
+        _emit(
+            session,
+            recipients | also_notify,
+            {"list_id": lst.id, "version": lst.version, "kind": kind, "entry_id": entry_id},
+        )
 
     def _member_list(session: Session, user: models.User, list_id: int) -> models.List:
         lst = session.scalar(_member_lists(user).where(models.List.id == list_id))
@@ -492,7 +564,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             except IntegrityError:  # concurrent join by the same user: already a Member
                 session.rollback()
             else:
-                _touch(session, lst)
+                _touch(session, lst, "member.joined")
                 session.commit()
         return list_out(_member_list(session, user, lst.id), _lang(user), settings.bot_username)
 
@@ -501,6 +573,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lst = models.List(name=body.name, created_by=user.id)
         lst.members.append(models.ListMember(user_id=user.id))
         session.add(lst)
+        session.flush()
+        # A new List has no version bump; the event lets the creator's other devices show it.
+        _emit(
+            session,
+            {user.id},
+            {"list_id": lst.id, "version": lst.version, "kind": "list.created", "entry_id": None},
+        )
         session.commit()
         return list_out(_member_list(session, user, lst.id), _lang(user), settings.bot_username)
 
@@ -509,9 +588,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lst = _member_list(session, user, list_id)
         lst.name = body.name
         lst.name_is_default = False  # an explicit name replaces the localized default
-        _touch(session, lst)
+        _touch(session, lst, "list.renamed")
         session.commit()
         return list_out(_member_list(session, user, lst.id), _lang(user), settings.bot_username)
+
+    def _forget_list(session: Session, lst: models.List, recipients: set[int]) -> None:
+        """Announce the List's deletion to `recipients` and drop its change log."""
+        session.execute(delete(models.ListChange).where(models.ListChange.list_id == lst.id))
+        _emit(
+            session,
+            recipients,
+            {
+                "list_id": lst.id,
+                "version": lst.version + 1,
+                "kind": "list.deleted",
+                "entry_id": None,
+            },
+        )
 
     @api.post("/lists/{list_id}/leave", status_code=204)
     def leave_list(list_id: int, user: UserDep, session: SessionDep) -> Response:
@@ -528,10 +621,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             .where(models.ListMember.list_id == list_id)
         )
         if remaining == 0:  # the last Member left: the List goes with them
+            _forget_list(session, lst, {user.id})
             session.delete(lst)
         else:
             # A leave counts as a change for the switcher order (version + updated_at bump).
-            _touch(session, lst)
+            # The leaver hears it too, so their other devices drop the List.
+            _touch(session, lst, "member.left", also_notify=frozenset({user.id}))
         session.commit()
         return Response(status_code=204)
 
@@ -539,7 +634,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def delete_list(list_id: int, user: UserDep, session: SessionDep) -> Response:
         # Any Member may delete the List for everyone; the UI asks for confirmation first.
         # Members (and, in later tickets, Entries, Products and History) go by FK cascade.
-        session.delete(_member_list(session, user, list_id))
+        lst = _member_list(session, user, list_id)
+        _forget_list(session, lst, {m.user_id for m in lst.members})
+        session.delete(lst)
         session.commit()
         return Response(status_code=204)
 
@@ -557,9 +654,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             checked_by=entry.checked_by if entry.checked_at is not None else None,
         )
 
-    @api.get("/lists/{list_id}/entries", response_model=ListContentsOut)
-    def list_entries(list_id: int, user: UserDep, session: SessionDep) -> ListContentsOut:
-        lst = _member_list(session, user, list_id)
+    def _contents(session: Session, user: models.User, lst: models.List) -> ListContentsOut:
         entries = session.scalars(
             select(models.Entry)
             .where(models.Entry.list_id == lst.id, models.Entry.deleted_at.is_(None))
@@ -582,6 +677,41 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 )
         return ListContentsOut(
             list=list_out(lst, language, settings.bot_username), categories=groups
+        )
+
+    @api.get("/lists/{list_id}/entries", response_model=ListContentsOut)
+    def list_entries(list_id: int, user: UserDep, session: SessionDep) -> ListContentsOut:
+        return _contents(session, user, _member_list(session, user, list_id))
+
+    @api.get("/lists/{list_id}/changes", response_model=ChangesOut)
+    def list_changes(
+        list_id: int,
+        user: UserDep,
+        session: SessionDep,
+        since: Annotated[int, Query(ge=0)],
+    ) -> ChangesOut:
+        """Catch-up: the bumps after version `since`, or a snapshot if that gap is too big."""
+        lst = _member_list(session, user, list_id)
+        if since == lst.version:
+            return ChangesOut(version=lst.version, changes=[], snapshot=None)
+        gap = lst.version - since
+        rows = []
+        if 0 < gap <= settings.changes_max_gap:
+            rows = session.scalars(
+                select(models.ListChange)
+                .where(models.ListChange.list_id == lst.id, models.ListChange.version > since)
+                .order_by(models.ListChange.version)
+            ).all()
+        # A client ahead of the List (e.g. a restored database), a big gap, or a log that no
+        # longer covers the gap (pruned, or versions from before the log existed): resync.
+        if gap < 0 or gap > settings.changes_max_gap or len(rows) != gap:
+            return ChangesOut(
+                version=lst.version, changes=[], snapshot=_contents(session, user, lst)
+            )
+        return ChangesOut(
+            version=lst.version,
+            changes=[ChangeOut(version=r.version, kind=r.kind, entry_id=r.entry_id) for r in rows],
+            snapshot=None,
         )
 
     @api.post("/lists/{list_id}/entries", response_model=AddEntriesOut, status_code=201)
@@ -656,7 +786,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     )
                     session.add(entry)
                     created.append(entry)
-                _touch(session, lst)
+                session.flush()
+                _touch(session, lst, "entries.added")
                 session.commit()
                 break
             except IntegrityError:
@@ -681,14 +812,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(404, "entry not found")
         return entry
 
-    def _bump(session: Session, lst: models.List) -> None:
-        session.execute(
-            update(models.List)
-            .where(models.List.id == lst.id)
-            .values(version=models.List.version + 1, updated_at=models.utcnow())
-        )
-        session.commit()
-        session.refresh(lst)
+    def _fresh_check_by_other(entry: models.Entry, user: models.User) -> bool:
+        """True while another Member's check of the Entry is too recent to be undone."""
+        if entry.checked_at is None or entry.checked_by == user.id:
+            return False
+        age = (models.utcnow() - _aware(entry.checked_at)).total_seconds()
+        return age < settings.check_wins_window_seconds
 
     @api.patch("/lists/{list_id}/entries/{entry_id}", response_model=EntryChangeOut)
     def update_entry(
@@ -712,11 +841,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if body.checked is None:
                 raise HTTPException(422, "checked must be true or false")
             if (entry.checked_at is not None) != body.checked:
-                entry.checked_at = models.utcnow() if body.checked else None
-                entry.checked_by = user.id if body.checked else None
-                changed = True
+                # Conflict rule: a check beats a near-simultaneous uncheck by someone else.
+                if not body.checked and _fresh_check_by_other(entry, user):
+                    pass  # the uncheck is dropped; the Entry stays Checked
+                else:
+                    entry.checked_at = models.utcnow() if body.checked else None
+                    entry.checked_by = user.id if body.checked else None
+                    changed = True
         if changed:
-            _bump(session, lst)
+            _touch(session, lst, "entry.updated", entry.id)
+            session.commit()
         return EntryChangeOut(version=lst.version, entry=_entry_out(entry))
 
     @api.delete("/lists/{list_id}/entries/{entry_id}", response_model=EntryDeleteOut)
@@ -728,7 +862,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         entry = _entry_or_404(session, lst, entry_id, include_deleted=True)
         if entry.deleted_at is None:
             entry.deleted_at = models.utcnow()
-            _bump(session, lst)
+            _touch(session, lst, "entry.deleted", entry.id)
+            session.commit()
         return EntryDeleteOut(version=lst.version)
 
     @api.post("/lists/{list_id}/entries/{entry_id}/restore", response_model=EntryChangeOut)
@@ -740,7 +875,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         entry = _entry_or_404(session, lst, entry_id, include_deleted=True)
         if entry.deleted_at is not None:
             entry.deleted_at = None
-            _bump(session, lst)
+            _touch(session, lst, "entry.restored", entry.id)
+            session.commit()
         return EntryChangeOut(version=lst.version, entry=_entry_out(entry))
 
     @api.get("/lists/{list_id}/suggestions", response_model=list[SuggestionOut])
@@ -790,35 +926,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(404, "product not found")
         if not product.hidden:
             product.hidden = True
-            session.execute(
-                update(models.List)
-                .where(models.List.id == lst.id)
-                .values(version=models.List.version + 1, updated_at=models.utcnow())
-            )
+            _touch(session, lst, "product.hidden")
             session.commit()
-            session.refresh(lst)
         return ProductHiddenOut(version=lst.version)
 
     @api.post("/lists/{list_id}/entries/uncheck-all", response_model=UncheckAllOut)
     def uncheck_all(list_id: int, user: UserDep, session: SessionDep) -> UncheckAllOut:
         """Uncheck every Checked Entry of the List (the «Снять все отметки» menu action)."""
         lst = _member_list(session, user, list_id)
+        # A check made by someone else in the last moments survives (check beats uncheck).
+        cutoff = models.utcnow() - timedelta(seconds=settings.check_wins_window_seconds)
         result = session.execute(
             update(models.Entry)
             .where(
                 models.Entry.list_id == lst.id,
                 models.Entry.deleted_at.is_(None),
                 models.Entry.checked_at.is_not(None),
+                or_(models.Entry.checked_at <= cutoff, models.Entry.checked_by == user.id),
             )
             .values(checked_at=None, checked_by=None)
         )
         count = result.rowcount
         if count:
-            session.execute(
-                update(models.List)
-                .where(models.List.id == lst.id)
-                .values(version=models.List.version + 1, updated_at=models.utcnow())
-            )
+            _touch(session, lst, "entries.unchecked")
         session.commit()
         session.refresh(lst)
         return UncheckAllOut(version=lst.version, unchecked=count)
@@ -892,7 +1022,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if deleted != len(checked):
             session.rollback()
             raise HTTPException(409, "the List changed, try again")
-        _touch(session, lst)
+        _touch(session, lst, "purchase.created")
         session.commit()
         return PurchaseOut(
             id=purchase.id,
@@ -957,9 +1087,159 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 .where(models.Product.id == product_id)
                 .values(purchase_count=count, last_purchased_at=last)
             )
-        _touch(session, lst)
+        _touch(session, lst, "purchase.undone")
         session.commit()
         return UndoPurchaseOut(version=lst.version, restored=len(snapshots))
+
+    @api.get("/events")
+    async def events(request: Request, user: UserDep) -> StreamingResponse:
+        """Server-sent events: one stream per signed-in user, for all their Lists.
+
+        Each `change` event is `{list_id, version, kind, entry_id}`; the client then fetches
+        what it is missing (`changes?since=`). Only Lists the user is a Member of appear, plus
+        the deletion of a List and the user's own departure from one. The first event, `ready`,
+        says the stream is subscribed: a client that reconnects should catch up after it.
+        """
+        sub = hub.subscribe(user.id)
+
+        async def stream():
+            try:
+                yield "retry: 2000\nevent: ready\ndata: {}\n\n"
+                while True:
+                    try:
+                        payload = await asyncio.wait_for(
+                            sub.queue.get(), timeout=settings.sse_heartbeat_seconds
+                        )
+                    except TimeoutError:
+                        if await request.is_disconnected():
+                            return
+                        yield ": ping\n\n"
+                        continue
+                    yield f"event: change\ndata: {json.dumps(payload)}\n\n"
+            finally:
+                hub.unsubscribe(sub)
+
+        return StreamingResponse(
+            stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    # Commands sent with an `Idempotency-Key` header are executed once per (user, key): a replay
+    # returns the stored answer instead of running the command again. A key reused for another
+    # method, path or body is refused with 409. Known limit: the command and its stored answer
+    # are committed in separate transactions, so a crash between the two lets a replay run the
+    # command a second time (the per-key lock covers concurrent twins, not a crash).
+    key_locks: dict[tuple[int, str], list] = {}
+
+    def _stored_answer(user_id: int, key: str) -> models.IdempotencyRecord | None:
+        with session_factory() as session:
+            record = session.scalar(
+                select(models.IdempotencyRecord).where(
+                    models.IdempotencyRecord.user_id == user_id,
+                    models.IdempotencyRecord.key == key,
+                )
+            )
+            if record is not None:
+                session.expunge(record)
+            return record
+
+    def _store_answer(
+        user_id: int,
+        key: str,
+        request: Request,
+        response: Response,
+        body: bytes,
+        request_hash: str,
+    ):
+        cutoff = models.utcnow() - timedelta(seconds=settings.idempotency_ttl_seconds)
+        with session_factory() as session:
+            session.execute(
+                delete(models.IdempotencyRecord).where(models.IdempotencyRecord.created_at < cutoff)
+            )
+            session.add(
+                models.IdempotencyRecord(
+                    user_id=user_id,
+                    key=key,
+                    method=request.method,
+                    path=request.url.path,
+                    body_hash=request_hash,
+                    status_code=response.status_code,
+                    body=body.decode(),
+                    content_type=response.headers.get("content-type"),
+                )
+            )
+            try:
+                session.commit()
+            except IntegrityError:  # stored by a concurrent twin; either answer is the same
+                session.rollback()
+
+    @app.middleware("http")
+    async def idempotency(request: Request, call_next):
+        key = request.headers.get("idempotency-key")
+        path = request.url.path
+        if (
+            not key
+            or request.method not in {"POST", "PATCH", "PUT", "DELETE"}
+            or not path.startswith("/api/")
+            or path == "/api/auth"
+            or not secret
+        ):
+            return await call_next(request)
+        if len(key) > 80:
+            return JSONResponse({"detail": "Idempotency-Key is too long"}, status_code=422)
+        scheme, _, token = request.headers.get("authorization", "").partition(" ")
+        try:
+            user_id = read_session_token(token, secret) if scheme.lower() == "bearer" else None
+        except AuthError:
+            user_id = None
+        if user_id is None:
+            return await call_next(request)  # the endpoint answers 401
+
+        request_hash = hashlib.sha256(await request.body()).hexdigest()
+        lock_key = (user_id, key)
+        holder = key_locks.setdefault(lock_key, [asyncio.Lock(), 0])
+        holder[1] += 1
+        try:
+            async with holder[0]:
+                record = await run_in_threadpool(_stored_answer, user_id, key)
+                if record is not None:
+                    if (record.method, record.path, record.body_hash) != (
+                        request.method,
+                        path,
+                        request_hash,
+                    ):
+                        return JSONResponse(
+                            {"detail": "Idempotency-Key was used for another request"},
+                            status_code=409,
+                        )
+                    return Response(
+                        content=record.body,
+                        status_code=record.status_code,
+                        media_type=None,
+                        headers={
+                            **(
+                                {"content-type": record.content_type} if record.content_type else {}
+                            ),
+                            "Idempotent-Replayed": "true",
+                        },
+                    )
+                response = await call_next(request)
+                if not 200 <= response.status_code < 300:
+                    return response  # failures are not remembered: a retry may succeed
+                body = b"".join([chunk async for chunk in response.body_iterator])
+                await run_in_threadpool(
+                    _store_answer, user_id, key, request, response, body, request_hash
+                )
+                return Response(
+                    content=body,
+                    status_code=response.status_code,
+                    headers=dict(response.headers),
+                )
+        finally:
+            holder[1] -= 1
+            if holder[1] == 0:
+                key_locks.pop(lock_key, None)
 
     def _utc(at: datetime) -> datetime:
         return at.replace(tzinfo=UTC) if at.tzinfo is None else at  # SQLite hands back naive UTC
@@ -1081,7 +1361,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         session.add(entry)
         try:
-            _touch(session, lst)
+            _touch(session, lst, "entries.added")
             session.commit()
         except IntegrityError:  # concurrent replay of the same client_id
             session.rollback()

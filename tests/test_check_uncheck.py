@@ -102,6 +102,8 @@ def test_duplicate_entries_check_independently(client, anna):
     assert {e["id"]: e["checked"] for e in entries} == {one["id"]: True, two["id"]: False}
 
 
+# The "check beats a near-simultaneous uncheck" window is switched off here (see test_sync.py::TestConflicts).
+@pytest.mark.parametrize("settings_overrides", [{"check_wins_window_seconds": 0}])
 def test_other_member_sees_and_changes_checked_state(client, sign_in, anna):
     (entry,) = add(client, anna, "молоко")
     code = client.get(f"/api/lists/{anna['list_id']}", headers=anna["headers"]).json()["share_code"]

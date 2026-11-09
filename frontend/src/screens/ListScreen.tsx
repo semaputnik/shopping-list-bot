@@ -12,6 +12,7 @@ import {
   buy,
   deleteEntry,
   fetchCategories,
+  fetchChanges,
   fetchContents,
   fetchSuggestions,
   hideProduct,
@@ -28,6 +29,7 @@ import { AvatarStack } from "../components/Avatar";
 import { EntrySheet } from "../components/EntrySheet";
 import { applyEntryChange } from "../entryChange";
 import { QUICK_ADD, withCount, type Language, type Strings } from "../i18n";
+import type { Remote } from "../sync";
 import { bindMainButton, confirmDestructive, haptic, setMainButtonText } from "../telegram";
 import { NameSheet, Sheet } from "./Sheet";
 
@@ -40,6 +42,8 @@ interface Props {
   strings: Strings;
   /** True when the last action failed on the server. */
   failed: boolean;
+  /** Changes announced by other Members, and app activations (see sync.ts). */
+  remote: Remote;
   onSelect: (id: number) => void;
   onOpenMembers: () => void;
   onOpenSettings: () => void;
@@ -86,6 +90,7 @@ export function ListScreen({
   language,
   strings,
   failed,
+  remote,
   onSelect,
   onOpenMembers,
   onOpenSettings,
@@ -172,6 +177,110 @@ export function ListScreen({
     });
   }, [token, listId, showContents]);
 
+  const contentsRef = useRef(contents);
+  contentsRef.current = contents;
+
+  /** Marks Entries with the soft "new or changed" highlight for a moment. */
+  const flash = useCallback((ids: number[]) => {
+    if (ids.length === 0) return;
+    setFresh((prev) => new Set([...prev, ...ids]));
+    window.setTimeout(
+      () =>
+        setFresh((prev) => {
+          const next = new Set(prev);
+          ids.forEach((id) => next.delete(id));
+          return next;
+        }),
+      HIGHLIGHT_MS,
+    );
+  }, []);
+
+  // Entries this user is editing right now: the echo of their own command is not news.
+  // Deliberate: for these 3 s another Member's change to the same Entry is not highlighted
+  // either (cosmetic; the data still updates).
+  const ownEntries = useRef(new Set<number>());
+  const markOwn = useCallback((id: number) => {
+    ownEntries.current.add(id);
+    window.setTimeout(() => ownEntries.current.delete(id), 3000);
+  }, []);
+
+  /** Shows contents that came from someone else's change, highlighting what differs. */
+  const showRemote = useCallback(
+    (next: ListContents) => {
+      const before = contentsRef.current;
+      if (before && before.list.version >= next.list.version) return; // already up to date
+      const known = new Map(before?.categories.flatMap((g) => g.entries).map((e) => [e.id, e]));
+      const changed = next.categories
+        .flatMap((g) => g.entries)
+        .filter((e) => {
+          const old = known.get(e.id);
+          return (
+            before !== null &&
+            !ownEntries.current.has(e.id) &&
+            (!old ||
+              old.checked !== e.checked ||
+              old.note !== e.note ||
+              old.name !== e.name ||
+              old.category !== e.category)
+          );
+        })
+        .map((e) => e.id);
+      showContents(next);
+      flash(changed);
+    },
+    [showContents, flash],
+  );
+
+  /**
+   * The version to record after our own command answered with `answered`. Only the very next
+   * version is ours alone; anything further means other changes landed in between, so the local
+   * version stays put and the latest contents are pulled (never skip a version we did not see).
+   */
+  const ownVersion = useCallback(
+    (answered: number): number => {
+      const current = contentsRef.current?.list.version ?? 0;
+      if (answered <= current) return current;
+      if (answered === current + 1) {
+        if (contentsRef.current) {
+          // Keep the ref honest until the next render, so two quick answers chain correctly.
+          contentsRef.current = {
+            ...contentsRef.current,
+            list: { ...contentsRef.current.list, version: answered },
+          };
+        }
+        return answered;
+      }
+      if (listId !== undefined) {
+        fetchContents(token, listId).then(showRemote, (e) => console.error(e));
+      }
+      return current;
+    },
+    [token, listId, showRemote],
+  );
+
+  // Other Members' changes arrive as events; coming back to the app or a reconnected stream
+  // asks the server what was missed (`changes?since=`), which answers with a snapshot when the
+  // gap is too big. Our own changes echo back as events at a version already shown: ignored.
+  const handled = useRef(remote.seq);
+  useEffect(() => {
+    if (remote.seq === handled.current || listId === undefined) return;
+    handled.current = remote.seq;
+    const have = contentsRef.current;
+    const pull = () =>
+      fetchContents(token, listId).then(showRemote, (e) => console.error(e));
+    if (remote.kind === "event") {
+      if (remote.listId !== listId) return;
+      if (have && remote.version <= have.list.version) return;
+      void pull();
+      return;
+    }
+    if (!have) return; // the first load is still running and will bring the latest anyway
+    fetchChanges(token, listId, have.list.version).then((result) => {
+      if (result.snapshot) showRemote(result.snapshot);
+      else if (result.changes.length > 0) void pull();
+    }, (e) => console.error(e));
+  }, [remote, token, listId, showRemote]);
+
   const refresh = useCallback(async () => {
     if (listId === undefined) return;
     try {
@@ -200,16 +309,18 @@ export function ListScreen({
   const editEntry = useCallback(
     async (entryId: number, change: { note?: string | null; category?: string }) => {
       if (listId === undefined) return;
+      markOwn(entryId);
       const result = await updateEntry(token, listId, entryId, change);
+      const version = ownVersion(result.version);
       let applied = false;
       setContents((prev) => {
-        const next = prev && applyEntryChange(prev, result.entry, result.version, categories);
+        const next = prev && applyEntryChange(prev, result.entry, version, categories);
         applied = next !== null;
         return next ?? prev;
       });
       if (!applied) await refresh();
     },
-    [token, listId, categories, refresh],
+    [token, listId, categories, refresh, markOwn, ownVersion],
   );
 
   const saveNote = useCallback(
@@ -290,18 +401,9 @@ export function ListScreen({
         setError("load");
         return;
       }
-      setFresh((prev) => new Set([...prev, ...ids]));
-      window.setTimeout(
-        () =>
-          setFresh((prev) => {
-            const next = new Set(prev);
-            ids.forEach((id) => next.delete(id));
-            return next;
-          }),
-        HIGHLIGHT_MS,
-      );
+      flash(ids);
     },
-    [token, listId, showContents],
+    [token, listId, showContents, flash],
   );
 
   /** Applies a Checked state to the local copy right away; the Entry never moves. */
@@ -332,15 +434,26 @@ export function ListScreen({
       haptic.select();
       setError(null);
       applyChecked((x) => x === id, checked);
+      markOwn(id);
       updateEntry(token, listId, id, { checked }).then(
-        (result) => setContents((prev) => prev && { ...prev, list: { ...prev.list, version: Math.max(prev.list.version, result.version) } }),
+        (result) => {
+          const version = ownVersion(result.version);
+          // The server may overrule us (check beats a near-simultaneous uncheck): its verdict wins.
+          setContents((prev) => {
+            if (!prev) return prev;
+            // Always apply the answer: a remote snapshot shown while this command was in
+            // flight may have wiped the optimistic state, and the own echo is ignored.
+            const next = applyEntryChange(prev, result.entry, version, categories);
+            return next ?? { ...prev, list: { ...prev.list, version } };
+          });
+        },
         (e) => {
           console.error(e);
           reload("check");
         },
       );
     },
-    [token, listId, applyChecked, reload],
+    [token, listId, applyChecked, reload, categories, markOwn, ownVersion],
   );
 
   const checkedCount = (contents?.categories ?? []).reduce(
@@ -414,7 +527,13 @@ export function ListScreen({
     setError(null);
     applyChecked(() => true, false);
     uncheckAll(token, listId).then(
-      (result) => setContents((prev) => prev && { ...prev, list: { ...prev.list, version: Math.max(prev.list.version, result.version) } }),
+      (result) => {
+        const version = ownVersion(result.version);
+        setContents((prev) => prev && { ...prev, list: { ...prev.list, version } });
+        // Always show the server's truth: it may have spared Entries (another Member's fresh
+        // check wins), and a remote snapshot shown meanwhile may have undone the optimistic state.
+        void refresh();
+      },
       (e) => {
         console.error(e);
         reload("check");

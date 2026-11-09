@@ -9,6 +9,7 @@ import {
   init,
   isBackButtonMounted,
   isMainButtonMounted,
+  isMiniAppActive,
   isTMA,
   miniAppReady,
   mountBackButton,
@@ -153,3 +154,27 @@ export const haptic = {
     if (hapticFeedbackSelectionChanged.isAvailable()) hapticFeedbackSelectionChanged();
   },
 };
+
+/**
+ * Calls `callback` when the Mini App comes back to the foreground: Telegram's `activated`
+ * event (through the Mini App's active signal) and the page becoming visible again.
+ * Returns a function that stops listening.
+ */
+export function onActivated(callback: () => void): () => void {
+  const onVisible = () => {
+    if (document.visibilityState === "visible") callback();
+  };
+  document.addEventListener("visibilitychange", onVisible);
+  let offSignal: (() => void) | undefined;
+  try {
+    offSignal = isMiniAppActive.sub((active: boolean) => {
+      if (active) callback();
+    });
+  } catch {
+    // Outside Telegram (or before init) there is no signal; visibilitychange still works.
+  }
+  return () => {
+    document.removeEventListener("visibilitychange", onVisible);
+    offSignal?.();
+  };
+}
