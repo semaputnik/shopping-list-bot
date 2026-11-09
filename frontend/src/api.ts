@@ -54,10 +54,17 @@ async function request<T>(path: string, init: RequestInit = {}, token?: string):
   headers.set("Content-Type", "application/json");
   if (token) headers.set("Authorization", `Bearer ${token}`);
   // Every command carries a client-generated id, so the server runs a replay only once.
-  if (init.method && init.method !== "GET" && path !== "/api/auth") {
-    headers.set("Idempotency-Key", crypto.randomUUID());
+  const isCommand = Boolean(init.method) && init.method !== "GET" && path !== "/api/auth";
+  if (isCommand) headers.set("Idempotency-Key", crypto.randomUUID());
+  let response: Response;
+  try {
+    response = await fetch(path, { ...init, headers });
+  } catch (error) {
+    if (!isCommand) throw error;
+    // The network dropped, so the command may or may not have run. Send it once more with the
+    // same Idempotency-Key: the server runs it only once and returns the stored answer.
+    response = await fetch(path, { ...init, headers });
   }
-  const response = await fetch(path, { ...init, headers });
   if (!response.ok) {
     throw new ApiError(`${init.method ?? "GET"} ${path}: ${response.status}`, response.status);
   }

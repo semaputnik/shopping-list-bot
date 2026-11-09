@@ -193,6 +193,7 @@ class IdempotencyRecord(Base):
     key: Mapped[str] = mapped_column(String(80))
     method: Mapped[str] = mapped_column(String(8))
     path: Mapped[str] = mapped_column(String(300))
+    body_hash: Mapped[str] = mapped_column(String(64), default="")
     status_code: Mapped[int] = mapped_column()
     body: Mapped[str] = mapped_column(Text)
     content_type: Mapped[str | None] = mapped_column(String(100))

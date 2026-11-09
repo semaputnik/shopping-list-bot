@@ -1126,7 +1126,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     # Commands sent with an `Idempotency-Key` header are executed once per (user, key): a replay
-    # returns the stored answer instead of running the command again.
+    # returns the stored answer instead of running the command again. A key reused for another
+    # method, path or body is refused with 409. Known limit: the command and its stored answer
+    # are committed in separate transactions, so a crash between the two lets a replay run the
+    # command a second time (the per-key lock covers concurrent twins, not a crash).
     key_locks: dict[tuple[int, str], list] = {}
 
     def _stored_answer(user_id: int, key: str) -> models.IdempotencyRecord | None:
@@ -1141,7 +1144,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 session.expunge(record)
             return record
 
-    def _store_answer(user_id: int, key: str, request: Request, response: Response, body: bytes):
+    def _store_answer(
+        user_id: int,
+        key: str,
+        request: Request,
+        response: Response,
+        body: bytes,
+        request_hash: str,
+    ):
         cutoff = models.utcnow() - timedelta(seconds=settings.idempotency_ttl_seconds)
         with session_factory() as session:
             session.execute(
@@ -1153,6 +1163,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     key=key,
                     method=request.method,
                     path=request.url.path,
+                    body_hash=request_hash,
                     status_code=response.status_code,
                     body=body.decode(),
                     content_type=response.headers.get("content-type"),
@@ -1185,6 +1196,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if user_id is None:
             return await call_next(request)  # the endpoint answers 401
 
+        request_hash = hashlib.sha256(await request.body()).hexdigest()
         lock_key = (user_id, key)
         holder = key_locks.setdefault(lock_key, [asyncio.Lock(), 0])
         holder[1] += 1
@@ -1192,7 +1204,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             async with holder[0]:
                 record = await run_in_threadpool(_stored_answer, user_id, key)
                 if record is not None:
-                    if (record.method, record.path) != (request.method, path):
+                    if (record.method, record.path, record.body_hash) != (
+                        request.method,
+                        path,
+                        request_hash,
+                    ):
                         return JSONResponse(
                             {"detail": "Idempotency-Key was used for another request"},
                             status_code=409,
@@ -1212,7 +1228,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 if not 200 <= response.status_code < 300:
                     return response  # failures are not remembered: a retry may succeed
                 body = b"".join([chunk async for chunk in response.body_iterator])
-                await run_in_threadpool(_store_answer, user_id, key, request, response, body)
+                await run_in_threadpool(
+                    _store_answer, user_id, key, request, response, body, request_hash
+                )
                 return Response(
                     content=body,
                     status_code=response.status_code,
@@ -1222,6 +1240,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             holder[1] -= 1
             if holder[1] == 0:
                 key_locks.pop(lock_key, None)
+
     def _utc(at: datetime) -> datetime:
         return at.replace(tzinfo=UTC) if at.tzinfo is None else at  # SQLite hands back naive UTC
 

@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 class Subscriber:
     user_id: int
     loop: asyncio.AbstractEventLoop
+    # Unbounded on purpose for the MVP: events are tiny and a dead stream is dropped by the
+    # server on disconnect. Bound it (and tell the client to catch up) if that ever changes.
     queue: asyncio.Queue[dict] = field(default_factory=asyncio.Queue)
 
 

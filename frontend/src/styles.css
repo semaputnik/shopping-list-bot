@@ -190,6 +190,12 @@ body {
   font-size: 15px;
 }
 
+/* The App-level notice sits at the top so it never covers the List screen's own toast. */
+.toast--top {
+  bottom: auto;
+  top: calc(var(--safe-top, 0px) + 16px);
+}
+
 /* Inset grouped section, as in Telegram settings. */
 .empty {
   display: flex;

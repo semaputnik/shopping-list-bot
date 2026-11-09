@@ -195,6 +195,13 @@ export function ListScreen({
     );
   }, []);
 
+  // Entries this user is editing right now: the echo of their own command is not news.
+  const ownEntries = useRef(new Set<number>());
+  const markOwn = useCallback((id: number) => {
+    ownEntries.current.add(id);
+    window.setTimeout(() => ownEntries.current.delete(id), 3000);
+  }, []);
+
   /** Shows contents that came from someone else's change, highlighting what differs. */
   const showRemote = useCallback(
     (next: ListContents) => {
@@ -207,6 +214,7 @@ export function ListScreen({
           const old = known.get(e.id);
           return (
             before !== null &&
+            !ownEntries.current.has(e.id) &&
             (!old ||
               old.checked !== e.checked ||
               old.note !== e.note ||
@@ -219,6 +227,33 @@ export function ListScreen({
       flash(changed);
     },
     [showContents, flash],
+  );
+
+  /**
+   * The version to record after our own command answered with `answered`. Only the very next
+   * version is ours alone; anything further means other changes landed in between, so the local
+   * version stays put and the latest contents are pulled (never skip a version we did not see).
+   */
+  const ownVersion = useCallback(
+    (answered: number): number => {
+      const current = contentsRef.current?.list.version ?? 0;
+      if (answered <= current) return current;
+      if (answered === current + 1) {
+        if (contentsRef.current) {
+          // Keep the ref honest until the next render, so two quick answers chain correctly.
+          contentsRef.current = {
+            ...contentsRef.current,
+            list: { ...contentsRef.current.list, version: answered },
+          };
+        }
+        return answered;
+      }
+      if (listId !== undefined) {
+        fetchContents(token, listId).then(showRemote, (e) => console.error(e));
+      }
+      return current;
+    },
+    [token, listId, showRemote],
   );
 
   // Other Members' changes arrive as events; coming back to the app or a reconnected stream
@@ -272,16 +307,18 @@ export function ListScreen({
   const editEntry = useCallback(
     async (entryId: number, change: { note?: string | null; category?: string }) => {
       if (listId === undefined) return;
+      markOwn(entryId);
       const result = await updateEntry(token, listId, entryId, change);
+      const version = ownVersion(result.version);
       let applied = false;
       setContents((prev) => {
-        const next = prev && applyEntryChange(prev, result.entry, result.version, categories);
+        const next = prev && applyEntryChange(prev, result.entry, version, categories);
         applied = next !== null;
         return next ?? prev;
       });
       if (!applied) await refresh();
     },
-    [token, listId, categories, refresh],
+    [token, listId, categories, refresh, markOwn, ownVersion],
   );
 
   const saveNote = useCallback(
@@ -395,15 +432,27 @@ export function ListScreen({
       haptic.select();
       setError(null);
       applyChecked((x) => x === id, checked);
+      markOwn(id);
       updateEntry(token, listId, id, { checked }).then(
-        (result) => setContents((prev) => prev && { ...prev, list: { ...prev.list, version: Math.max(prev.list.version, result.version) } }),
+        (result) => {
+          const version = ownVersion(result.version);
+          // The server may overrule us (check beats a near-simultaneous uncheck): its verdict wins.
+          setContents((prev) => {
+            if (!prev) return prev;
+            const next =
+              result.entry.checked !== checked
+                ? applyEntryChange(prev, result.entry, version, categories)
+                : null;
+            return next ?? { ...prev, list: { ...prev.list, version } };
+          });
+        },
         (e) => {
           console.error(e);
           reload("check");
         },
       );
     },
-    [token, listId, applyChecked, reload],
+    [token, listId, applyChecked, reload, categories, markOwn, ownVersion],
   );
 
   const checkedCount = (contents?.categories ?? []).reduce(
@@ -475,9 +524,15 @@ export function ListScreen({
     if (listId === undefined) return;
     haptic.select();
     setError(null);
+    const cleared = checkedCount;
     applyChecked(() => true, false);
     uncheckAll(token, listId).then(
-      (result) => setContents((prev) => prev && { ...prev, list: { ...prev.list, version: Math.max(prev.list.version, result.version) } }),
+      (result) => {
+        const version = ownVersion(result.version);
+        setContents((prev) => prev && { ...prev, list: { ...prev.list, version } });
+        // The server spared some Entries (another Member's fresh check wins): show its truth.
+        if (result.unchecked < cleared) void refresh();
+      },
       (e) => {
         console.error(e);
         reload("check");

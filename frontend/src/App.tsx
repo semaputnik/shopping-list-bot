@@ -57,6 +57,10 @@ export function App() {
   // Lists this user left or deleted themselves: their disappearance is no news.
   const ownRemovals = useRef(new Set<number>());
   const syncing = useRef({ running: false, again: false });
+  // Why each List was last announced as changed or gone (event kind), to word the notice.
+  const lastKind = useRef(new Map<number, string>());
+  const lastCatchUp = useRef(0);
+  const syncTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     if (notice === null) return;
@@ -167,7 +171,12 @@ export function App() {
             ? now.lists.find((l) => l.id === now.currentId)
             : undefined;
         if (gone && !ownRemovals.current.has(gone.id)) {
-          setNotice(t(languageRef.current).listDeletedNotice.replace("{name}", gone.name));
+          const strings = t(languageRef.current);
+          const text =
+            lastKind.current.get(gone.id) === "member.left"
+              ? strings.listLeftNotice
+              : strings.listDeletedNotice;
+          setNotice(text.replace("{name}", gone.name));
           haptic.error();
         }
         setState((prev) => {
@@ -195,13 +204,26 @@ export function App() {
   useEffect(() => {
     if (token === null) return;
     const catchUp = () => {
+      // Coming back to the app fires visibilitychange and isMiniAppActive together: run once.
+      const now = Date.now();
+      if (now - lastCatchUp.current < 1000) return;
+      lastCatchUp.current = now;
       void syncLists();
       setRemote((r) => ({ seq: r.seq + 1, kind: "catchup", listId: null, version: 0 }));
     };
     const close = openEventStream(token, {
       onReady: catchUp,
       onChange: (event) => {
-        void syncLists();
+        lastKind.current.set(event.list_id, event.kind);
+        // Renames, Members and removals change the Lists now. Entry changes only reorder the
+        // switcher (most recently changed first), so a burst of checks is coalesced.
+        if (event.kind.startsWith("list.") || event.kind.startsWith("member.")) {
+          window.clearTimeout(syncTimer.current);
+          void syncLists();
+        } else {
+          window.clearTimeout(syncTimer.current);
+          syncTimer.current = window.setTimeout(() => void syncLists(), 1500);
+        }
         setRemote((r) => ({
           seq: r.seq + 1,
           kind: "event",
@@ -214,6 +236,7 @@ export function App() {
     return () => {
       close();
       stopListening();
+      window.clearTimeout(syncTimer.current);
     };
   }, [token, syncLists]);
 
@@ -312,44 +335,44 @@ export function App() {
       }
       return (
         <>
-        {notice !== null && (
-          <p className="toast" role="status">
-            {notice}
-          </p>
-        )}
-        <ListScreen
-          key={current?.id ?? "none"}
-          remote={remote}
-          token={state.token}
-          lists={state.lists}
-          list={current}
-          language={language}
-          strings={strings}
-          failed={failed}
-          onSelect={(id) => setState({ ...state, currentId: id })}
-          onOpenMembers={() => setState({ ...state, screen: "members" })}
-          onOpenSettings={() => setState({ ...state, screen: "settings" })}
-          onOpenHistory={() => setState({ ...state, screen: "history" })}
-          onCreate={(name) => mutate(async (token) => (await createList(token, name)).id)}
-          onRename={(id, name) =>
-            mutate(async (token) => {
-              await renameList(token, id, name);
-              return id;
-            })
-          }
-          onLeave={(id) =>
-            mutate(async (token) => {
-              await ownRemoval(id, () => leaveList(token, id));
-              return null;
-            })
-          }
-          onDelete={(id) =>
-            mutate(async (token) => {
-              await ownRemoval(id, () => deleteList(token, id));
-              return null;
-            })
-          }
-        />
+          {notice !== null && (
+            <p className="toast toast--top" role="status">
+              {notice}
+            </p>
+          )}
+          <ListScreen
+            key={current?.id ?? "none"}
+            remote={remote}
+            token={state.token}
+            lists={state.lists}
+            list={current}
+            language={language}
+            strings={strings}
+            failed={failed}
+            onSelect={(id) => setState({ ...state, currentId: id })}
+            onOpenMembers={() => setState({ ...state, screen: "members" })}
+            onOpenSettings={() => setState({ ...state, screen: "settings" })}
+            onOpenHistory={() => setState({ ...state, screen: "history" })}
+            onCreate={(name) => mutate(async (token) => (await createList(token, name)).id)}
+            onRename={(id, name) =>
+              mutate(async (token) => {
+                await renameList(token, id, name);
+                return id;
+              })
+            }
+            onLeave={(id) =>
+              mutate(async (token) => {
+                await ownRemoval(id, () => leaveList(token, id));
+                return null;
+              })
+            }
+            onDelete={(id) =>
+              mutate(async (token) => {
+                await ownRemoval(id, () => deleteList(token, id));
+                return null;
+              })
+            }
+          />
         </>
       );
     }

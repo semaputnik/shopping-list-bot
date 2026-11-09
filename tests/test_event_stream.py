@@ -297,3 +297,34 @@ def test_after_a_reconnect_changes_since_covers_what_was_missed(make_user):
     body = anna.http.get(f"/api/lists/{lid}/changes", params={"since": seen["version"]}).json()
     assert [c["kind"] for c in body["changes"]] == ["entries.added", "entries.added"]
     assert body["version"] == seen["version"] + 2
+
+
+def test_a_replayed_command_emits_nothing(make_user):
+    anna = make_user(ANNA)
+    lid = anna.list["id"]
+    stream = anna.open_stream()
+    headers = {"Idempotency-Key": "once"}
+    path = f"/api/lists/{lid}/entries"
+    assert anna.http.post(path, json={"text": "молоко"}, headers=headers).status_code == 201
+    assert stream.next()[1]["kind"] == "entries.added"
+    replay = anna.http.post(path, json={"text": "молоко"}, headers=headers)
+    assert replay.headers["Idempotent-Replayed"] == "true"
+    stream.expect_silence()
+
+
+def test_a_readd_from_history_reaches_the_other_member(make_user):
+    anna, carlos = make_user(ANNA), make_user(CARLOS)
+    lid = anna.list["id"]
+    carlos.http.post("/api/lists/join", json={"code": anna.list["share_code"]})
+    entry = add(anna, lid, "молоко")["entries"][0]
+    anna.http.patch(f"/api/lists/{lid}/entries/{entry['id']}", json={"checked": True})
+    purchase = anna.http.post(f"/api/lists/{lid}/purchases").json()
+    item = anna.http.get(f"/api/lists/{lid}/purchases").json()["purchases"][0]["entries"][0]
+    stream = carlos.open_stream()
+    response = anna.http.post(
+        f"/api/lists/{lid}/purchases/{purchase['id']}/entries/{item['id']}/readd",
+        json={"client_id": "again"},
+    )
+    assert response.status_code == 201, response.text
+    event = stream.next()[1]
+    assert (event["kind"], event["version"]) == ("entries.added", response.json()["version"])

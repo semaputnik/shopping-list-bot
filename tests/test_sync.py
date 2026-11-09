@@ -82,6 +82,42 @@ class TestVersioning:
             assert isinstance(response, list) or response.status_code < 300, name
             assert version(client, anna) == before + 1, name
 
+    def test_the_changes_log_names_each_kind_of_mutation(self, client, anna):
+        h, lid = anna["headers"], anna["id"]
+        (entry,) = add(client, anna, "молоко")
+        start = version(client, anna)
+        client.delete(f"/api/lists/{lid}/entries/{entry['id']}", headers=h)
+        client.post(f"/api/lists/{lid}/entries/{entry['id']}/restore", headers=h)
+        patch(client, anna, entry["id"], {"checked": True})
+        client.post(f"/api/lists/{lid}/entries/uncheck-all", headers=h)
+        client.delete(f"/api/lists/{lid}/products/{entry['product_id']}", headers=h)
+        kinds = [c["kind"] for c in changes(client, anna, start).json()["changes"]]
+        assert kinds == [
+            "entry.deleted",
+            "entry.restored",
+            "entry.updated",
+            "entries.unchecked",
+            "product.hidden",
+        ]
+
+    def test_readding_from_history_bumps_the_version(self, client, anna):
+        h, lid = anna["headers"], anna["id"]
+        (entry,) = add(client, anna, "молоко")
+        patch(client, anna, entry["id"], {"checked": True})
+        purchase = client.post(f"/api/lists/{lid}/purchases", headers=h).json()
+        item = client.get(f"/api/lists/{lid}/purchases", headers=h).json()["purchases"][0][
+            "entries"
+        ][0]
+        before = version(client, anna)
+        response = client.post(
+            f"/api/lists/{lid}/purchases/{purchase['id']}/entries/{item['id']}/readd",
+            json={"client_id": "again"},
+            headers=h,
+        )
+        assert response.status_code == 201, response.text
+        assert version(client, anna) == before + 1
+        assert changes(client, anna, before).json()["changes"][0]["kind"] == "entries.added"
+
     def test_buy_undo_join_and_leave_bump_the_version(self, client, anna, sign_in, add_member):
         h, lid = anna["headers"], anna["id"]
         (entry,) = add(client, anna, "молоко")
@@ -279,6 +315,14 @@ class TestIdempotentReplays:
         assert client.post(path, json={"text": "молоко"}, headers=headers).status_code == 201
         other = client.patch(f"/api/lists/{anna['id']}", json={"name": "Дом"}, headers=headers)
         assert other.status_code == 409
+
+    def test_a_key_reused_with_a_different_body_is_refused(self, client, anna):
+        headers = {**anna["headers"], "Idempotency-Key": "k-body"}
+        path = f"/api/lists/{anna['id']}/entries"
+        assert client.post(path, json={"text": "молоко"}, headers=headers).status_code == 201
+        other = client.post(path, json={"text": "хлеб"}, headers=headers)
+        assert other.status_code == 409
+        assert [e["name"] for e in entries(client, anna)] == ["молоко"]
 
     def test_a_failed_command_is_not_remembered(self, client, anna):
         headers = {**anna["headers"], "Idempotency-Key": "retry"}

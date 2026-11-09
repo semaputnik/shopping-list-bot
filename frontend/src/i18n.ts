@@ -58,6 +58,7 @@ type StringKey =
   | "entryDeleteFailed"
   | "undoFailed"
   | "listDeletedNotice"
+  | "listLeftNotice"
   | "suggestions"
   | "alreadyOnList"
   | "addNew"
@@ -135,6 +136,7 @@ const strings: Record<Language, Record<StringKey, string>> = {
     entryDeleteFailed: "Не удалось удалить. Попробуйте ещё раз.",
     undoFailed: "Не удалось вернуть позицию.",
     listDeletedNotice: "Список «{name}» удалён",
+    listLeftNotice: "Вы больше не участник списка «{name}»",
     suggestions: "Подсказки",
     alreadyOnList: "уже в списке",
     addNew: "Добавить",
@@ -211,6 +213,7 @@ const strings: Record<Language, Record<StringKey, string>> = {
     entryDeleteFailed: "No se pudo eliminar. Inténtalo de nuevo.",
     undoFailed: "No se pudo recuperar el producto.",
     listDeletedNotice: "La lista «{name}» fue eliminada",
+    listLeftNotice: "Ya no eres miembro de la lista «{name}»",
     suggestions: "Sugerencias",
     alreadyOnList: "ya está en la lista",
     addNew: "Añadir",
