@@ -74,6 +74,53 @@ export function fetchLists(token: string): Promise<ShoppingList[]> {
   return request<ShoppingList[]>("/api/lists", {}, token);
 }
 
+export interface Entry {
+  id: number;
+  product_id: number;
+  name: string;
+  note: string | null;
+  category: string;
+  added_by: number | null;
+  created_at: string;
+}
+
+export interface CategoryGroup {
+  key: string;
+  emoji: string;
+  name: string;
+  count: number;
+  entries: Entry[];
+}
+
+export interface ListContents {
+  list: ShoppingList;
+  /** Only non-empty groups, in the fixed system order. */
+  categories: CategoryGroup[];
+}
+
+export interface AddEntriesResult {
+  version: number;
+  entries: Entry[];
+}
+
+export function fetchContents(token: string, listId: number): Promise<ListContents> {
+  return request<ListContents>(`/api/lists/${listId}/entries`, {}, token);
+}
+
+/** Sends the raw input line; the backend parses, splits, files and creates the Entries. */
+export function addEntries(
+  token: string,
+  listId: number,
+  text: string,
+  clientId: string,
+): Promise<AddEntriesResult> {
+  return request<AddEntriesResult>(
+    `/api/lists/${listId}/entries`,
+    { method: "POST", body: JSON.stringify({ text, client_id: clientId }) },
+    token,
+  );
+}
+
 /** Opens a Share link: joins the List (a no-op for a Member). Rejects with ApiError 404 for an invalid code. */
 export function joinList(token: string, code: string): Promise<ShoppingList> {
   return request<ShoppingList>(

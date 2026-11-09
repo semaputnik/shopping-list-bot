@@ -163,7 +163,9 @@ export function App() {
       }
       return (
         <ListScreen
+          token={state.token}
           list={list}
+          language={language}
           strings={strings}
           onOpenMembers={() => setState({ ...state, screen: "members" })}
           onOpenSettings={() => setState({ ...state, screen: "settings" })}
