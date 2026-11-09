@@ -25,10 +25,11 @@ import {
   type ShoppingList,
   type Suggestion,
 } from "../api";
-import { AvatarStack } from "../components/Avatar";
+import { AvatarStack, EntryAvatar } from "../components/Avatar";
 import { EntrySheet } from "../components/EntrySheet";
 import { applyEntryChange } from "../entryChange";
 import { QUICK_ADD, withCount, type Language, type Strings } from "../i18n";
+import { shareList } from "../share";
 import type { Remote } from "../sync";
 import { bindMainButton, confirmDestructive, haptic, setMainButtonText } from "../telegram";
 import { NameSheet, Sheet } from "./Sheet";
@@ -135,7 +136,13 @@ export function ListScreen({
   const listId = list?.id;
   const [openId, setOpenId] = useState<number | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [removed, setRemoved] = useState<Removed[]>([]); // deleted Entries still undoable, oldest first
+  const [removed, setRemoved] = useState<Removed[]>([]);
+  // The trip just ended with «Куплено»: an emptied List says so instead of looking blank.
+  const [justBought, setJustBought] = useState(false);
+  const [boughtNames, setBoughtNames] = useState<string[]>([]);
+  const [info, setInfo] = useState<string | null>(null);
+  const infoTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(infoTimer.current), []); // deleted Entries still undoable, oldest first
   const { start: segmentStart, query } = currentSegment(text);
   const isNew = query !== "" && !suggestions.some((s) => fold(s.name) === fold(query));
   // Options in order: matching Products, then «Добавить «…»» for a new name.
@@ -153,7 +160,11 @@ export function ListScreen({
     const timer = window.setTimeout(() => {
       fetchSuggestions(token, listId, query).then(
         (found) => {
-          if (!cancelled) setSuggestions(found);
+          if (cancelled) return;
+          setSuggestions(found);
+          // Enter takes the first suggestion when it starts with what was typed (spec §4);
+          // a fuzzy-only match stays unselected, so Enter adds the text as typed.
+          setActive(found.length > 0 && fold(found[0].name).startsWith(fold(query)) ? 0 : -1);
         },
         (e) => console.error(e), // suggestions are optional: typing and adding still work
       );
@@ -387,6 +398,7 @@ export function ListScreen({
     async (raw: string) => {
       if (listId === undefined || !raw.trim()) return;
       setError(null);
+      setJustBought(false);
       let ids: number[];
       try {
         const result = await addEntries(token, listId, raw, crypto.randomUUID());
@@ -423,6 +435,22 @@ export function ListScreen({
     );
   }, []);
 
+  // Connectivity, shown as a persistent status; coming back online pulls what was missed.
+  const [online, setOnline] = useState(() => navigator.onLine);
+  useEffect(() => {
+    const up = () => {
+      setOnline(true);
+      void refresh();
+    };
+    const down = () => setOnline(false);
+    window.addEventListener("online", up);
+    window.addEventListener("offline", down);
+    return () => {
+      window.removeEventListener("online", up);
+      window.removeEventListener("offline", down);
+    };
+  }, [refresh]);
+
   const reload = useCallback(
     (failure: "check" | "load" | "buy" | "undoBuy") => {
       if (listId === undefined) return;
@@ -453,6 +481,8 @@ export function ListScreen({
         },
         (e) => {
           console.error(e);
+          // Never show a check the server did not take: put it back, then pull the truth.
+          applyChecked((x) => x === id, !checked);
           reload("check");
         },
       );
@@ -465,6 +495,15 @@ export function ListScreen({
     0,
   );
   const anyChecked = checkedCount > 0;
+  const totalCount = (contents?.categories ?? []).reduce((n, g) => n + g.entries.length, 0);
+  const shared = (list?.members.length ?? 0) > 1;
+  const allInBasket = totalCount > 0 && checkedCount === totalCount;
+  // The moment the last Entry goes into the basket gets one success tap, not every render.
+  const wasAllInBasket = useRef(allInBasket);
+  useEffect(() => {
+    if (allInBasket && !wasAllInBasket.current) haptic.success();
+    wasAllInBasket.current = allInBasket;
+  }, [allInBasket]);
 
   const dismissUndo = useCallback(() => {
     window.clearTimeout(undoTimer.current);
@@ -483,11 +522,17 @@ export function ListScreen({
     haptic.success();
     setError(null);
     try {
+      const bought = (contentsRef.current?.categories ?? [])
+        .flatMap((g) => g.entries)
+        .filter((e) => e.checked)
+        .map((e) => e.name);
       const result = await buy(token, listId);
+      setBoughtNames(bought);
       showContents(await fetchContents(token, listId));
       window.clearTimeout(undoTimer.current);
       setRemoved([]); // the newest action owns the snackbar (see removeEntry)
       setUndoable({ id: result.id, listId, count: result.count });
+      setJustBought(true);
       undoTimer.current = window.setTimeout(() => setUndoable(null), UNDO_MS);
     } catch (e) {
       console.error(e);
@@ -504,6 +549,7 @@ export function ListScreen({
     haptic.select();
     try {
       await undoPurchase(token, listId, id);
+      setJustBought(false);
       showContents(await fetchContents(token, listId));
     } catch (e) {
       console.error(e);
@@ -511,12 +557,26 @@ export function ListScreen({
     }
   };
 
-  // The native «Куплено (N)» button exists only while something is Checked and no sheet covers
-  // the screen. Bound once per visibility change; the label is updated in place.
+  /** «Повторить» on the error toast: a failed add goes again (its text was handed back), the rest
+   * re-read the List so what is shown is the server's truth. */
+  const retry = async () => {
+    const failed = error;
+    setError(null);
+    if (failed === "add" && text.trim()) {
+      const again = text;
+      setText("");
+      await submit(again);
+      return;
+    }
+    await refresh();
+  };
+
+  // The native «Куплено (N)» button exists only while something is Checked and no sheet (nor the
+  // Entry card) covers the screen, so a stray tap while editing cannot commit a Purchase. Bound once per visibility change; the label is updated in place.
   const boughtLabel = `${strings.bought} (${checkedCount})`;
   const label = useRef(boughtLabel);
   label.current = boughtLabel;
-  const buttonVisible = checkedCount > 0 && panel === null;
+  const buttonVisible = checkedCount > 0 && panel === null && openId === null;
   useEffect(() => {
     if (!buttonVisible) return;
     return bindMainButton(label.current, () => void onBuy());
@@ -563,8 +623,16 @@ export function ListScreen({
     void submit(raw);
   };
 
+  // «Убрать из подсказок» has no undo on the server, so it takes two taps: ✕ arms, «Убрать» removes.
+  const [armed, setArmed] = useState<number | null>(null);
+  useEffect(() => setArmed(null), [query]);
   const forget = async (suggestion: Suggestion) => {
     if (listId === undefined) return;
+    if (armed !== suggestion.product_id) {
+      setArmed(suggestion.product_id);
+      return;
+    }
+    setArmed(null);
     try {
       await hideProduct(token, listId, suggestion.product_id);
       setSuggestions((prev) => prev.filter((s) => s.product_id !== suggestion.product_id));
@@ -601,7 +669,8 @@ export function ListScreen({
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
-    send();
+    if (open && active >= 0) choose(active);
+    else send();
   };
 
   const leave = async () => {
@@ -626,10 +695,22 @@ export function ListScreen({
     if (ok) await onDelete(list.id);
   };
 
+  const onShare = async () => {
+    close();
+    if (!list) return;
+    const result = await shareList(list.share_url, strings.shareText.replace("{name}", list.name));
+    if (result === "unavailable") haptic.error();
+    else haptic.success();
+    if (result === "shared") return; // Telegram's own picker is the feedback
+    setInfo(result === "copied" ? strings.linkCopied : strings.linkUnavailable);
+    window.clearTimeout(infoTimer.current);
+    infoTimer.current = window.setTimeout(() => setInfo(null), 2500);
+  };
+
   const sheets = (
     <>
       {failed && (
-        <p className="toast" role="alert">
+        <p className="alert" role="alert">
           {strings.actionFailed}
         </p>
       )}
@@ -669,8 +750,13 @@ export function ListScreen({
         <Sheet title={strings.listMenu} onClose={close} closeLabel={strings.cancel}>
           <ul className="sheet-list">
             <li>
-              <button type="button" className="sheet-row" onClick={() => openPanel("rename", "menu")}>
-                {strings.renameList}
+              <button type="button" className="sheet-row sheet-row--accent" onClick={() => void onShare()}>
+                {strings.shareList}
+              </button>
+            </li>
+            <li>
+              <button type="button" className="sheet-row" disabled={!anyChecked} onClick={onUncheckAll}>
+                {strings.uncheckAll}
               </button>
             </li>
             <li>
@@ -685,9 +771,11 @@ export function ListScreen({
                 {strings.history}
               </button>
             </li>
+          </ul>
+          <ul className="sheet-list">
             <li>
-              <button type="button" className="sheet-row" disabled={!anyChecked} onClick={onUncheckAll}>
-                {strings.uncheckAll}
+              <button type="button" className="sheet-row" onClick={() => openPanel("rename", "menu")}>
+                {strings.renameList}
               </button>
             </li>
             <li>
@@ -702,6 +790,9 @@ export function ListScreen({
                 {strings.settings}
               </button>
             </li>
+          </ul>
+          {/* Destructive actions live in their own group, away from routine ones. */}
+          <ul className="sheet-list">
             <li>
               <button type="button" className="sheet-row sheet-row--destructive" onClick={() => void leave()}>
                 {strings.leaveList}
@@ -798,6 +889,24 @@ export function ListScreen({
         </button>
       </header>
 
+      {totalCount > 0 && (
+        <div className={allInBasket ? "progress progress--full" : "progress"}>
+          <p className="progress__text" aria-live="polite">
+            {allInBasket
+              ? strings.allInBasket
+              : strings.progress
+                  .replace("{left}", String(totalCount - checkedCount))
+                  .replace("{total}", String(totalCount))}
+          </p>
+          <span className="progress__track" aria-hidden="true">
+            <span
+              className="progress__fill"
+              style={{ transform: `scaleX(${checkedCount / totalCount})` }}
+            />
+          </span>
+        </div>
+      )}
+
       <form className="composer" onSubmit={onSubmit}>
         <textarea
           ref={input}
@@ -807,7 +916,6 @@ export function ListScreen({
           placeholder={strings.inputPlaceholder}
           aria-label={strings.inputLabel}
           enterKeyHint="send"
-          autoFocus
           role="combobox"
           aria-expanded={open}
           aria-controls="suggestions"
@@ -834,12 +942,14 @@ export function ListScreen({
                 </button>
                 <button
                   type="button"
-                  className="suggest__forget"
+                  className={
+                    armed === s.product_id ? "suggest__forget suggest__forget--armed" : "suggest__forget"
+                  }
                   aria-label={`${strings.forgetProduct}: ${s.name}`}
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => void forget(s)}
                 >
-                  ✕
+                  {armed === s.product_id ? strings.forgetConfirm : "✕"}
                 </button>
               </li>
             ))}
@@ -867,32 +977,69 @@ export function ListScreen({
           </ul>
         )}
       </form>
-      {error && (
-        <p className="notice" role="alert">
-          {
-            {
-              add: strings.addFailed,
-              load: strings.loadFailed,
-              check: strings.checkFailed,
-              delete: strings.entryDeleteFailed,
-              undo: strings.undoFailed,
-              save: strings.entrySaveFailed,
-              buy: strings.buyFailed,
-              undoBuy: strings.undoBuyFailed,
-            }[error]
-          }
+      {!online && (
+        <p className="alert alert--status" role="status">
+          {strings.offline}
         </p>
+      )}
+      {online && error && (
+        <div className="alert" role="alert">
+          <span className="alert__text">
+            {
+              {
+                add: strings.addFailed,
+                load: strings.loadFailed,
+                check: strings.checkFailed,
+                delete: strings.entryDeleteFailed,
+                undo: strings.undoFailed,
+                save: strings.entrySaveFailed,
+                buy: strings.buyFailed,
+                undoBuy: strings.undoBuyFailed,
+              }[error]
+            }
+          </span>
+          <button type="button" className="alert__action" onClick={() => void retry()}>
+            {strings.retry}
+          </button>
+          <button
+            type="button"
+            className="alert__close"
+            aria-label={strings.close}
+            onClick={() => setError(null)}
+          >
+            ✕
+          </button>
+        </div>
       )}
       {undoable && removed.length === 0 && (
         <div className="snackbar" role="status">
-          <span className="snackbar__text">{`${strings.bought}: ${undoable.count}`}</span>
+          <span className="snackbar__text">{`${strings.bought}: ${undoable.count} · ${strings.boughtSaved}`}</span>
           <button type="button" className="snackbar__action" onClick={() => void onUndo()}>
             {strings.undo}
           </button>
         </div>
       )}
 
-      {contents && groups.length === 0 && (
+      {contents && groups.length === 0 && justBought && (
+        <section className="empty empty--done" aria-live="polite">
+          <span className="empty__emoji" aria-hidden="true">
+            ✅
+          </span>
+          <p className="empty__title">{strings.doneTitle}</p>
+          {boughtNames.length > 0 && (
+            <p className="empty__summary">
+              {boughtNames.length <= 3
+                ? boughtNames.join(", ")
+                : `${boughtNames.slice(0, 3).join(", ")} ${withCount(strings.andMore, boughtNames.length - 3)}`}
+            </p>
+          )}
+          <p className="empty__hint">{strings.doneHint}</p>
+          <button type="button" className="empty__action" onClick={onOpenHistory}>
+            {strings.history}
+          </button>
+        </section>
+      )}
+      {contents && groups.length === 0 && !justBought && (
         <section className="empty" aria-live="polite">
           <span className="empty__emoji" aria-hidden="true">
             🛒
@@ -926,11 +1073,23 @@ export function ListScreen({
       )}
 
       {groups.map((group) => (
-        <section key={group.key} className="group">
+        <section
+          key={group.key}
+          className={group.entries.every((e) => e.checked) ? "group group--done" : "group"}
+        >
           <h2 className="group__header">
-            <span aria-hidden="true">{group.emoji}</span>
+            <span className="group__emoji" aria-hidden="true">
+              {group.emoji}
+            </span>
             <span className="group__name">{group.name}</span>
-            <span className="group__count">{group.count}</span>
+            {(() => {
+              const left = group.entries.filter((e) => !e.checked).length;
+              return (
+                <span className="group__count" aria-label={withCount(strings.remaining, left)}>
+                  {left > 0 ? left : "✓"}
+                </span>
+              );
+            })()}
           </h2>
           <ul className="rows">
             {group.entries.map((entry) => (
@@ -940,19 +1099,35 @@ export function ListScreen({
                   .filter(Boolean)
                   .join(" ")}
               >
+                {/* The whole row is the tap target for the aisle action (check / uncheck);
+                    the trailing chevron is the separate, visible way into the Entry card. */}
                 <button
                   type="button"
                   role="checkbox"
                   aria-checked={entry.checked}
-                  aria-label={entry.name}
                   className="row__toggle"
                   onClick={() => toggle(entry.id, !entry.checked)}
                 >
                   <span className="row__check" aria-hidden="true" />
+                  <span className="row__text">
+                    <span className="row__name">
+                      <span className="row__label">{entry.name}</span>
+                    </span>
+                    {entry.note && <span className="row__note">{entry.note}</span>}
+                  </span>
+                  {shared && (
+                    <span className="row__by" aria-hidden="true">
+                      <EntryAvatar members={list.members} addedBy={entry.added_by} />
+                    </span>
+                  )}
                 </button>
-                <button type="button" className="row__open" onClick={() => openCard(entry.id)}>
-                  <span className="row__name">{entry.name}</span>
-                  {entry.note && <span className="row__note">{entry.note}</span>}
+                <button
+                  type="button"
+                  className="row__open"
+                  aria-label={`${strings.entryDetails}: ${entry.name}`}
+                  onClick={() => openCard(entry.id)}
+                >
+                  <span aria-hidden="true">›</span>
                 </button>
               </li>
             ))}
@@ -983,6 +1158,11 @@ export function ListScreen({
           <button type="button" className="snackbar__action" onClick={() => void undoRemove()}>
             {strings.undo}
           </button>
+        </div>
+      )}
+      {info && (
+        <div className="toast" role="status">
+          {info}
         </div>
       )}
       {sheets}

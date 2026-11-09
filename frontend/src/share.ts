@@ -1,3 +1,5 @@
+import { shareToChat } from "./telegram";
+
 /** Copies text to the clipboard; falls back to execCommand for webviews without the async API. */
 export async function copyText(text: string): Promise<boolean> {
   try {
@@ -19,4 +21,14 @@ export async function copyText(text: string): Promise<boolean> {
       area.remove();
     }
   }
+}
+
+/** Shares a List's link: Telegram's chat picker when available, otherwise the clipboard. */
+export async function shareList(
+  url: string | null,
+  text: string,
+): Promise<"shared" | "copied" | "unavailable"> {
+  if (!url) return "unavailable";
+  if (shareToChat(url, text)) return "shared";
+  return (await copyText(url)) ? "copied" : "unavailable";
 }

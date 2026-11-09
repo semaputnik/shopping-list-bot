@@ -86,7 +86,7 @@ export function App() {
       }
       setLanguage(pickLanguage(telegram.languageCode));
       const session = await authenticate(telegram.rawInitData);
-      let lists = await fetchLists(session.token);
+      let lists = session.lists ?? (await fetchLists(session.token));
       setLanguage(session.user.language);
       let currentId = lists[0]?.id ?? null;
       if (session.start_param) {

@@ -20,6 +20,7 @@ from sqlalchemy import and_, delete, event, func, inspect, or_, select, text, up
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from starlette.concurrency import run_in_threadpool
+from starlette.middleware.gzip import GZipMiddleware
 
 from . import models
 from .auth import (
@@ -70,6 +71,15 @@ ListName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1,
 
 class ListIn(BaseModel):
     name: ListName
+
+
+class ImmutableStaticFiles(StaticFiles):
+    """Vite's /assets file names carry a content hash: cache them for a year, never revalidate."""
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
 
 
 class ListOut(BaseModel):
@@ -268,6 +278,8 @@ class AuthOut(BaseModel):
     user: UserOut
     # The raw `startapp` value of the launch link, if any (a Share link's code).
     start_param: str | None
+    # The user's Lists, as GET /api/lists returns them: saves the client a round trip on start-up.
+    lists: list[ListOut] = []
 
 
 def user_out(user: models.User) -> UserOut:
@@ -454,11 +466,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         session.commit()
 
         token, expires_at = issue_session_token(user.id, secret, settings.session_ttl_seconds)
+        # Re-read from the database so a List created just now serialises exactly as GET /lists does.
+        session.expire_all()
+        stmt = _member_lists(user).order_by(models.List.updated_at.desc(), models.List.id.desc())
+        lang = _lang(user)
         return AuthOut(
             token=token,
             expires_at=expires_at,
             user=user_out(user),
             start_param=data.start_param,
+            lists=[list_out(lst, lang, settings.bot_username) for lst in session.scalars(stmt)],
         )
 
     @api.get("/me", response_model=UserOut)
@@ -1377,11 +1394,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"status": "ok"}
 
     app.include_router(api)
+    # Text responses travel compressed (the bundle is ~3x smaller); the SSE stream is excluded by
+    # Starlette's defaults, so events still flush immediately.
+    app.add_middleware(GZipMiddleware, minimum_size=1024)
 
     dist = settings.frontend_dist
     if dist.is_dir():
         if (dist / "assets").is_dir():
-            app.mount("/assets", StaticFiles(directory=dist / "assets"), name="assets")
+            app.mount("/assets", ImmutableStaticFiles(directory=dist / "assets"), name="assets")
 
         @app.get("/{path:path}", include_in_schema=False)
         def frontend(path: str, request: Request) -> FileResponse:
@@ -1390,6 +1410,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             candidate = (dist / path).resolve()
             if path and candidate.is_file() and dist.resolve() in candidate.parents:
                 return FileResponse(candidate)
-            return FileResponse(dist / "index.html")
+            # The HTML names the hashed bundle, so it must be revalidated to pick up a new build.
+            return FileResponse(dist / "index.html", headers={"Cache-Control": "no-cache"})
 
     return app

@@ -7,6 +7,7 @@ type StringKey =
   | "errorTitle"
   | "errorHint"
   | "retry"
+  | "offline"
   | "notTelegramTitle"
   | "notTelegramHint"
   | "noList"
@@ -47,6 +48,7 @@ type StringKey =
   | "languageAsTelegram"
   | "languageSaveError"
   | "entryNote"
+  | "entryDetails"
   | "entryNotePlaceholder"
   | "entryCategory"
   | "entryAddedBy"
@@ -63,6 +65,16 @@ type StringKey =
   | "alreadyOnList"
   | "addNew"
   | "forgetProduct"
+  | "forgetConfirm"
+  | "shareList"
+  | "shareText"
+  | "remaining"
+  | "progress"
+  | "allInBasket"
+  | "boughtSaved"
+  | "doneTitle"
+  | "doneHint"
+  | "andMore"
   | "uncheckAll"
   | "checkFailed"
   | "bought"
@@ -83,6 +95,7 @@ const strings: Record<Language, Record<StringKey, string>> = {
     errorTitle: "Не удалось войти",
     errorHint: "Закройте приложение и откройте его снова из Telegram.",
     retry: "Повторить",
+    offline: "Нет сети. Изменения не сохранятся, пока связь не вернётся.",
     notTelegramTitle: "Откройте в Telegram",
     notTelegramHint: "Shared Lists работает как мини-приложение внутри Telegram.",
     noList: "Нет доступных списков",
@@ -108,8 +121,8 @@ const strings: Record<Language, Record<StringKey, string>> = {
     inputPlaceholder: "Добавить в список",
     inputLabel: "Что нужно купить",
     addFailed: "Не удалось добавить. Попробуйте ещё раз.",
-    loadFailed: "Не удалось обновить список. Откройте его заново.",
-    emptyInputHint: "Напишите название и нажмите Enter. Через запятую — заметка: молоко, 2 л.",
+    loadFailed: "Не удалось обновить список.",
+    emptyInputHint: "Напишите название и отправьте. Через запятую — заметка: молоко, 2 л.",
     share: "Поделиться",
     linkCopied: "Ссылка скопирована",
     linkUnavailable: "Не удалось получить ссылку",
@@ -126,11 +139,12 @@ const strings: Record<Language, Record<StringKey, string>> = {
     entryNote: "Заметка",
     entryNotePlaceholder: "Количество или детали",
     entryCategory: "Отдел",
-    entryAddedBy: "Добавил(а)",
+    entryAddedBy: "Добавлено:",
     entryDelete: "Удалить",
     entryDeleted: "Удалено",
     undo: "Отменить",
     close: "Закрыть",
+    entryDetails: "Подробнее",
     entrySaveFailed: "Не удалось сохранить. Попробуйте ещё раз.",
     entryDeleteFailed: "Не удалось удалить. Попробуйте ещё раз.",
     undoFailed: "Не удалось вернуть позицию.",
@@ -140,11 +154,21 @@ const strings: Record<Language, Record<StringKey, string>> = {
     alreadyOnList: "уже в списке",
     addNew: "Добавить",
     forgetProduct: "Убрать из подсказок",
+    forgetConfirm: "Убрать",
+    shareList: "Поделиться списком",
+    shareText: "Присоединяйтесь к списку «{name}»",
+    remaining: "Осталось: {n}",
+    progress: "Осталось купить: {left} из {total}",
+    allInBasket: "Всё в корзине — нажмите «Куплено»",
+    boughtSaved: "в истории",
+    doneTitle: "Всё куплено",
+    doneHint: "Покупка сохранена в истории.",
+    andMore: "и ещё {n}",
     uncheckAll: "Снять все отметки",
-    checkFailed: "Не удалось сохранить отметку. Список обновлён.",
+    checkFailed: "Отметка не сохранилась. Проверьте связь.",
     bought: "Куплено",
-    buyFailed: "Не удалось отметить покупку. Список обновлён.",
-    undoBuyFailed: "Не удалось отменить покупку. Список обновлён.",
+    buyFailed: "Покупка не сохранилась. Проверьте связь.",
+    undoBuyFailed: "Не удалось отменить покупку. Проверьте связь.",
     history: "История покупок",
     historyEmpty: "Пока пусто. Здесь появятся покупки после нажатия «Куплено».",
     historyAdded: "Добавлено в список",
@@ -159,6 +183,7 @@ const strings: Record<Language, Record<StringKey, string>> = {
     errorTitle: "No se pudo iniciar sesión",
     errorHint: "Cierra la aplicación y ábrela de nuevo desde Telegram.",
     retry: "Reintentar",
+    offline: "Sin conexión. Los cambios no se guardarán hasta que vuelva la red.",
     notTelegramTitle: "Abre en Telegram",
     notTelegramHint: "Shared Lists funciona como mini aplicación dentro de Telegram.",
     noList: "No hay listas disponibles",
@@ -184,8 +209,8 @@ const strings: Record<Language, Record<StringKey, string>> = {
     inputPlaceholder: "Añadir a la lista",
     inputLabel: "Qué hay que comprar",
     addFailed: "No se pudo añadir. Inténtalo de nuevo.",
-    loadFailed: "No se pudo actualizar la lista. Ábrela de nuevo.",
-    emptyInputHint: "Escribe el nombre y pulsa Enter. Tras una coma va la nota: leche, 2 l.",
+    loadFailed: "No se pudo actualizar la lista.",
+    emptyInputHint: "Escribe el nombre y envíalo. Tras una coma va la nota: leche, 2 l.",
     share: "Compartir",
     linkCopied: "Enlace copiado",
     linkUnavailable: "No se pudo obtener el enlace",
@@ -202,11 +227,12 @@ const strings: Record<Language, Record<StringKey, string>> = {
     entryNote: "Nota",
     entryNotePlaceholder: "Cantidad o detalles",
     entryCategory: "Sección",
-    entryAddedBy: "Añadido por",
+    entryAddedBy: "Añadido por:",
     entryDelete: "Eliminar",
     entryDeleted: "Eliminado",
     undo: "Deshacer",
     close: "Cerrar",
+    entryDetails: "Detalles",
     entrySaveFailed: "No se pudo guardar. Inténtalo de nuevo.",
     entryDeleteFailed: "No se pudo eliminar. Inténtalo de nuevo.",
     undoFailed: "No se pudo recuperar el producto.",
@@ -216,11 +242,21 @@ const strings: Record<Language, Record<StringKey, string>> = {
     alreadyOnList: "ya está en la lista",
     addNew: "Añadir",
     forgetProduct: "Quitar de las sugerencias",
+    forgetConfirm: "Quitar",
+    shareList: "Compartir la lista",
+    shareText: "Únete a la lista «{name}»",
+    remaining: "Quedan: {n}",
+    progress: "Por comprar: {left} de {total}",
+    allInBasket: "Todo en la cesta: pulsa «Comprado»",
+    boughtSaved: "en el historial",
+    doneTitle: "Todo comprado",
+    doneHint: "La compra se guardó en el historial.",
+    andMore: "y {n} más",
     uncheckAll: "Quitar todas las marcas",
-    checkFailed: "No se pudo guardar la marca. Lista actualizada.",
+    checkFailed: "La marca no se guardó. Revisa la conexión.",
     bought: "Comprado",
-    buyFailed: "No se pudo registrar la compra. Lista actualizada.",
-    undoBuyFailed: "No se pudo deshacer la compra. Lista actualizada.",
+    buyFailed: "La compra no se guardó. Revisa la conexión.",
+    undoBuyFailed: "No se pudo deshacer la compra. Revisa la conexión.",
     history: "Historial de compras",
     historyEmpty: "Aún no hay nada. Las compras aparecerán aquí al pulsar «Comprado».",
     historyAdded: "Añadido a la lista",
