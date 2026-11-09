@@ -103,5 +103,9 @@ class Entry(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     # Client-generated idempotency id (a replayed add must not duplicate the Entry).
     client_id: Mapped[str | None] = mapped_column(String(80))
+    # Set while the Entry is deleted: a deleted Entry is hidden everywhere but can be
+    # restored (the 5 s Undo after deleting).
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     product: Mapped[Product] = relationship()
+    author: Mapped[User | None] = relationship(foreign_keys=[added_by])

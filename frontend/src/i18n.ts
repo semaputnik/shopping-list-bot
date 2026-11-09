@@ -27,7 +27,18 @@ type StringKey =
   | "settings"
   | "languageSection"
   | "languageAsTelegram"
-  | "languageSaveError";
+  | "languageSaveError"
+  | "entryNote"
+  | "entryNotePlaceholder"
+  | "entryCategory"
+  | "entryAddedBy"
+  | "entryDelete"
+  | "entryDeleted"
+  | "undo"
+  | "close"
+  | "entrySaveFailed"
+  | "entryDeleteFailed"
+  | "undoFailed";
 
 const strings: Record<Language, Record<StringKey, string>> = {
   ru: {
@@ -58,6 +69,17 @@ const strings: Record<Language, Record<StringKey, string>> = {
     languageSection: "Язык",
     languageAsTelegram: "Как в Telegram",
     languageSaveError: "Не удалось сохранить язык. Попробуйте ещё раз.",
+    entryNote: "Заметка",
+    entryNotePlaceholder: "Количество или детали",
+    entryCategory: "Отдел",
+    entryAddedBy: "Добавил(а)",
+    entryDelete: "Удалить",
+    entryDeleted: "Удалено",
+    undo: "Отменить",
+    close: "Закрыть",
+    entrySaveFailed: "Не удалось сохранить. Попробуйте ещё раз.",
+    entryDeleteFailed: "Не удалось удалить. Попробуйте ещё раз.",
+    undoFailed: "Не удалось вернуть позицию.",
   },
   es: {
     loading: "Cargando…",
@@ -87,6 +109,17 @@ const strings: Record<Language, Record<StringKey, string>> = {
     languageSection: "Idioma",
     languageAsTelegram: "Como en Telegram",
     languageSaveError: "No se pudo guardar el idioma. Inténtalo de nuevo.",
+    entryNote: "Nota",
+    entryNotePlaceholder: "Cantidad o detalles",
+    entryCategory: "Sección",
+    entryAddedBy: "Añadido por",
+    entryDelete: "Eliminar",
+    entryDeleted: "Eliminado",
+    undo: "Deshacer",
+    close: "Cerrar",
+    entrySaveFailed: "No se pudo guardar. Inténtalo de nuevo.",
+    entryDeleteFailed: "No se pudo eliminar. Inténtalo de nuevo.",
+    undoFailed: "No se pudo recuperar el producto.",
   },
 };
 

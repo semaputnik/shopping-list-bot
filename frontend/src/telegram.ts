@@ -88,6 +88,6 @@ export function showNativeBackButton(onClick: () => void): () => void {
 }
 
 /** Success/error haptic tick for an action; a no-op outside Telegram. */
-export function notifyHaptic(type: "success" | "error"): void {
+export function notifyHaptic(type: "success" | "warning" | "error"): void {
   if (hapticFeedbackNotificationOccurred.isAvailable()) hapticFeedbackNotificationOccurred(type);
 }

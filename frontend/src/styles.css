@@ -408,7 +408,153 @@ body {
 
 .row__name {
   min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
   overflow-wrap: anywhere;
+}
+
+/* Bottom sheet over a scrim. */
+.sheet-root {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: flex-end;
+}
+
+.sheet-scrim {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--text) 40%, transparent);
+}
+
+.sheet {
+  position: relative;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 8px 16px calc(var(--safe-bottom) + 20px);
+  border-radius: 14px 14px 0 0;
+  background: var(--bg);
+  animation: sheet-in 0.2s ease-out;
+}
+
+@keyframes sheet-in {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet {
+    animation: none;
+  }
+}
+
+.sheet__grip {
+  width: 36px;
+  height: 4px;
+  margin: 0 auto 8px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--hint) 50%, transparent);
+}
+
+.sheet__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sheet__title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.sheet__field {
+  display: block;
+  margin-top: 12px;
+}
+
+.sheet__label {
+  display: block;
+  margin: 0 4px 4px;
+  font-size: 13px;
+  text-transform: uppercase;
+  color: var(--hint);
+}
+
+.sheet__input {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--ground);
+  color: var(--text);
+  font: inherit;
+  resize: none;
+}
+
+.sheet__meta {
+  margin: 12px 4px 0;
+  font-size: 15px;
+  color: var(--hint);
+}
+
+.sheet__delete {
+  width: 100%;
+  min-height: 48px;
+  margin-top: 16px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--ground);
+  color: var(--tg-theme-destructive-text-color, #d32f2f);
+  font: inherit;
+  font-weight: 600;
+}
+
+.snackbar {
+  position: fixed;
+  right: 16px;
+  bottom: calc(var(--safe-bottom) + 16px);
+  left: 16px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  padding: 4px 8px 4px 16px;
+  border-radius: 12px;
+  background: var(--text);
+  color: var(--bg);
+}
+
+.snackbar__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.snackbar__action {
+  flex-shrink: 0;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
 }
 
 .row__note {

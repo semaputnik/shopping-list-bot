@@ -1,7 +1,19 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import { addEntries, fetchContents, type ListContents, type ShoppingList } from "../api";
+import {
+  addEntries,
+  deleteEntry,
+  fetchCategories,
+  fetchContents,
+  restoreEntry,
+  updateEntry,
+  type Category,
+  type ListContents,
+  type ShoppingList,
+} from "../api";
 import { AvatarStack } from "../components/Avatar";
+import { EntrySheet } from "../components/EntrySheet";
 import { QUICK_ADD, type Language, type Strings } from "../i18n";
+import { notifyHaptic } from "../telegram";
 
 interface Props {
   token: string;
@@ -13,16 +25,25 @@ interface Props {
 }
 
 const HIGHLIGHT_MS = 1600;
+const UNDO_MS = 5000;
+
+interface Removed {
+  id: number;
+  name: string;
+}
 
 /** The List screen: header with Members and Settings, the pinned input line, then Entries grouped by Category. */
 export function ListScreen({ token, list, language, strings, onOpenMembers, onOpenSettings }: Props) {
   const [contents, setContents] = useState<ListContents | null>(null);
   const [fresh, setFresh] = useState<ReadonlySet<number>>(new Set());
-  const [error, setError] = useState<"add" | "load" | null>(null);
+  const [error, setError] = useState<"add" | "load" | "delete" | "undo" | null>(null);
   const [text, setText] = useState("");
   const [pendingQuick, setPendingQuick] = useState<ReadonlySet<string>>(new Set());
   const input = useRef<HTMLTextAreaElement>(null);
   const listId = list?.id;
+  const [openId, setOpenId] = useState<number | null>(null);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [removed, setRemoved] = useState<Removed[]>([]); // deleted Entries still undoable, oldest first
 
   // Responses can arrive out of order after quick consecutive adds: never replace newer contents.
   const showContents = useCallback((next: ListContents) => {
@@ -36,6 +57,75 @@ export function ListScreen({ token, list, language, strings, onOpenMembers, onOp
       setError("load");
     });
   }, [token, listId, showContents]);
+
+  const refresh = useCallback(async () => {
+    if (listId === undefined) return;
+    try {
+      showContents(await fetchContents(token, listId));
+    } catch (e) {
+      console.error(e);
+      setError("load");
+    }
+  }, [token, listId, showContents]);
+
+  const openSheet = (id: number) => {
+    setOpenId(id);
+    if (categories.length === 0) {
+      fetchCategories(token).then(setCategories, (e) => console.error(e));
+    }
+  };
+
+  const closeSheet = useCallback(() => setOpenId(null), []);
+
+  const saveNote = useCallback(
+    async (note: string) => {
+      if (listId === undefined || openId === null) return;
+      await updateEntry(token, listId, openId, { note: note.trim() ? note : null });
+      await refresh();
+    },
+    [token, listId, openId, refresh],
+  );
+
+  const changeCategory = useCallback(
+    async (category: string) => {
+      if (listId === undefined || openId === null) return;
+      await updateEntry(token, listId, openId, { category });
+      await refresh();
+    },
+    [token, listId, openId, refresh],
+  );
+
+  const removeEntry = async (id: number, name: string) => {
+    if (listId === undefined) return;
+    setOpenId(null);
+    try {
+      await deleteEntry(token, listId, id);
+    } catch (e) {
+      console.error(e);
+      setError("delete");
+      return;
+    }
+    notifyHaptic("warning");
+    setError(null);
+    setRemoved((prev) => [...prev, { id, name }]);
+    window.setTimeout(() => setRemoved((prev) => prev.filter((r) => r.id !== id)), UNDO_MS);
+    await refresh();
+  };
+
+  const undoRemove = async () => {
+    const last = removed[removed.length - 1];
+    if (!last || listId === undefined) return;
+    setRemoved((prev) => prev.filter((r) => r.id !== last.id));
+    try {
+      await restoreEntry(token, listId, last.id);
+    } catch (e) {
+      console.error(e);
+      setError("undo");
+      return;
+    }
+    notifyHaptic("success");
+    await refresh();
+  };
 
   // Grow the textarea with its content (field-sizing is not available in older iOS WebKit).
   useLayoutEffect(() => {
@@ -115,6 +205,8 @@ export function ListScreen({ token, list, language, strings, onOpenMembers, onOp
   }
 
   const groups = contents?.categories ?? [];
+  const openEntry_ =
+    openId === null ? null : groups.flatMap((g) => g.entries).find((e) => e.id === openId) ?? null;
   return (
     <main className="screen">
       <header className="header">
@@ -153,7 +245,14 @@ export function ListScreen({ token, list, language, strings, onOpenMembers, onOp
       </form>
       {error && (
         <p className="notice" role="alert">
-          {error === "add" ? strings.addFailed : strings.loadFailed}
+          {
+            {
+              add: strings.addFailed,
+              load: strings.loadFailed,
+              delete: strings.entryDeleteFailed,
+              undo: strings.undoFailed,
+            }[error]
+          }
         </p>
       )}
 
@@ -200,13 +299,40 @@ export function ListScreen({ token, list, language, strings, onOpenMembers, onOp
           <ul className="rows">
             {group.entries.map((entry) => (
               <li key={entry.id} className={fresh.has(entry.id) ? "row row--new" : "row"}>
-                <span className="row__name">{entry.name}</span>
+                <button type="button" className="row__name" onClick={() => openSheet(entry.id)}>
+                  {entry.name}
+                </button>
                 {entry.note && <span className="row__note">{entry.note}</span>}
               </li>
             ))}
           </ul>
         </section>
       ))}
+
+      {openEntry_ && (
+        <EntrySheet
+          key={openEntry_.id}
+          entry={openEntry_}
+          categories={categories}
+          language={language}
+          strings={strings}
+          onSaveNote={saveNote}
+          onChangeCategory={changeCategory}
+          onDelete={() => void removeEntry(openEntry_.id, openEntry_.name)}
+          onClose={closeSheet}
+        />
+      )}
+
+      {removed.length > 0 && (
+        <div className="snackbar" role="status">
+          <span className="snackbar__text">
+            {strings.entryDeleted}: {removed[removed.length - 1].name}
+          </span>
+          <button type="button" className="snackbar__action" onClick={() => void undoRemove()}>
+            {strings.undo}
+          </button>
+        </div>
+      )}
     </main>
   );
 }

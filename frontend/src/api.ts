@@ -81,6 +81,8 @@ export interface Entry {
   note: string | null;
   category: string;
   added_by: number | null;
+  /** First name of whoever added it; null if that user is gone. */
+  added_by_name: string | null;
   created_at: string;
 }
 
@@ -119,6 +121,39 @@ export function addEntries(
     { method: "POST", body: JSON.stringify({ text, client_id: clientId }) },
     token,
   );
+}
+
+export interface Category {
+  key: string;
+  name: string;
+}
+
+/** The system Categories, named in the user's language, in display order. */
+export function fetchCategories(token: string): Promise<Category[]> {
+  return request<Category[]>("/api/categories", {}, token);
+}
+
+/** Edits one Entry. `note: null` clears the Note; `category` moves the whole Product. */
+export function updateEntry(
+  token: string,
+  listId: number,
+  entryId: number,
+  change: { note?: string | null; category?: string },
+): Promise<{ version: number; entry: Entry }> {
+  return request(
+    `/api/lists/${listId}/entries/${entryId}`,
+    { method: "PATCH", body: JSON.stringify(change) },
+    token,
+  );
+}
+
+export function deleteEntry(token: string, listId: number, entryId: number): Promise<{ version: number }> {
+  return request(`/api/lists/${listId}/entries/${entryId}`, { method: "DELETE" }, token);
+}
+
+/** Undo of a delete. */
+export function restoreEntry(token: string, listId: number, entryId: number): Promise<{ version: number }> {
+  return request(`/api/lists/${listId}/entries/${entryId}/restore`, { method: "POST" }, token);
 }
 
 /** Opens a Share link: joins the List (a no-op for a Member). Rejects with ApiError 404 for an invalid code. */
