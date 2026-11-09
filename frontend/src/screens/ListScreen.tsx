@@ -6,15 +6,19 @@ interface Props {
   list: ShoppingList | null;
   strings: Strings;
   onOpenMembers: () => void;
+  onOpenSettings: () => void;
 }
 
-/** The List screen: header with the List name and Members, then the empty state. */
-export function ListScreen({ list, strings, onOpenMembers }: Props) {
+/** The List screen: header with the List name, Members and Settings, then the empty state. */
+export function ListScreen({ list, strings, onOpenMembers, onOpenSettings }: Props) {
   if (!list) {
     return (
       <main className="screen">
         <section className="empty">
           <p className="empty__title">{strings.noList}</p>
+          <button type="button" className="text-button" onClick={onOpenSettings}>
+            {strings.settings}
+          </button>
         </section>
       </main>
     );
@@ -30,6 +34,14 @@ export function ListScreen({ list, strings, onOpenMembers }: Props) {
           onClick={onOpenMembers}
         >
           <AvatarStack members={list.members} />
+        </button>
+        <button
+          type="button"
+          className="icon-button"
+          aria-label={strings.settings}
+          onClick={onOpenSettings}
+        >
+          ⚙︎
         </button>
       </header>
       <section className="empty" aria-live="polite">
