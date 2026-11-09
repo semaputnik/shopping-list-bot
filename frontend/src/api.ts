@@ -94,6 +94,8 @@ export interface Entry {
   note: string | null;
   category: string;
   added_by: number | null;
+  /** First name of whoever added it; null if that user is gone. */
+  added_by_name: string | null;
   created_at: string;
   checked: boolean;
   checked_by: number | null;
@@ -136,6 +138,35 @@ export function addEntries(
   );
 }
 
+export interface Category {
+  key: string;
+  name: string;
+  emoji: string;
+}
+
+/** The system Categories, named in the user's language, in display order. */
+export function fetchCategories(token: string): Promise<Category[]> {
+  return request<Category[]>("/api/categories", {}, token);
+}
+
+/**
+ * Edits one Entry; only the fields sent change. `note: null` clears the Note, `category` moves
+ * the whole Product, `checked` is the wanted state (not a toggle).
+ */
+export function updateEntry(
+  token: string,
+  listId: number,
+  entryId: number,
+  change: { note?: string | null; category?: string; checked?: boolean },
+): Promise<{ version: number; entry: Entry }> {
+  return request(
+    `/api/lists/${listId}/entries/${entryId}`,
+    { method: "PATCH", body: JSON.stringify(change) },
+    token,
+  );
+}
+
+
 /** A Product from the List's memory matching the typed text. */
 export interface Suggestion {
   product_id: number;
@@ -162,6 +193,19 @@ export function renameList(token: string, id: number, name: string): Promise<Sho
   );
 }
 
+export function deleteEntry(token: string, listId: number, entryId: number): Promise<{ version: number }> {
+  return request(`/api/lists/${listId}/entries/${entryId}`, { method: "DELETE" }, token);
+}
+
+/** Undo of a delete: the Entry comes back as it was (a Checked Entry is still Checked). */
+export function restoreEntry(
+  token: string,
+  listId: number,
+  entryId: number,
+): Promise<{ version: number; entry: Entry }> {
+  return request(`/api/lists/${listId}/entries/${entryId}/restore`, { method: "POST" }, token);
+}
+
 /** Leaves the List for this user only; the last Member leaving deletes it. */
 export function leaveList(token: string, id: number): Promise<void> {
   return request<void>(`/api/lists/${id}/leave`, { method: "POST" }, token);
@@ -177,20 +221,6 @@ export function joinList(token: string, code: string): Promise<ShoppingList> {
   return request<ShoppingList>(
     "/api/lists/join",
     { method: "POST", body: JSON.stringify({ code }) },
-    token,
-  );
-}
-
-/** Sets the wanted Checked state of one Entry (idempotent; the Entry stays in place). */
-export function setChecked(
-  token: string,
-  listId: number,
-  entryId: number,
-  checked: boolean,
-): Promise<{ version: number; entry: Entry }> {
-  return request(
-    `/api/lists/${listId}/entries/${entryId}`,
-    { method: "PATCH", body: JSON.stringify({ checked }) },
     token,
   );
 }

@@ -9,16 +9,22 @@ import {
 } from "react";
 import {
   addEntries,
+  deleteEntry,
+  fetchCategories,
   fetchContents,
   fetchSuggestions,
   hideProduct,
-  setChecked,
+  restoreEntry,
+  updateEntry,
   uncheckAll,
+  type Category,
   type ListContents,
   type ShoppingList,
   type Suggestion,
 } from "../api";
 import { AvatarStack } from "../components/Avatar";
+import { EntrySheet } from "../components/EntrySheet";
+import { applyEntryChange } from "../entryChange";
 import { QUICK_ADD, withCount, type Language, type Strings } from "../i18n";
 import { confirmDestructive, haptic } from "../telegram";
 import { NameSheet, Sheet } from "./Sheet";
@@ -46,6 +52,12 @@ type Panel = null | "switcher" | "menu" | "create" | "rename";
 
 const HIGHLIGHT_MS = 1600;
 const SUGGEST_DELAY_MS = 120;
+const UNDO_MS = 5000;
+
+interface Removed {
+  id: number;
+  name: string;
+}
 
 /** Same folding as the backend: case and diacritics ignored. */
 function fold(value: string): string {
@@ -98,7 +110,7 @@ export function ListScreen({
 
   const [contents, setContents] = useState<ListContents | null>(null);
   const [fresh, setFresh] = useState<ReadonlySet<number>>(new Set());
-  const [error, setError] = useState<"add" | "load" | "check" | null>(null);
+  const [error, setError] = useState<"add" | "load" | "check" | "delete" | "undo" | "save" | null>(null);
   const [text, setText] = useState("");
   const [pendingQuick, setPendingQuick] = useState<ReadonlySet<string>>(new Set());
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
@@ -106,6 +118,9 @@ export function ListScreen({
   const [dismissed, setDismissed] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
   const listId = list?.id;
+  const [openId, setOpenId] = useState<number | null>(null);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [removed, setRemoved] = useState<Removed[]>([]); // deleted Entries still undoable, oldest first
   const { start: segmentStart, query } = currentSegment(text);
   const isNew = query !== "" && !suggestions.some((s) => fold(s.name) === fold(query));
   // Options in order: matching Products, then «Добавить «…»» for a new name.
@@ -146,6 +161,94 @@ export function ListScreen({
       setError("load");
     });
   }, [token, listId, showContents]);
+
+  const refresh = useCallback(async () => {
+    if (listId === undefined) return;
+    try {
+      showContents(await fetchContents(token, listId));
+    } catch (e) {
+      console.error(e);
+      setError("load");
+    }
+  }, [token, listId, showContents]);
+
+  const loadCategories = useCallback(() => {
+    fetchCategories(token).then(setCategories, (e) => console.error(e));
+  }, [token]);
+
+  // Fetched up front so the card's select is ready; retried on open if that failed.
+  useEffect(loadCategories, [loadCategories]);
+
+  const openCard = (id: number) => {
+    setOpenId(id);
+    if (categories.length === 0) loadCategories();
+  };
+
+  const closeCard = useCallback(() => setOpenId(null), []);
+
+  /** Sends one edit and applies the answer locally; a refetch only when it cannot be applied. */
+  const editEntry = useCallback(
+    async (entryId: number, change: { note?: string | null; category?: string }) => {
+      if (listId === undefined) return;
+      const result = await updateEntry(token, listId, entryId, change);
+      let applied = false;
+      setContents((prev) => {
+        const next = prev && applyEntryChange(prev, result.entry, result.version, categories);
+        applied = next !== null;
+        return next ?? prev;
+      });
+      if (!applied) await refresh();
+    },
+    [token, listId, categories, refresh],
+  );
+
+  const saveNote = useCallback(
+    (note: string) => {
+      if (openId === null) return Promise.resolve();
+      return editEntry(openId, { note: note.trim() ? note : null });
+    },
+    [openId, editEntry],
+  );
+
+  const changeCategory = useCallback(
+    (category: string) => {
+      if (openId === null) return Promise.resolve();
+      return editEntry(openId, { category });
+    },
+    [openId, editEntry],
+  );
+
+  const removeEntry = async (id: number, name: string) => {
+    if (listId === undefined) return;
+    setOpenId(null);
+    try {
+      await deleteEntry(token, listId, id);
+    } catch (e) {
+      console.error(e);
+      setError("delete");
+      return;
+    }
+    haptic.error();
+    setError(null);
+    setRemoved((prev) => [...prev, { id, name }]);
+    window.setTimeout(() => setRemoved((prev) => prev.filter((r) => r.id !== id)), UNDO_MS);
+    await refresh();
+  };
+
+  const undoRemove = async () => {
+    const last = removed[removed.length - 1];
+    if (!last || listId === undefined) return;
+    setRemoved((prev) => prev.filter((r) => r.id !== last.id));
+    try {
+      await restoreEntry(token, listId, last.id);
+    } catch (e) {
+      console.error(e);
+      setError("undo");
+      return;
+    }
+    haptic.success();
+    await refresh();
+  };
 
   // Grow the textarea with its content (field-sizing is not available in older iOS WebKit).
   useLayoutEffect(() => {
@@ -219,7 +322,7 @@ export function ListScreen({
       haptic.select();
       setError(null);
       applyChecked((x) => x === id, checked);
-      setChecked(token, listId, id, checked).then(
+      updateEntry(token, listId, id, { checked }).then(
         (result) => setContents((prev) => prev && { ...prev, list: { ...prev.list, version: Math.max(prev.list.version, result.version) } }),
         (e) => {
           console.error(e);
@@ -451,6 +554,8 @@ export function ListScreen({
   }
 
   const groups = contents?.categories ?? [];
+  const openEntry =
+    openId === null ? null : (groups.flatMap((g) => g.entries).find((e) => e.id === openId) ?? null);
   return (
     <main className="screen">
       <header className="header">
@@ -556,7 +661,16 @@ export function ListScreen({
       </form>
       {error && (
         <p className="notice" role="alert">
-          {error === "add" ? strings.addFailed : error === "check" ? strings.checkFailed : strings.loadFailed}
+          {
+            {
+              add: strings.addFailed,
+              load: strings.loadFailed,
+              check: strings.checkFailed,
+              delete: strings.entryDeleteFailed,
+              undo: strings.undoFailed,
+              save: strings.entrySaveFailed,
+            }[error]
+          }
         </p>
       )}
 
@@ -602,15 +716,23 @@ export function ListScreen({
           </h2>
           <ul className="rows">
             {group.entries.map((entry) => (
-              <li key={entry.id} className={fresh.has(entry.id) ? "row row--new" : "row"}>
+              <li
+                key={entry.id}
+                className={["row", entry.checked && "row--checked", fresh.has(entry.id) && "row--new"]
+                  .filter(Boolean)
+                  .join(" ")}
+              >
                 <button
                   type="button"
                   role="checkbox"
                   aria-checked={entry.checked}
-                  className={entry.checked ? "row__button row__button--checked" : "row__button"}
+                  aria-label={entry.name}
+                  className="row__toggle"
                   onClick={() => toggle(entry.id, !entry.checked)}
                 >
                   <span className="row__check" aria-hidden="true" />
+                </button>
+                <button type="button" className="row__open" onClick={() => openCard(entry.id)}>
                   <span className="row__name">{entry.name}</span>
                   {entry.note && <span className="row__note">{entry.note}</span>}
                 </button>
@@ -619,6 +741,32 @@ export function ListScreen({
           </ul>
         </section>
       ))}
+      {openEntry && (
+        <EntrySheet
+          key={openEntry.id}
+          entry={openEntry}
+          categories={categories}
+          categoryName={groups.find((g) => g.key === openEntry.category)?.name ?? ""}
+          language={language}
+          strings={strings}
+          onSaveNote={saveNote}
+          onChangeCategory={changeCategory}
+          onDelete={() => void removeEntry(openEntry.id, openEntry.name)}
+          onSaveFailed={() => setError("save")}
+          onClose={closeCard}
+        />
+      )}
+
+      {removed.length > 0 && (
+        <div className="snackbar" role="status">
+          <span className="snackbar__text">
+            {strings.entryDeleted}: {removed[removed.length - 1].name}
+          </span>
+          <button type="button" className="snackbar__action" onClick={() => void undoRemove()}>
+            {strings.undo}
+          </button>
+        </div>
+      )}
       {sheets}
     </main>
   );

@@ -629,18 +629,37 @@ body {
   overflow: hidden;
 }
 
+/* The checkbox toggles; the name and Note open the Entry card. Checking only restyles the row. */
 .row {
   position: relative;
+  display: flex;
+  align-items: stretch;
 }
 
-/* The whole row is the tap target; checking only restyles it, nothing moves. */
-.row__button {
+.row__name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.row__toggle {
+  flex-shrink: 0;
   display: flex;
-  width: 100%;
+  align-items: center;
+  min-width: 48px;
+  min-height: 48px;
+  padding: 0 8px 0 16px;
+  border: 0;
+  background: none;
+}
+
+.row__open {
+  display: flex;
+  flex: 1;
+  min-width: 0;
   align-items: baseline;
   gap: 12px;
   min-height: 48px;
-  padding: 12px 16px;
+  padding: 12px 16px 12px 4px;
   border: 0;
   background: none;
   color: inherit;
@@ -650,7 +669,6 @@ body {
 
 .row__check {
   flex-shrink: 0;
-  align-self: center;
   position: relative;
   width: 22px;
   height: 22px;
@@ -658,12 +676,12 @@ body {
   border-radius: 50%;
 }
 
-.row__button--checked .row__check {
+.row--checked .row__check {
   border-color: var(--accent);
   background: var(--accent);
 }
 
-.row__button--checked .row__check::after {
+.row--checked .row__check::after {
   content: "";
   position: absolute;
   left: 6px;
@@ -675,8 +693,8 @@ body {
   transform: rotate(45deg);
 }
 
-.row__button--checked .row__name,
-.row__button--checked .row__note {
+.row--checked .row__name,
+.row--checked .row__note {
   color: var(--hint);
   text-decoration: line-through;
 }
@@ -723,9 +741,63 @@ body {
   background: color-mix(in srgb, var(--hint) 30%, transparent);
 }
 
-.row__name {
+/* The Entry card (inside the shared Sheet). */
+.entry-card__note {
+  display: block;
+  width: 100%;
+  padding: 12px 16px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--section);
+  color: var(--text);
+  font: inherit;
+  resize: none;
+}
+
+.entry-card__meta {
+  margin: 0 4px 12px;
+  font-size: 15px;
+  color: var(--hint);
+}
+
+.entry-card__error {
+  margin: 0 4px 12px;
+  color: var(--destructive);
+}
+
+.snackbar {
+  position: fixed;
+  right: 16px;
+  bottom: calc(var(--safe-bottom) + 16px);
+  left: 16px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  padding: 4px 8px 4px 16px;
+  border-radius: 12px;
+  background: var(--text);
+  color: var(--bg);
+}
+
+.snackbar__text {
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.snackbar__action {
+  flex-shrink: 0;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
 }
 
 .row__note {
