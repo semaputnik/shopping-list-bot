@@ -104,7 +104,7 @@ def test_undo_restores_entries_checked_and_rolls_back_stats(client, anna):
     milk, _bread = add(client, anna, "молоко, 2 л; хлеб")
     check(client, anna, milk["id"])
     purchase = buy(client, anna).json()
-    r = undo(client, anna, purchase["purchase_id"])
+    r = undo(client, anna, purchase["id"])
     assert r.status_code == 200
     assert r.json()["restored"] == 1
     restored = {e["name"]: e for e in entries(client, anna)}
@@ -126,7 +126,7 @@ def test_undo_keeps_stats_of_earlier_purchases(client, anna):
     check(client, anna, second["id"])
     purchase = buy(client, anna).json()
     assert products(client, anna)["молоко"]["purchase_count"] == 2
-    undo(client, anna, purchase["purchase_id"])
+    undo(client, anna, purchase["id"])
     stats = products(client, anna)["молоко"]
     assert stats["purchase_count"] == 1
     assert stats["last_purchased_at"] == earlier
@@ -136,15 +136,15 @@ def test_undo_twice_is_not_found_and_does_not_duplicate(client, anna):
     (milk,) = add(client, anna, "молоко")
     check(client, anna, milk["id"])
     purchase = buy(client, anna).json()
-    assert undo(client, anna, purchase["purchase_id"]).status_code == 200
-    assert undo(client, anna, purchase["purchase_id"]).status_code == 404
+    assert undo(client, anna, purchase["id"]).status_code == 200
+    assert undo(client, anna, purchase["id"]).status_code == 404
     assert len(entries(client, anna)) == 1
 
 
 def test_buy_again_after_undo(client, anna):
     (milk,) = add(client, anna, "молоко")
     check(client, anna, milk["id"])
-    undo(client, anna, buy(client, anna).json()["purchase_id"])
+    undo(client, anna, buy(client, anna).json()["id"])
     assert buy(client, anna).json()["count"] == 1
     assert entries(client, anna) == []
     assert products(client, anna)["молоко"]["purchase_count"] == 1
@@ -162,8 +162,8 @@ def test_another_member_can_undo_but_a_stranger_cannot(client, sign_in, anna):
     purchase = buy(client, carlos_who).json()
     eve = {"headers": sign_in(EVE)["headers"], "list_id": anna["list_id"]}
     assert buy(client, eve).status_code == 404
-    assert undo(client, eve, purchase["purchase_id"]).status_code == 404
-    assert undo(client, carlos_who, purchase["purchase_id"]).status_code == 200
+    assert undo(client, eve, purchase["id"]).status_code == 404
+    assert undo(client, carlos_who, purchase["id"]).status_code == 200
 
 
 def test_purchase_of_another_list_cannot_be_undone_through_this_one(client, anna):
@@ -172,7 +172,62 @@ def test_purchase_of_another_list_cannot_be_undone_through_this_one(client, anna
     purchase = buy(client, anna).json()
     other = client.post("/api/lists", json={"name": "Дача"}, headers=anna["headers"]).json()
     r = client.delete(
-        f"/api/lists/{other['id']}/purchases/{purchase['purchase_id']}", headers=anna["headers"]
+        f"/api/lists/{other['id']}/purchases/{purchase['id']}", headers=anna["headers"]
     )
     assert r.status_code == 404
     assert entries(client, anna) == []
+
+
+def test_purchase_record_has_time_buyer_and_snapshots(client, sign_in, anna):
+    share = client.get(f"/api/lists/{anna['list_id']}", headers=anna["headers"]).json()[
+        "share_code"
+    ]
+    carlos = sign_in(CARLOS)
+    client.post("/api/lists/join", json={"code": share}, headers=carlos["headers"])
+    carlos_who = {"headers": carlos["headers"], "list_id": anna["list_id"]}
+    milk, _bread = add(client, anna, "молоко, 2 л; хлеб")
+    check(client, anna, milk["id"])  # Anna checks, Carlos presses «Куплено»
+    purchase = buy(client, carlos_who).json()
+    carlos_id = client.get("/api/me", headers=carlos["headers"]).json()["id"]
+    assert purchase["purchased_by"] == carlos_id
+    assert purchase["purchased_at"]
+    assert purchase["entries"] == [{"name": "молоко", "note": "2 л"}]  # Unchecked хлеб is out
+
+
+def test_undo_bumps_version_and_keeps_who_checked_and_added(client, sign_in, anna):
+    share = client.get(f"/api/lists/{anna['list_id']}", headers=anna["headers"]).json()[
+        "share_code"
+    ]
+    carlos = sign_in(CARLOS)
+    client.post("/api/lists/join", json={"code": share}, headers=carlos["headers"])
+    carlos_who = {"headers": carlos["headers"], "list_id": anna["list_id"]}
+    (milk,) = add(client, anna, "молоко")
+    check(client, carlos_who, milk["id"])
+    before = entries(client, anna)[0]
+    purchase = buy(client, anna).json()
+    r = undo(client, anna, purchase["id"])
+    assert r.json()["version"] > purchase["version"]
+    (after,) = entries(client, anna)
+    for field in ("added_by", "checked_by"):
+        if field in before:
+            assert after[field] == before[field]
+
+
+@pytest.mark.parametrize("settings_overrides", [{"purchase_undo_grace_seconds": 0}])
+def test_undo_after_the_grace_window_is_refused_and_changes_nothing(client, anna):
+    (milk,) = add(client, anna, "молоко")
+    check(client, anna, milk["id"])
+    purchase = buy(client, anna).json()
+    assert undo(client, anna, purchase["id"]).status_code == 409
+    assert entries(client, anna) == []
+    assert products(client, anna)["молоко"]["purchase_count"] == 1
+
+
+def test_hidden_products_are_not_listed(client, anna):
+    add(client, anna, "молоко")
+    product_id = products(client, anna)["молоко"]["id"]
+    r = client.delete(
+        f"/api/lists/{anna['list_id']}/products/{product_id}", headers=anna["headers"]
+    )
+    assert r.status_code in (200, 204), r.text
+    assert "молоко" not in products(client, anna)

@@ -11,15 +11,18 @@ import {
   addEntries,
   buy,
   fetchContents,
+  fetchSuggestions,
+  hideProduct,
   setChecked,
   uncheckAll,
   undoPurchase,
   type ListContents,
   type ShoppingList,
+  type Suggestion,
 } from "../api";
 import { AvatarStack } from "../components/Avatar";
 import { QUICK_ADD, withCount, type Language, type Strings } from "../i18n";
-import { bindMainButton, confirmDestructive, haptic } from "../telegram";
+import { bindMainButton, confirmDestructive, haptic, setMainButtonText } from "../telegram";
 import { NameSheet, Sheet } from "./Sheet";
 
 interface Props {
@@ -45,6 +48,20 @@ type Panel = null | "switcher" | "menu" | "create" | "rename";
 
 const HIGHLIGHT_MS = 1600;
 const UNDO_MS = 5000;
+const SUGGEST_DELAY_MS = 120;
+
+/** Same folding as the backend: case and diacritics ignored. */
+function fold(value: string): string {
+  return value.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+/** The Entry being typed: the text after the last `;` or line break. */
+function currentSegment(text: string): { start: number; query: string } {
+  const start = Math.max(text.lastIndexOf(";"), text.lastIndexOf("\n")) + 1;
+  const segment = text.slice(start);
+  // After a comma the Note is being typed, which has no suggestions.
+  return { start, query: segment.includes(",") ? "" : segment.trim() };
+}
 
 /**
  * The List screen: header (switcher, Members, menu), the pinned input line, then Entries grouped
@@ -72,7 +89,7 @@ export function ListScreen({
     setParent(null);
     setPanel(null);
   }, []);
-  const open = (next: Panel, from: Panel = null) => {
+  const openPanel = (next: Panel, from: Panel = null) => {
     setParent(from);
     setPanel(next);
   };
@@ -86,13 +103,43 @@ export function ListScreen({
   const [fresh, setFresh] = useState<ReadonlySet<number>>(new Set());
   const [error, setError] = useState<"add" | "load" | "check" | "buy" | "undo" | null>(null);
   // The Purchase that can still be undone (the snackbar is up for UNDO_MS).
-  const [undoable, setUndoable] = useState<{ id: number; count: number } | null>(null);
+  const [undoable, setUndoable] = useState<{ id: number; listId: number; count: number } | null>(null);
   const undoTimer = useRef<number | undefined>(undefined);
   const buying = useRef(false);
   const [text, setText] = useState("");
   const [pendingQuick, setPendingQuick] = useState<ReadonlySet<string>>(new Set());
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [active, setActive] = useState(-1); // index into the options; -1 = none highlighted
+  const [dismissed, setDismissed] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
   const listId = list?.id;
+  const { start: segmentStart, query } = currentSegment(text);
+  const isNew = query !== "" && !suggestions.some((s) => fold(s.name) === fold(query));
+  // Options in order: matching Products, then «Добавить «…»» for a new name.
+  const optionCount = suggestions.length + (isNew ? 1 : 0);
+  const open = query !== "" && !dismissed && optionCount > 0;
+
+  useEffect(() => {
+    setDismissed(false);
+    setActive(-1);
+    if (listId === undefined || query === "") {
+      setSuggestions([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      fetchSuggestions(token, listId, query).then(
+        (found) => {
+          if (!cancelled) setSuggestions(found);
+        },
+        (e) => console.error(e), // suggestions are optional: typing and adding still work
+      );
+    }, SUGGEST_DELAY_MS);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [token, listId, query]);
 
   // Responses can arrive out of order after quick consecutive adds: never replace newer contents.
   const showContents = useCallback((next: ListContents) => {
@@ -201,6 +248,10 @@ export function ListScreen({
     setUndoable(null);
   }, []);
   useEffect(() => () => window.clearTimeout(undoTimer.current), []);
+  // The snackbar belongs to the List it was shown for.
+  useEffect(() => {
+    if (undoable && undoable.listId !== listId) dismissUndo();
+  }, [undoable, listId, dismissUndo]);
 
   /** «Куплено»: Checked Entries leave as one Purchase; the snackbar offers Undo for 5 s. */
   const onBuy = useCallback(async () => {
@@ -212,7 +263,7 @@ export function ListScreen({
       const result = await buy(token, listId);
       showContents(await fetchContents(token, listId));
       window.clearTimeout(undoTimer.current);
-      setUndoable({ id: result.purchase_id, count: result.count });
+      setUndoable({ id: result.id, listId, count: result.count });
       undoTimer.current = window.setTimeout(() => setUndoable(null), UNDO_MS);
     } catch (e) {
       console.error(e);
@@ -223,7 +274,7 @@ export function ListScreen({
   }, [token, listId, showContents, reload]);
 
   const onUndo = async () => {
-    if (listId === undefined || !undoable) return;
+    if (listId === undefined || !undoable || undoable.listId !== listId) return;
     const { id } = undoable;
     dismissUndo();
     haptic.select();
@@ -236,11 +287,19 @@ export function ListScreen({
     }
   };
 
-  // The native «Куплено (N)» button exists only while something is Checked.
+  // The native «Куплено (N)» button exists only while something is Checked and no sheet covers
+  // the screen. Bound once per visibility change; the label is updated in place.
+  const boughtLabel = `${strings.bought} (${checkedCount})`;
+  const label = useRef(boughtLabel);
+  label.current = boughtLabel;
+  const buttonVisible = checkedCount > 0 && panel === null;
   useEffect(() => {
-    if (checkedCount === 0) return;
-    return bindMainButton(`${strings.bought} (${checkedCount})`, () => void onBuy());
-  }, [checkedCount, strings.bought, onBuy]);
+    if (!buttonVisible) return;
+    return bindMainButton(label.current, () => void onBuy());
+  }, [buttonVisible, onBuy]);
+  useEffect(() => {
+    if (buttonVisible) setMainButtonText(boughtLabel);
+  }, [buttonVisible, boughtLabel]);
 
   const onUncheckAll = () => {
     close();
@@ -265,7 +324,45 @@ export function ListScreen({
     void submit(raw);
   };
 
+  /** Adds the typed text with the Entry being typed replaced by the chosen Product's name. */
+  const choose = (index: number) => {
+    const suggestion = suggestions[index]; // undefined for «Добавить «…»»: the text goes as typed
+    const raw = suggestion ? text.slice(0, segmentStart) + suggestion.name : text;
+    setText("");
+    input.current?.focus();
+    void submit(raw);
+  };
+
+  const forget = async (suggestion: Suggestion) => {
+    if (listId === undefined) return;
+    try {
+      await hideProduct(token, listId, suggestion.product_id);
+      setSuggestions((prev) => prev.filter((s) => s.product_id !== suggestion.product_id));
+      setActive(-1);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (open && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+      event.preventDefault();
+      // Cycles through -1 (nothing highlighted, Enter adds the text as typed) and every option.
+      const slots = optionCount + 1;
+      const step = event.key === "ArrowDown" ? 1 : slots - 1;
+      setActive((i) => ((i + 1 + step) % slots) - 1);
+      return;
+    }
+    if (open && event.key === "Escape") {
+      event.preventDefault();
+      setDismissed(true);
+      return;
+    }
+    if (open && active >= 0 && event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      choose(active);
+      return;
+    }
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
       send();
@@ -331,7 +428,7 @@ export function ListScreen({
           </ul>
           <ul className="sheet-list">
             <li>
-              <button type="button" className="sheet-row sheet-row--accent" onClick={() => open("create", "switcher")}>
+              <button type="button" className="sheet-row sheet-row--accent" onClick={() => openPanel("create", "switcher")}>
                 {strings.newList}
               </button>
             </li>
@@ -342,7 +439,7 @@ export function ListScreen({
         <Sheet title={strings.listMenu} onClose={close} closeLabel={strings.cancel}>
           <ul className="sheet-list">
             <li>
-              <button type="button" className="sheet-row" onClick={() => open("rename", "menu")}>
+              <button type="button" className="sheet-row" onClick={() => openPanel("rename", "menu")}>
                 {strings.renameList}
               </button>
             </li>
@@ -410,7 +507,7 @@ export function ListScreen({
       <main className="screen">
         <section className="empty">
           <p className="empty__title">{strings.noList}</p>
-          <button type="button" className="empty__action" onClick={() => open("create")}>
+          <button type="button" className="empty__action" onClick={() => openPanel("create")}>
             {strings.newList}
           </button>
           <button type="button" className="text-button" onClick={onOpenSettings}>
@@ -431,7 +528,7 @@ export function ListScreen({
             type="button"
             className="header__switch"
             aria-haspopup="dialog"
-            onClick={() => open("switcher")}
+            onClick={() => openPanel("switcher")}
           >
             <span className="header__title">{list.name}</span>
             <span className="header__chevron" aria-hidden="true">
@@ -451,7 +548,7 @@ export function ListScreen({
           type="button"
           className="header__menu"
           aria-label={strings.listMenu}
-          onClick={() => open("menu")}
+          onClick={() => openPanel("menu")}
         >
           ⋯
         </button>
@@ -467,9 +564,64 @@ export function ListScreen({
           aria-label={strings.inputLabel}
           enterKeyHint="send"
           autoFocus
+          role="combobox"
+          aria-expanded={open}
+          aria-controls="suggestions"
+          aria-autocomplete="list"
+          aria-activedescendant={open && active >= 0 ? `suggestion-${active}` : undefined}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKeyDown}
         />
+        {open && (
+          <ul id="suggestions" className="suggest" role="listbox" aria-label={strings.suggestions}>
+            {suggestions.map((s, i) => (
+              <li key={s.product_id} className="suggest__item" role="presentation">
+                <button
+                  type="button"
+                  id={`suggestion-${i}`}
+                  role="option"
+                  aria-selected={active === i}
+                  className={active === i ? "suggest__option suggest__option--active" : "suggest__option"}
+                  onMouseDown={(e) => e.preventDefault()} // keep the input focused
+                  onClick={() => choose(i)}
+                >
+                  <span className="suggest__name">{s.name}</span>
+                  {s.on_list && <span className="suggest__hint">{strings.alreadyOnList}</span>}
+                </button>
+                <button
+                  type="button"
+                  className="suggest__forget"
+                  aria-label={`${strings.forgetProduct}: ${s.name}`}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => void forget(s)}
+                >
+                  ✕
+                </button>
+              </li>
+            ))}
+            {isNew && (
+              <li className="suggest__item" role="presentation">
+                <button
+                  type="button"
+                  id={`suggestion-${suggestions.length}`}
+                  role="option"
+                  aria-selected={active === suggestions.length}
+                  className={
+                    active === suggestions.length
+                      ? "suggest__option suggest__option--active"
+                      : "suggest__option"
+                  }
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => choose(suggestions.length)}
+                >
+                  <span className="suggest__name">
+                    {strings.addNew} «{query}»
+                  </span>
+                </button>
+              </li>
+            )}
+          </ul>
+        )}
       </form>
       {error && (
         <p className="notice" role="alert">

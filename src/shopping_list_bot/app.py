@@ -5,10 +5,10 @@ import hmac
 import logging
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, StringConstraints
@@ -30,6 +30,7 @@ from .db import Base, make_engine, make_session_factory
 from .i18n import FIRST_LIST_NAME, SYSTEM_CATEGORIES, effective_language
 from .normalize import normalize
 from .parsing import parse_input
+from .suggest import MAX_SUGGESTIONS, rank
 
 MAX_ITEMS_PER_ADD = 100
 
@@ -116,6 +117,18 @@ class AddEntriesOut(BaseModel):
     entries: list[EntryOut]
 
 
+class SuggestionOut(BaseModel):
+    product_id: int
+    name: str
+    category: str
+    # True when the Product already has an Entry on the List (a duplicate is still allowed).
+    on_list: bool
+
+
+class ProductHiddenOut(BaseModel):
+    version: int
+
+
 class CheckIn(BaseModel):
     # The wanted state, not a toggle: replaying a request is harmless.
     checked: bool
@@ -140,9 +153,22 @@ class ProductOut(BaseModel):
     last_purchased_at: datetime | None
 
 
+class PurchasedEntryOut(BaseModel):
+    """An Entry as it was when bought (name and Note snapshots)."""
+
+    name: str
+    note: str | None
+
+
 class PurchaseOut(BaseModel):
+    """The Purchase record; History reuses this shape (with `id`)."""
+
+    id: int
     version: int
-    purchase_id: int
+    purchased_at: datetime
+    # The Member who pressed «Куплено».
+    purchased_by: int | None
+    entries: list[PurchasedEntryOut]
     # How many Entries left the List.
     count: int
 
@@ -246,9 +272,10 @@ def _add_missing_columns(engine) -> None:
     additions = [
         ("user", "language", "VARCHAR(8)"),
         ("list", "name_is_default", "BOOLEAN NOT NULL DEFAULT 0"),
+        ("product", "purchase_count", "INTEGER NOT NULL DEFAULT 0"),
+        ("product", "hidden", "BOOLEAN NOT NULL DEFAULT 0"),
         ("entry", "checked_at", "DATETIME"),
         ("entry", "checked_by", "INTEGER REFERENCES user (id) ON DELETE SET NULL"),
-        ("product", "purchase_count", "INTEGER NOT NULL DEFAULT 0"),
         ("product", "last_purchased_at", "DATETIME"),
     ]
     for table, column, ddl in additions:
@@ -565,6 +592,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 for item, client_key in zip(items, keys(), strict=True):
                     norm = normalize(item.name)
                     product = products.get(norm)
+                    if product is not None:
+                        product.hidden = False  # entering the name again restores the memory
                     if product is None:
                         product = models.Product(
                             list_id=lst.id,
@@ -598,6 +627,62 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     raise
         session.refresh(lst)
         return AddEntriesOut(version=lst.version, entries=[_entry_out(e) for e in created])
+
+    @api.get("/lists/{list_id}/suggestions", response_model=list[SuggestionOut])
+    def suggestions(
+        list_id: int,
+        user: UserDep,
+        session: SessionDep,
+        q: Annotated[str, Query(max_length=200)] = "",
+    ) -> list[SuggestionOut]:
+        """Products of this List matching the typed text (never other Lists' Products)."""
+        lst = _member_list(session, user, list_id)
+        query = normalize(q)
+        if not query:
+            return []
+        products = session.scalars(
+            select(models.Product).where(
+                models.Product.list_id == lst.id, models.Product.hidden.is_(False)
+            )
+        ).all()
+        top = rank(query, products)[:MAX_SUGGESTIONS]
+        on_list = set(
+            session.scalars(
+                select(models.Entry.product_id)
+                .where(models.Entry.list_id == lst.id)
+                .where(models.Entry.product_id.in_([p.id for p in top]))
+            )
+        )
+        return [
+            SuggestionOut(
+                product_id=p.id, name=p.name, category=p.category_key, on_list=p.id in on_list
+            )
+            for p in top
+        ]
+
+    @api.delete("/lists/{list_id}/products/{product_id}", response_model=ProductHiddenOut)
+    def hide_product(
+        list_id: int, product_id: int, user: UserDep, session: SessionDep
+    ) -> ProductHiddenOut:
+        """Remove a Product from the List's memory. It is only hidden from suggestions."""
+        lst = _member_list(session, user, list_id)
+        product = session.scalar(
+            select(models.Product).where(
+                models.Product.id == product_id, models.Product.list_id == lst.id
+            )
+        )
+        if product is None:
+            raise HTTPException(404, "product not found")
+        if not product.hidden:
+            product.hidden = True
+            session.execute(
+                update(models.List)
+                .where(models.List.id == lst.id)
+                .values(version=models.List.version + 1, updated_at=models.utcnow())
+            )
+            session.commit()
+            session.refresh(lst)
+        return ProductHiddenOut(version=lst.version)
 
     @api.patch("/lists/{list_id}/entries/{entry_id}", response_model=CheckOut)
     def set_checked(
@@ -646,11 +731,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @api.get("/lists/{list_id}/products", response_model=list[ProductOut])
     def list_products(list_id: int, user: UserDep, session: SessionDep) -> list[ProductOut]:
-        """The List's memory of Products with their purchase stats."""
+        """The List's memory of Products with their purchase stats (hidden Products are forgotten)."""
         lst = _member_list(session, user, list_id)
         products = session.scalars(
             select(models.Product)
-            .where(models.Product.list_id == lst.id)
+            .where(models.Product.list_id == lst.id, models.Product.hidden.is_(False))
             .order_by(models.Product.id)
         )
         return [
@@ -715,7 +800,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(409, "the List changed, try again")
         _touch(session, lst)
         session.commit()
-        return PurchaseOut(version=lst.version, purchase_id=purchase.id, count=len(checked))
+        return PurchaseOut(
+            id=purchase.id,
+            version=lst.version,
+            purchased_at=now,
+            purchased_by=user.id,
+            entries=[PurchasedEntryOut(name=e.name, note=e.note) for e in checked],
+            count=len(checked),
+        )
 
     @api.delete("/lists/{list_id}/purchases/{purchase_id}", response_model=UndoPurchaseOut)
     def undo_purchase(
@@ -730,7 +822,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         if purchase is None:
             raise HTTPException(404, "purchase not found")
+        bought_at = purchase.purchased_at
+        if bought_at.tzinfo is None:  # SQLite hands back naive UTC
+            bought_at = bought_at.replace(tzinfo=UTC)
+        if (models.utcnow() - bought_at).total_seconds() > settings.purchase_undo_grace_seconds:
+            raise HTTPException(409, "too late to undo this purchase")
         snapshots = sorted(purchase.entries, key=lambda s: (s.entry_created_at, s.id))
+        product_ids = {s.product_id for s in snapshots}
+        # Guarded delete, like buy: of two concurrent Undos only the one that removes the row
+        # restores the Entries; the other sees rowcount 0 and answers 404.
+        deleted = session.execute(
+            delete(models.Purchase).where(models.Purchase.id == purchase.id)
+        ).rowcount
+        if deleted != 1:
+            session.rollback()
+            raise HTTPException(404, "purchase not found")
         for snap in snapshots:
             session.add(
                 models.Entry(
@@ -740,12 +846,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     note=snap.note,
                     added_by=snap.added_by,
                     created_at=snap.entry_created_at,
-                    checked_at=snap.checked_at or models.utcnow(),
+                    checked_at=snap.checked_at,
                     checked_by=snap.checked_by,
                 )
             )
-        product_ids = {s.product_id for s in snapshots}
-        session.delete(purchase)
         session.flush()
         # Roll the stats back by recomputing them from the Purchases that remain.
         for product_id in product_ids:

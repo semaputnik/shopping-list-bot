@@ -294,6 +294,74 @@ body {
   background: var(--ground); /* rows scroll underneath, not through */
 }
 
+/* Suggestions panel: overlays the rows right under the input line. */
+.composer {
+  position: sticky;
+}
+
+.suggest {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: 50vh;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+  border-radius: 12px;
+  background: var(--section);
+  box-shadow: 0 0 0 0.5px var(--separator);
+}
+
+.suggest__item {
+  display: flex;
+  align-items: stretch;
+}
+
+.suggest__item + .suggest__item {
+  border-top: 0.5px solid var(--separator);
+}
+
+.suggest__option {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+}
+
+.suggest__option--active {
+  background: var(--ground);
+}
+
+.suggest__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.suggest__hint {
+  flex: none;
+  color: var(--hint);
+  font-size: 14px;
+}
+
+.suggest__forget {
+  flex: none;
+  width: 44px;
+  border: 0;
+  background: transparent;
+  color: var(--hint);
+  font: inherit;
+}
+
 .composer__input {
   display: block;
   width: 100%;

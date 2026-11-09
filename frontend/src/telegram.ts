@@ -136,6 +136,11 @@ export function bindMainButton(text: string, onClick: () => void): () => void {
   };
 }
 
+/** Changes the label of the MainButton in place (no hide/show, so it does not flicker). */
+export function setMainButtonText(text: string): void {
+  if (setMainButtonParams.isAvailable()) setMainButtonParams({ text });
+}
+
 /** Haptics on state changes (no-ops outside Telegram or on clients without support). */
 export const haptic = {
   success() {

@@ -19,5 +19,8 @@ class Settings(BaseSettings):
     # initData older than this is rejected.
     init_data_max_age_seconds: int = 24 * 3600
     session_ttl_seconds: int = 7 * 24 * 3600
+    # Undo of «Куплено» is accepted this long after the Purchase (the client offers 5 s; the rest is
+    # grace for slow networks). Later reverts are refused so History is not rewritten.
+    purchase_undo_grace_seconds: int = 30
     # Built frontend served by the backend when the directory exists.
     frontend_dist: Path = Path("frontend/dist")

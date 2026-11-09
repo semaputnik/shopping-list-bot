@@ -43,13 +43,20 @@ def sign_init_data(
 
 
 @pytest.fixture
-def client(tmp_path: Path) -> Iterator[TestClient]:
+def settings_overrides() -> dict:
+    """Override per test with ``@pytest.mark.parametrize("settings_overrides", [{...}])``."""
+    return {}
+
+
+@pytest.fixture
+def client(tmp_path: Path, settings_overrides: dict) -> Iterator[TestClient]:
     settings = Settings(
         bot_token=TEST_BOT_TOKEN,
         bot_username="shared_lists_test_bot",
         database_url=f"sqlite:///{tmp_path / 'test.db'}",
         frontend_dist=tmp_path / "no-frontend",
         _env_file=None,
+        **settings_overrides,
     )
     with TestClient(create_app(settings)) as c:
         yield c
