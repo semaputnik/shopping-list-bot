@@ -11,8 +11,8 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
-from sqlalchemy import inspect, select, text, update
+from pydantic import BaseModel, Field, StringConstraints
+from sqlalchemy import func, inspect, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -57,6 +57,13 @@ class MemberOut(BaseModel):
     last_name: str | None
     username: str | None
     photo_url: str | None
+
+
+ListName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+
+
+class ListIn(BaseModel):
+    name: ListName
 
 
 class ListOut(BaseModel):
@@ -331,6 +338,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lang = effective_language(user.language, user.language_code)
         return [CategoryOut(key=key, name=names[lang]) for key, names in SYSTEM_CATEGORIES]
 
+    def _lang(user: models.User) -> str:
+        return effective_language(user.language, user.language_code)
+
     def _member_lists(user: models.User):
         return (
             select(models.List)
@@ -342,8 +352,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @api.get("/lists", response_model=list[ListOut])
     def my_lists(user: UserDep, session: SessionDep) -> list[ListOut]:
         stmt = _member_lists(user).order_by(models.List.updated_at.desc(), models.List.id.desc())
-        lang = effective_language(user.language, user.language_code)
+        lang = _lang(user)
         return [list_out(lst, lang, settings.bot_username) for lst in session.scalars(stmt)]
+
+    @api.get("/lists/{list_id}", response_model=ListOut)
+    def get_list(list_id: int, user: UserDep, session: SessionDep) -> ListOut:
+        lst = session.scalar(_member_lists(user).where(models.List.id == list_id))
+        if lst is None:  # also hides the existence of Lists the user is not a Member of
+            raise HTTPException(404, "list not found")
+        return list_out(lst, _lang(user), settings.bot_username)
+
+    def _touch(session: Session, lst: models.List) -> None:
+        """Record a mutation: bump the List's version and its change time.
+
+        One atomic UPDATE (version = version + 1), so concurrent mutations cannot lose an
+        increment the way a read-modify-write on the loaded object could.
+        """
+        session.execute(
+            update(models.List)
+            .where(models.List.id == lst.id)
+            .values(version=models.List.version + 1, updated_at=models.utcnow())
+        )
+        session.flush()
+        session.refresh(lst)
+
+    def _member_list(session: Session, user: models.User, list_id: int) -> models.List:
+        lst = session.scalar(_member_lists(user).where(models.List.id == list_id))
+        if lst is None:
+            raise HTTPException(404, "list not found")
+        return lst
 
     @api.post("/lists/join", response_model=ListOut)
     def join_list(body: JoinIn, user: UserDep, session: SessionDep) -> ListOut:
@@ -353,26 +390,61 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(404, "share link is not valid")
         if all(m.user_id != user.id for m in lst.members):
             lst.members.append(models.ListMember(user_id=user.id))
-            lst.version += 1
-            lst.updated_at = models.utcnow()
             try:
-                session.commit()
+                session.flush()
             except IntegrityError:  # concurrent join by the same user: already a Member
                 session.rollback()
-                lst = session.scalar(select(models.List).where(models.List.share_code == body.code))
-                assert lst is not None
-        return list_out(
-            lst, effective_language(user.language, user.language_code), settings.bot_username
-        )
+            else:
+                _touch(session, lst)
+                session.commit()
+        return list_out(_member_list(session, user, lst.id), _lang(user), settings.bot_username)
 
-    @api.get("/lists/{list_id}", response_model=ListOut)
-    def get_list(list_id: int, user: UserDep, session: SessionDep) -> ListOut:
-        lst = session.scalar(_member_lists(user).where(models.List.id == list_id))
-        if lst is None:  # also hides the existence of Lists the user is not a Member of
-            raise HTTPException(404, "list not found")
-        return list_out(
-            lst, effective_language(user.language, user.language_code), settings.bot_username
+    @api.post("/lists", response_model=ListOut, status_code=201)
+    def create_list(body: ListIn, user: UserDep, session: SessionDep) -> ListOut:
+        lst = models.List(name=body.name, created_by=user.id)
+        lst.members.append(models.ListMember(user_id=user.id))
+        session.add(lst)
+        session.commit()
+        return list_out(_member_list(session, user, lst.id), _lang(user), settings.bot_username)
+
+    @api.patch("/lists/{list_id}", response_model=ListOut)
+    def rename_list(list_id: int, body: ListIn, user: UserDep, session: SessionDep) -> ListOut:
+        lst = _member_list(session, user, list_id)
+        lst.name = body.name
+        lst.name_is_default = False  # an explicit name replaces the localized default
+        _touch(session, lst)
+        session.commit()
+        return list_out(_member_list(session, user, lst.id), _lang(user), settings.bot_username)
+
+    @api.post("/lists/{list_id}/leave", status_code=204)
+    def leave_list(list_id: int, user: UserDep, session: SessionDep) -> Response:
+        lst = _member_list(session, user, list_id)
+        membership = next(m for m in lst.members if m.user_id == user.id)
+        # Delete the membership first (this takes the write lock), then count what is left in
+        # the same transaction, so two last Members leaving at once cannot both see "not last".
+        session.delete(membership)
+        session.flush()
+        session.expire(lst, ["members"])
+        remaining = session.scalar(
+            select(func.count())
+            .select_from(models.ListMember)
+            .where(models.ListMember.list_id == list_id)
         )
+        if remaining == 0:  # the last Member left: the List goes with them
+            session.delete(lst)
+        else:
+            # A leave counts as a change for the switcher order (version + updated_at bump).
+            _touch(session, lst)
+        session.commit()
+        return Response(status_code=204)
+
+    @api.delete("/lists/{list_id}", status_code=204)
+    def delete_list(list_id: int, user: UserDep, session: SessionDep) -> Response:
+        # Any Member may delete the List for everyone; the UI asks for confirmation first.
+        # Members (and, in later tickets, Entries, Products and History) go by FK cascade.
+        session.delete(_member_list(session, user, list_id))
+        session.commit()
+        return Response(status_code=204)
 
     def _entry_out(entry: models.Entry) -> EntryOut:
         return EntryOut(
@@ -385,15 +457,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             created_at=entry.created_at,
         )
 
-    def _member_list_or_404(session: Session, user: models.User, list_id: int) -> models.List:
-        lst = session.scalar(_member_lists(user).where(models.List.id == list_id))
-        if lst is None:
-            raise HTTPException(404, "list not found")
-        return lst
-
     @api.get("/lists/{list_id}/entries", response_model=ListContentsOut)
     def list_entries(list_id: int, user: UserDep, session: SessionDep) -> ListContentsOut:
-        lst = _member_list_or_404(session, user, list_id)
+        lst = _member_list(session, user, list_id)
         entries = session.scalars(
             select(models.Entry)
             .where(models.Entry.list_id == lst.id)
@@ -426,7 +492,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         user: UserDep,
         session: SessionDep,
     ) -> AddEntriesOut:
-        lst = _member_list_or_404(session, user, list_id)
+        lst = _member_list(session, user, list_id)
         items = parse_input(body.text)
         if not items:
             raise HTTPException(422, "no items in the input")
@@ -490,18 +556,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     )
                     session.add(entry)
                     created.append(entry)
-                session.execute(
-                    update(models.List)
-                    .where(models.List.id == lst.id)
-                    .values(version=models.List.version + 1, updated_at=models.utcnow())
-                )
+                _touch(session, lst)
                 session.commit()
                 break
             except IntegrityError:
                 # A concurrent request won a race: the same client_id (a replay) or the same
                 # new Product name. Replays return the winner's Entries; otherwise retry once.
                 session.rollback()
-                lst = _member_list_or_404(session, user, list_id)
+                lst = _member_list(session, user, list_id)
                 if (replayed := replay()) is not None:
                     return replayed
                 if attempt == 1:
@@ -517,7 +579,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         q: Annotated[str, Query(max_length=200)] = "",
     ) -> list[SuggestionOut]:
         """Products of this List matching the typed text (never other Lists' Products)."""
-        lst = _member_list_or_404(session, user, list_id)
+        lst = _member_list(session, user, list_id)
         query = normalize(q)
         if not query:
             return []
@@ -546,7 +608,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         list_id: int, product_id: int, user: UserDep, session: SessionDep
     ) -> ProductHiddenOut:
         """Remove a Product from the List's memory. It is only hidden from suggestions."""
-        lst = _member_list_or_404(session, user, list_id)
+        lst = _member_list(session, user, list_id)
         product = session.scalar(
             select(models.Product).where(
                 models.Product.id == product_id, models.Product.list_id == lst.id

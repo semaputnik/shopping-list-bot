@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
 import {
   addEntries,
   fetchContents,
@@ -9,16 +17,30 @@ import {
   type Suggestion,
 } from "../api";
 import { AvatarStack } from "../components/Avatar";
-import { QUICK_ADD, type Language, type Strings } from "../i18n";
+import { QUICK_ADD, withCount, type Language, type Strings } from "../i18n";
+import { confirmDestructive, haptic } from "../telegram";
+import { NameSheet, Sheet } from "./Sheet";
 
 interface Props {
   token: string;
+  /** All the user's Lists, most recently changed first. */
+  lists: ShoppingList[];
   list: ShoppingList | null;
   language: Language;
   strings: Strings;
+  /** True when the last action failed on the server. */
+  failed: boolean;
+  onSelect: (id: number) => void;
   onOpenMembers: () => void;
   onOpenSettings: () => void;
+  /** Mutations resolve true on success, false when the request failed. */
+  onCreate: (name: string) => Promise<boolean>;
+  onRename: (id: number, name: string) => Promise<boolean>;
+  onLeave: (id: number) => Promise<boolean>;
+  onDelete: (id: number) => Promise<boolean>;
 }
+
+type Panel = null | "switcher" | "menu" | "create" | "rename";
 
 const HIGHLIGHT_MS = 1600;
 const SUGGEST_DELAY_MS = 120;
@@ -36,8 +58,42 @@ function currentSegment(text: string): { start: number; query: string } {
   return { start, query: segment.includes(",") ? "" : segment.trim() };
 }
 
-/** The List screen: header with Members and Settings, the pinned input line, then Entries grouped by Category. */
-export function ListScreen({ token, list, language, strings, onOpenMembers, onOpenSettings }: Props) {
+/**
+ * The List screen: header (switcher, Members, menu), the pinned input line, then Entries grouped
+ * by Category. Rendered with `key={list.id}` so every List starts with its own state.
+ */
+export function ListScreen({
+  token,
+  lists,
+  list,
+  language,
+  strings,
+  failed,
+  onSelect,
+  onOpenMembers,
+  onOpenSettings,
+  onCreate,
+  onRename,
+  onLeave,
+  onDelete,
+}: Props) {
+  const [panel, setPanel] = useState<Panel>(null);
+  // The sheet the BackButton returns to; null closes the sheets altogether.
+  const [parent, setParent] = useState<Panel>(null);
+  const close = useCallback(() => {
+    setParent(null);
+    setPanel(null);
+  }, []);
+  const openPanel = (next: Panel, from: Panel = null) => {
+    setParent(from);
+    setPanel(next);
+  };
+  // Back from a nested sheet returns to its parent (and forgets it); otherwise closes all.
+  const back = useCallback(() => {
+    setParent(null);
+    setPanel(parent);
+  }, [parent]);
+
   const [contents, setContents] = useState<ListContents | null>(null);
   const [fresh, setFresh] = useState<ReadonlySet<number>>(new Set());
   const [error, setError] = useState<"add" | "load" | null>(null);
@@ -191,15 +247,154 @@ export function ListScreen({ token, list, language, strings, onOpenMembers, onOp
     send();
   };
 
+  const leave = async () => {
+    if (!list) return;
+    close();
+    const ok = await confirmDestructive({
+      title: strings.leaveTitle,
+      message: list.members.length <= 1 ? strings.leaveLastMessage : strings.leaveMessage,
+      confirmLabel: strings.leaveList,
+    });
+    if (ok) await onLeave(list.id);
+  };
+
+  const remove = async () => {
+    if (!list) return;
+    close();
+    const ok = await confirmDestructive({
+      title: strings.deleteTitle,
+      message: withCount(strings.deleteMessage, list.members.length),
+      confirmLabel: strings.deleteList,
+    });
+    if (ok) await onDelete(list.id);
+  };
+
+  const sheets = (
+    <>
+      {failed && (
+        <p className="toast" role="alert">
+          {strings.actionFailed}
+        </p>
+      )}
+      {panel === "switcher" && (
+        <Sheet title={strings.switchList} onClose={close} closeLabel={strings.cancel}>
+          <ul className="sheet-list">
+            {lists.map((l) => (
+              <li key={l.id}>
+                <button
+                  type="button"
+                  className="sheet-row"
+                  aria-current={l.id === list?.id}
+                  onClick={() => {
+                    if (l.id !== list?.id) haptic.select();
+                    onSelect(l.id);
+                    close();
+                  }}
+                >
+                  <span className="sheet-row__name">{l.name}</span>
+                  <span className="sheet-row__meta">
+                    {l.id === list?.id ? "✓" : withCount(strings.membersCount, l.members.length)}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          <ul className="sheet-list">
+            <li>
+              <button type="button" className="sheet-row sheet-row--accent" onClick={() => openPanel("create", "switcher")}>
+                {strings.newList}
+              </button>
+            </li>
+          </ul>
+        </Sheet>
+      )}
+      {panel === "menu" && list && (
+        <Sheet title={strings.listMenu} onClose={close} closeLabel={strings.cancel}>
+          <ul className="sheet-list">
+            <li>
+              <button type="button" className="sheet-row" onClick={() => openPanel("rename", "menu")}>
+                {strings.renameList}
+              </button>
+            </li>
+            <li>
+              <button
+                type="button"
+                className="sheet-row"
+                onClick={() => {
+                  close();
+                  onOpenSettings();
+                }}
+              >
+                {strings.settings}
+              </button>
+            </li>
+            <li>
+              <button
+                type="button"
+                className="sheet-row"
+                onClick={() => {
+                  close();
+                  onOpenSettings();
+                }}
+              >
+                {strings.settings}
+              </button>
+            </li>
+            <li>
+              <button type="button" className="sheet-row sheet-row--destructive" onClick={() => void leave()}>
+                {strings.leaveList}
+              </button>
+            </li>
+            <li>
+              <button type="button" className="sheet-row sheet-row--destructive" onClick={() => void remove()}>
+                {strings.deleteList}
+              </button>
+            </li>
+          </ul>
+        </Sheet>
+      )}
+      {panel === "create" && (
+        <NameSheet
+          title={strings.newList}
+          label={strings.listName}
+          placeholder={strings.listNamePlaceholder}
+          submitLabel={strings.createList}
+          cancelLabel={strings.cancel}
+          initial=""
+          onClose={back}
+          onDone={close}
+          onSubmit={onCreate}
+        />
+      )}
+      {panel === "rename" && list && (
+        <NameSheet
+          title={strings.renameList}
+          label={strings.listName}
+          placeholder={strings.listNamePlaceholder}
+          submitLabel={strings.save}
+          cancelLabel={strings.cancel}
+          initial={list.name}
+          onClose={back}
+          onDone={close}
+          onSubmit={(name) => onRename(list.id, name)}
+        />
+      )}
+    </>
+  );
+
   if (!list) {
     return (
       <main className="screen">
         <section className="empty">
           <p className="empty__title">{strings.noList}</p>
+          <button type="button" className="empty__action" onClick={() => openPanel("create")}>
+            {strings.newList}
+          </button>
           <button type="button" className="text-button" onClick={onOpenSettings}>
             {strings.settings}
           </button>
         </section>
+        {sheets}
       </main>
     );
   }
@@ -208,7 +403,19 @@ export function ListScreen({ token, list, language, strings, onOpenMembers, onOp
   return (
     <main className="screen">
       <header className="header">
-        <h1 className="header__title">{list.name}</h1>
+        <h1 className="header__heading">
+          <button
+            type="button"
+            className="header__switch"
+            aria-haspopup="dialog"
+            onClick={() => openPanel("switcher")}
+          >
+            <span className="header__title">{list.name}</span>
+            <span className="header__chevron" aria-hidden="true">
+              ▾
+            </span>
+          </button>
+        </h1>
         <button
           type="button"
           className="avatars-button"
@@ -219,11 +426,11 @@ export function ListScreen({ token, list, language, strings, onOpenMembers, onOp
         </button>
         <button
           type="button"
-          className="icon-button"
-          aria-label={strings.settings}
-          onClick={onOpenSettings}
+          className="header__menu"
+          aria-label={strings.listMenu}
+          onClick={() => openPanel("menu")}
         >
-          ⚙︎
+          ⋯
         </button>
       </header>
 
@@ -352,6 +559,7 @@ export function ListScreen({ token, list, language, strings, onOpenMembers, onOp
           </ul>
         </section>
       ))}
+      {sheets}
     </main>
   );
 }
