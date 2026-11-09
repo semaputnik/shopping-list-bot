@@ -141,7 +141,8 @@ def test_check_requires_auth_and_a_boolean(client, anna):
     (entry,) = add(client, anna, "молоко")
     url = f"/api/lists/{anna['list_id']}/entries/{entry['id']}"
     assert client.patch(url, json={"checked": True}).status_code == 401
-    assert client.patch(url, json={}, headers=anna["headers"]).status_code == 422
+    for bad in ({"checked": None}, {"checked": "maybe"}):
+        assert client.patch(url, json=bad, headers=anna["headers"]).status_code == 422
     assert client.post(f"{url[: url.rindex('/')]}/uncheck-all").status_code == 401
 
 
@@ -176,3 +177,60 @@ def test_uncheck_all_touches_only_its_own_list(client, sign_in, anna):
     uncheck_all(client, anna)
     assert flat(client, anna)[0][0]["checked"] is False
     assert flat(client, carlos)[0][0]["checked"] is True
+
+
+def test_empty_patch_is_a_no_op(client, anna):
+    # One PATCH serves checking, the Note and the Category; sending nothing changes nothing.
+    (entry,) = add(client, anna, "молоко")
+    version = flat(client, anna)[1]["list"]["version"]
+    url = f"/api/lists/{anna['list_id']}/entries/{entry['id']}"
+    response = client.patch(url, json={}, headers=anna["headers"])
+    assert response.status_code == 200
+    assert response.json()["version"] == version
+    assert response.json()["entry"]["checked"] is False
+
+
+def test_check_and_note_in_one_request_bump_the_version_once(client, anna):
+    (entry,) = add(client, anna, "молоко")
+    version = flat(client, anna)[1]["list"]["version"]
+    url = f"/api/lists/{anna['list_id']}/entries/{entry['id']}"
+    response = client.patch(url, json={"checked": True, "note": "2 л"}, headers=anna["headers"])
+    assert response.status_code == 200, response.text
+    assert response.json()["version"] == version + 1
+    assert response.json()["entry"]["checked"] is True
+    assert response.json()["entry"]["note"] == "2 л"
+
+
+def delete(client, who, entry_id):
+    url = f"/api/lists/{who['list_id']}/entries/{entry_id}"
+    response = client.delete(url, headers=who["headers"])
+    assert response.status_code == 200, response.text
+    return response
+
+
+@pytest.mark.parametrize("checked", [True, False])
+def test_a_deleted_entry_cannot_be_checked_or_unchecked(client, anna, checked):
+    # A delete beats an edit: the Entry is gone for everyone.
+    (entry,) = add(client, anna, "молоко")
+    delete(client, anna, entry["id"])
+    version = flat(client, anna)[1]["list"]["version"]
+    assert set_checked(client, anna, entry["id"], checked).status_code == 404
+    assert flat(client, anna)[1]["list"]["version"] == version
+
+
+def test_uncheck_all_ignores_deleted_entries(client, anna):
+    visible, gone = add(client, anna, "молоко; хлеб")
+    set_checked(client, anna, visible["id"], True)
+    set_checked(client, anna, gone["id"], True)
+    delete(client, anna, gone["id"])
+    version = flat(client, anna)[1]["list"]["version"]
+
+    assert uncheck_all(client, anna).json() == {"version": version + 1, "unchecked": 1}
+
+
+def test_uncheck_all_with_only_deleted_checked_entries_is_a_no_op(client, anna):
+    (entry,) = add(client, anna, "молоко")
+    set_checked(client, anna, entry["id"], True)
+    delete(client, anna, entry["id"])
+    version = flat(client, anna)[1]["list"]["version"]
+    assert uncheck_all(client, anna).json() == {"version": version, "unchecked": 0}

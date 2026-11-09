@@ -132,6 +132,14 @@ class TestOnListFlag:
         [s] = suggest(client, anna, "мол")
         assert s["on_list"] is True
 
+    def test_flag_is_off_once_the_only_entry_is_deleted(self, client, anna):
+        entry = add(client, anna, "молоко")["entries"][0]
+        client.delete(
+            f"/api/lists/{anna['list_id']}/entries/{entry['id']}", headers=anna["headers"]
+        )
+        [s] = suggest(client, anna, "мол")
+        assert s["on_list"] is False
+
     def test_adding_a_duplicate_still_works(self, client, anna):
         add(client, anna, "молоко")
         add(client, anna, "молоко")

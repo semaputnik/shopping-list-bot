@@ -46,6 +46,17 @@ type StringKey =
   | "languageSection"
   | "languageAsTelegram"
   | "languageSaveError"
+  | "entryNote"
+  | "entryNotePlaceholder"
+  | "entryCategory"
+  | "entryAddedBy"
+  | "entryDelete"
+  | "entryDeleted"
+  | "undo"
+  | "close"
+  | "entrySaveFailed"
+  | "entryDeleteFailed"
+  | "undoFailed"
   | "suggestions"
   | "alreadyOnList"
   | "addNew"
@@ -54,9 +65,8 @@ type StringKey =
   | "uncheckAll"
   | "checkFailed"
   | "bought"
-  | "undo"
   | "buyFailed"
-  | "undoFailed";
+  | "undoBuyFailed";
 
 const strings: Record<Language, Record<StringKey, string>> = {
   ru: {
@@ -106,6 +116,17 @@ const strings: Record<Language, Record<StringKey, string>> = {
     languageSection: "Язык",
     languageAsTelegram: "Как в Telegram",
     languageSaveError: "Не удалось сохранить язык. Попробуйте ещё раз.",
+    entryNote: "Заметка",
+    entryNotePlaceholder: "Количество или детали",
+    entryCategory: "Отдел",
+    entryAddedBy: "Добавил(а)",
+    entryDelete: "Удалить",
+    entryDeleted: "Удалено",
+    undo: "Отменить",
+    close: "Закрыть",
+    entrySaveFailed: "Не удалось сохранить. Попробуйте ещё раз.",
+    entryDeleteFailed: "Не удалось удалить. Попробуйте ещё раз.",
+    undoFailed: "Не удалось вернуть позицию.",
     suggestions: "Подсказки",
     alreadyOnList: "уже в списке",
     addNew: "Добавить",
@@ -114,9 +135,8 @@ const strings: Record<Language, Record<StringKey, string>> = {
     uncheckAll: "Снять все отметки",
     checkFailed: "Не удалось сохранить отметку. Список обновлён.",
     bought: "Куплено",
-    undo: "Отменить",
     buyFailed: "Не удалось отметить покупку. Список обновлён.",
-    undoFailed: "Не удалось отменить покупку. Список обновлён.",
+    undoBuyFailed: "Не удалось отменить покупку. Список обновлён.",
   },
   es: {
     loading: "Cargando…",
@@ -165,6 +185,17 @@ const strings: Record<Language, Record<StringKey, string>> = {
     languageSection: "Idioma",
     languageAsTelegram: "Como en Telegram",
     languageSaveError: "No se pudo guardar el idioma. Inténtalo de nuevo.",
+    entryNote: "Nota",
+    entryNotePlaceholder: "Cantidad o detalles",
+    entryCategory: "Sección",
+    entryAddedBy: "Añadido por",
+    entryDelete: "Eliminar",
+    entryDeleted: "Eliminado",
+    undo: "Deshacer",
+    close: "Cerrar",
+    entrySaveFailed: "No se pudo guardar. Inténtalo de nuevo.",
+    entryDeleteFailed: "No se pudo eliminar. Inténtalo de nuevo.",
+    undoFailed: "No se pudo recuperar el producto.",
     suggestions: "Sugerencias",
     alreadyOnList: "ya está en la lista",
     addNew: "Añadir",
@@ -173,9 +204,8 @@ const strings: Record<Language, Record<StringKey, string>> = {
     uncheckAll: "Quitar todas las marcas",
     checkFailed: "No se pudo guardar la marca. Lista actualizada.",
     bought: "Comprado",
-    undo: "Deshacer",
     buyFailed: "No se pudo registrar la compra. Lista actualizada.",
-    undoFailed: "No se pudo deshacer la compra. Lista actualizada.",
+    undoBuyFailed: "No se pudo deshacer la compra. Lista actualizada.",
   },
 };
 
