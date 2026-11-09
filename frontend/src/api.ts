@@ -121,6 +121,24 @@ export function addEntries(
   );
 }
 
+/** A Product from the List's memory matching the typed text. */
+export interface Suggestion {
+  product_id: number;
+  name: string;
+  category: string;
+  /** The Product already has an Entry on the List (adding it again still creates another row). */
+  on_list: boolean;
+}
+
+export function fetchSuggestions(token: string, listId: number, q: string): Promise<Suggestion[]> {
+  return request<Suggestion[]>(`/api/lists/${listId}/suggestions?q=${encodeURIComponent(q)}`, {}, token);
+}
+
+/** Removes a Product from the List's memory; it is only hidden from suggestions. */
+export function hideProduct(token: string, listId: number, productId: number): Promise<{ version: number }> {
+  return request<{ version: number }>(`/api/lists/${listId}/products/${productId}`, { method: "DELETE" }, token);
+}
+
 /** Opens a Share link: joins the List (a no-op for a Member). Rejects with ApiError 404 for an invalid code. */
 export function joinList(token: string, code: string): Promise<ShoppingList> {
   return request<ShoppingList>(
