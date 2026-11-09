@@ -8,6 +8,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     String,
+    Text,
     UniqueConstraint,
     false,
 )
@@ -161,3 +162,38 @@ class PurchaseEntry(Base):
     entry_created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     checked_by: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"))
+
+
+class ListChange(Base):
+    """One row of a List's change log: what a version bump was. Backs `changes?since=`.
+
+    Not a foreign key on purpose: the log of a deleted List is removed with it explicitly.
+    """
+
+    __tablename__ = "list_change"
+    __table_args__ = (UniqueConstraint("list_id", "version"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    list_id: Mapped[int] = mapped_column()
+    version: Mapped[int] = mapped_column()
+    # e.g. "entry.updated", "member.joined"; see app._touch callers.
+    kind: Mapped[str] = mapped_column(String(32))
+    entry_id: Mapped[int | None] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class IdempotencyRecord(Base):
+    """The stored answer to a command sent with an Idempotency-Key; a replay returns it as is."""
+
+    __tablename__ = "idempotency_record"
+    __table_args__ = (UniqueConstraint("user_id", "key"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"))
+    key: Mapped[str] = mapped_column(String(80))
+    method: Mapped[str] = mapped_column(String(8))
+    path: Mapped[str] = mapped_column(String(300))
+    status_code: Mapped[int] = mapped_column()
+    body: Mapped[str] = mapped_column(Text)
+    content_type: Mapped[str | None] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

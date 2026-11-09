@@ -12,6 +12,7 @@ import {
   buy,
   deleteEntry,
   fetchCategories,
+  fetchChanges,
   fetchContents,
   fetchSuggestions,
   hideProduct,
@@ -28,6 +29,7 @@ import { AvatarStack } from "../components/Avatar";
 import { EntrySheet } from "../components/EntrySheet";
 import { applyEntryChange } from "../entryChange";
 import { QUICK_ADD, withCount, type Language, type Strings } from "../i18n";
+import type { Remote } from "../sync";
 import { bindMainButton, confirmDestructive, haptic, setMainButtonText } from "../telegram";
 import { NameSheet, Sheet } from "./Sheet";
 
@@ -40,6 +42,8 @@ interface Props {
   strings: Strings;
   /** True when the last action failed on the server. */
   failed: boolean;
+  /** Changes announced by other Members, and app activations (see sync.ts). */
+  remote: Remote;
   onSelect: (id: number) => void;
   onOpenMembers: () => void;
   onOpenSettings: () => void;
@@ -85,6 +89,7 @@ export function ListScreen({
   language,
   strings,
   failed,
+  remote,
   onSelect,
   onOpenMembers,
   onOpenSettings,
@@ -169,6 +174,73 @@ export function ListScreen({
       setError("load");
     });
   }, [token, listId, showContents]);
+
+  const contentsRef = useRef(contents);
+  contentsRef.current = contents;
+
+  /** Marks Entries with the soft "new or changed" highlight for a moment. */
+  const flash = useCallback((ids: number[]) => {
+    if (ids.length === 0) return;
+    setFresh((prev) => new Set([...prev, ...ids]));
+    window.setTimeout(
+      () =>
+        setFresh((prev) => {
+          const next = new Set(prev);
+          ids.forEach((id) => next.delete(id));
+          return next;
+        }),
+      HIGHLIGHT_MS,
+    );
+  }, []);
+
+  /** Shows contents that came from someone else's change, highlighting what differs. */
+  const showRemote = useCallback(
+    (next: ListContents) => {
+      const before = contentsRef.current;
+      if (before && before.list.version >= next.list.version) return; // already up to date
+      const known = new Map(before?.categories.flatMap((g) => g.entries).map((e) => [e.id, e]));
+      const changed = next.categories
+        .flatMap((g) => g.entries)
+        .filter((e) => {
+          const old = known.get(e.id);
+          return (
+            before !== null &&
+            (!old ||
+              old.checked !== e.checked ||
+              old.note !== e.note ||
+              old.name !== e.name ||
+              old.category !== e.category)
+          );
+        })
+        .map((e) => e.id);
+      showContents(next);
+      flash(changed);
+    },
+    [showContents, flash],
+  );
+
+  // Other Members' changes arrive as events; coming back to the app or a reconnected stream
+  // asks the server what was missed (`changes?since=`), which answers with a snapshot when the
+  // gap is too big. Our own changes echo back as events at a version already shown: ignored.
+  const handled = useRef(remote.seq);
+  useEffect(() => {
+    if (remote.seq === handled.current || listId === undefined) return;
+    handled.current = remote.seq;
+    const have = contentsRef.current;
+    const pull = () =>
+      fetchContents(token, listId).then(showRemote, (e) => console.error(e));
+    if (remote.kind === "event") {
+      if (remote.listId !== listId) return;
+      if (have && remote.version <= have.list.version) return;
+      void pull();
+      return;
+    }
+    if (!have) return; // the first load is still running and will bring the latest anyway
+    fetchChanges(token, listId, have.list.version).then((result) => {
+      if (result.snapshot) showRemote(result.snapshot);
+      else if (result.changes.length > 0) void pull();
+    }, (e) => console.error(e));
+  }, [remote, token, listId, showRemote]);
 
   const refresh = useCallback(async () => {
     if (listId === undefined) return;
@@ -288,18 +360,9 @@ export function ListScreen({
         setError("load");
         return;
       }
-      setFresh((prev) => new Set([...prev, ...ids]));
-      window.setTimeout(
-        () =>
-          setFresh((prev) => {
-            const next = new Set(prev);
-            ids.forEach((id) => next.delete(id));
-            return next;
-          }),
-        HIGHLIGHT_MS,
-      );
+      flash(ids);
     },
-    [token, listId, showContents],
+    [token, listId, showContents, flash],
   );
 
   /** Applies a Checked state to the local copy right away; the Entry never moves. */

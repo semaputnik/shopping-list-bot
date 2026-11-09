@@ -53,6 +53,10 @@ async function request<T>(path: string, init: RequestInit = {}, token?: string):
   const headers = new Headers(init.headers);
   headers.set("Content-Type", "application/json");
   if (token) headers.set("Authorization", `Bearer ${token}`);
+  // Every command carries a client-generated id, so the server runs a replay only once.
+  if (init.method && init.method !== "GET" && path !== "/api/auth") {
+    headers.set("Idempotency-Key", crypto.randomUUID());
+  }
   const response = await fetch(path, { ...init, headers });
   if (!response.ok) {
     throw new ApiError(`${init.method ?? "GET"} ${path}: ${response.status}`, response.status);
@@ -113,6 +117,18 @@ export interface ListContents {
   list: ShoppingList;
   /** Only non-empty groups, in the fixed system order. */
   categories: CategoryGroup[];
+}
+
+/** What happened to a List since a version: the missed bumps, or a snapshot if too far behind. */
+export interface Changes {
+  version: number;
+  changes: { version: number; kind: string; entry_id: number | null }[];
+  snapshot: ListContents | null;
+}
+
+/** Catch-up after the app was backgrounded or the stream dropped. */
+export function fetchChanges(token: string, listId: number, since: number): Promise<Changes> {
+  return request<Changes>(`/api/lists/${listId}/changes?since=${since}`, {}, token);
 }
 
 export interface AddEntriesResult {
