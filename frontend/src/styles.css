@@ -7,6 +7,7 @@
   --ground: var(--tg-theme-secondary-bg-color, #efeff4);
   --section: var(--tg-theme-section-bg-color, var(--bg));
   --text: var(--tg-theme-text-color, #000000);
+  --separator: var(--tg-theme-section-separator-color, rgba(60, 60, 67, 0.2));
   --hint: var(--tg-theme-hint-color, #8e8e93);
   --accent: var(--tg-theme-button-color, #3390ec);
   --accent-text: var(--tg-theme-button-text-color, #ffffff);
@@ -121,15 +122,6 @@ body {
   color: var(--hint);
 }
 
-.link-button {
-  min-height: 44px;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--accent);
-  font: inherit;
-}
-
 .screen__title {
   margin: 0 4px 12px;
   font-size: 28px;
@@ -153,7 +145,7 @@ body {
 }
 
 .members__row + .members__row {
-  border-top: 0.5px solid var(--ground);
+  border-top: 0.5px solid var(--separator);
 }
 
 .members__name {

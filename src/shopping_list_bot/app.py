@@ -2,6 +2,7 @@
 
 import hashlib
 import hmac
+import logging
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -10,10 +11,10 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from . import models
 from .auth import (
@@ -26,6 +27,8 @@ from .auth import (
 from .config import Settings
 from .db import Base, make_engine, make_session_factory
 from .i18n import FIRST_LIST_NAME, pick_language
+
+logger = logging.getLogger(__name__)
 
 
 class UserOut(BaseModel):
@@ -61,7 +64,7 @@ class ListOut(BaseModel):
 
 
 class JoinIn(BaseModel):
-    code: str
+    code: str = Field(max_length=64)
 
 
 class AuthIn(BaseModel):
@@ -146,6 +149,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        if not settings.bot_username.lstrip("@"):
+            logger.warning("SL_BOT_USERNAME is not set: Share links cannot be built")
         Base.metadata.create_all(engine)
         yield
         engine.dispose()
@@ -226,7 +231,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     def _member_lists(user: models.User):
         return (
-            select(models.List).join(models.ListMember).where(models.ListMember.user_id == user.id)
+            select(models.List)
+            .join(models.ListMember)
+            .where(models.ListMember.user_id == user.id)
+            .options(selectinload(models.List.members).selectinload(models.ListMember.user))
         )
 
     @api.get("/lists", response_model=list[ListOut])

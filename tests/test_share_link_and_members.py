@@ -1,5 +1,11 @@
 import re
 
+from conftest import TEST_BOT_TOKEN, sign_init_data
+from fastapi.testclient import TestClient
+
+from shopping_list_bot.app import create_app
+from shopping_list_bot.config import Settings
+
 ANNA = {
     "id": 1001,
     "first_name": "Анна",
@@ -133,3 +139,31 @@ def test_members_expose_names_and_photos_but_no_telegram_ids(client, sign_in):
     assert member["photo_url"] == ANNA["photo_url"]
     assert member["first_name"] == "Анна"
     assert "telegram_id" not in member
+
+
+class TestShareUrlConfiguration:
+    def _lists(self, tmp_path, bot_username):
+        settings = Settings(
+            bot_token=TEST_BOT_TOKEN,
+            bot_username=bot_username,
+            database_url=f"sqlite:///{tmp_path / 'cfg.db'}",
+            frontend_dist=tmp_path / "no-frontend",
+            _env_file=None,
+        )
+        with TestClient(create_app(settings)) as c:
+            auth = c.post("/api/auth", json={"init_data": sign_init_data(ANNA)}).json()
+            headers = {"Authorization": f"Bearer {auth['token']}"}
+            return c.get("/api/lists", headers=headers).json()
+
+    def test_share_url_is_null_without_a_bot_username(self, tmp_path):
+        (lst,) = self._lists(tmp_path, "")
+        assert lst["share_url"] is None
+
+    def test_leading_at_sign_is_stripped_from_the_bot_username(self, tmp_path):
+        (lst,) = self._lists(tmp_path, "@my_bot")
+        assert lst["share_url"] == f"https://t.me/my_bot?startapp={lst['share_code']}"
+
+
+def test_join_rejects_an_overlong_code(client, sign_in):
+    response = join(client, sign_in(ANNA), "x" * 65)
+    assert response.status_code == 422

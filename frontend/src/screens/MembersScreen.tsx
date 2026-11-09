@@ -3,6 +3,7 @@ import type { ShoppingList, User } from "../api";
 import { Avatar, memberName } from "../components/Avatar";
 import type { Strings } from "../i18n";
 import { copyText } from "../share";
+import { notifyHaptic, showNativeBackButton } from "../telegram";
 
 interface Props {
   user: User;
@@ -16,9 +17,12 @@ export function MembersScreen({ user, list, strings, onBack }: Props) {
   const [toast, setToast] = useState<string | null>(null);
   const timer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(timer.current), []);
+  // Leaving a nested screen is Telegram's native BackButton (also the Android back press).
+  useEffect(() => showNativeBackButton(onBack), [onBack]);
 
   const share = async () => {
     const copied = list.share_url ? await copyText(list.share_url) : false;
+    notifyHaptic(copied ? "success" : "error");
     setToast(copied ? strings.linkCopied : strings.linkUnavailable);
     window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => setToast(null), 2500);
@@ -26,11 +30,6 @@ export function MembersScreen({ user, list, strings, onBack }: Props) {
 
   return (
     <main className="screen">
-      <header className="header">
-        <button type="button" className="link-button" onClick={onBack}>
-          ‹ {strings.back}
-        </button>
-      </header>
       <h1 className="screen__title">{strings.members}</h1>
       <ul className="members">
         {list.members.map((member) => (

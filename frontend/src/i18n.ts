@@ -14,7 +14,6 @@ type StringKey =
   | "linkCopied"
   | "linkUnavailable"
   | "members"
-  | "back"
   | "you"
   | "membersHint"
   | "badLinkTitle"
@@ -36,7 +35,6 @@ const strings: Record<Language, Record<StringKey, string>> = {
     linkCopied: "Ссылка скопирована",
     linkUnavailable: "Не удалось получить ссылку",
     members: "Участники",
-    back: "Назад",
     you: "вы",
     membersHint: "У всех участников одинаковые права. Отправьте ссылку, чтобы добавить ещё кого-то.",
     badLinkTitle: "Ссылка недействительна",
@@ -57,7 +55,6 @@ const strings: Record<Language, Record<StringKey, string>> = {
     linkCopied: "Enlace copiado",
     linkUnavailable: "No se pudo obtener el enlace",
     members: "Miembros",
-    back: "Atrás",
     you: "tú",
     membersHint: "Todos los miembros tienen los mismos derechos. Envía el enlace para añadir a alguien más.",
     badLinkTitle: "El enlace no es válido",

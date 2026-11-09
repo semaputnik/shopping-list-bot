@@ -24,6 +24,10 @@ type Screen = "list" | "members";
 
 export function App() {
   const [state, setState] = useState<State>({ kind: "loading" });
+  const backToList = useCallback(
+    () => setState((s) => (s.kind === "ready" ? { ...s, screen: "list" } : s)),
+    [],
+  );
   const [language, setLanguage] = useState<Language>(() =>
     pickLanguage(navigator.language),
   );
@@ -111,7 +115,7 @@ export function App() {
             user={state.user}
             list={list}
             strings={strings}
-            onBack={() => setState({ ...state, screen: "list" })}
+            onBack={backToList}
           />
         );
       }
