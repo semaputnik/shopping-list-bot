@@ -10,8 +10,16 @@ type StringKey =
   | "notTelegramTitle"
   | "notTelegramHint"
   | "noList"
+  | "share"
+  | "linkCopied"
+  | "linkUnavailable"
+  | "members"
+  | "you"
+  | "membersHint"
+  | "badLinkTitle"
+  | "badLinkHint"
+  | "openMyLists"
   | "settings"
-  | "back"
   | "languageSection"
   | "languageAsTelegram"
   | "languageSaveError";
@@ -27,8 +35,16 @@ const strings: Record<Language, Record<StringKey, string>> = {
     notTelegramTitle: "Откройте в Telegram",
     notTelegramHint: "Shared Lists работает как мини-приложение внутри Telegram.",
     noList: "Нет доступных списков",
+    share: "Поделиться",
+    linkCopied: "Ссылка скопирована",
+    linkUnavailable: "Не удалось получить ссылку",
+    members: "Участники",
+    you: "вы",
+    membersHint: "У всех участников одинаковые права. Отправьте ссылку, чтобы добавить ещё кого-то.",
+    badLinkTitle: "Ссылка недействительна",
+    badLinkHint: "Попросите прислать ссылку на список ещё раз.",
+    openMyLists: "Открыть мои списки",
     settings: "Настройки",
-    back: "Назад",
     languageSection: "Язык",
     languageAsTelegram: "Как в Telegram",
     languageSaveError: "Не удалось сохранить язык. Попробуйте ещё раз.",
@@ -43,8 +59,16 @@ const strings: Record<Language, Record<StringKey, string>> = {
     notTelegramTitle: "Abre en Telegram",
     notTelegramHint: "Shared Lists funciona como mini aplicación dentro de Telegram.",
     noList: "No hay listas disponibles",
+    share: "Compartir",
+    linkCopied: "Enlace copiado",
+    linkUnavailable: "No se pudo obtener el enlace",
+    members: "Miembros",
+    you: "tú",
+    membersHint: "Todos los miembros tienen los mismos derechos. Envía el enlace para añadir a alguien más.",
+    badLinkTitle: "El enlace no es válido",
+    badLinkHint: "Pide que te envíen de nuevo el enlace de la lista.",
+    openMyLists: "Abrir mis listas",
     settings: "Ajustes",
-    back: "Atrás",
     languageSection: "Idioma",
     languageAsTelegram: "Como en Telegram",
     languageSaveError: "No se pudo guardar el idioma. Inténtalo de nuevo.",

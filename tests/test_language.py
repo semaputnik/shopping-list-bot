@@ -1,5 +1,3 @@
-import sqlite3
-
 ANNA = {"id": 1001, "first_name": "Анна", "language_code": "ru"}
 CARLOS = {"id": 2002, "first_name": "Carlos", "language_code": "es-MX"}
 JOHN = {"id": 3003, "first_name": "John", "language_code": "en"}
@@ -101,20 +99,28 @@ def test_first_list_name_switches_with_the_language(client, sign_in):
     assert list_names(client, session["headers"]) == ["Покупки"]
 
 
-def test_each_member_sees_the_default_name_in_their_own_language(client, sign_in, tmp_path):
+def test_each_member_sees_the_default_name_in_their_own_language(client, sign_in):
     anna, carlos = sign_in(ANNA), sign_in(CARLOS)
     anna_list = client.get("/api/lists", headers=anna["headers"]).json()[0]
-    carlos_id = client.get("/api/me", headers=carlos["headers"]).json()["id"]
-    # TODO: switch to the Share-link join flow once #5 (PR #15) lands. There is no join
-    # endpoint yet, so the Member is added directly.
-    with sqlite3.connect(tmp_path / "test.db") as db:
-        db.execute(
-            "INSERT INTO list_member (list_id, user_id, joined_at) VALUES (?, ?, datetime('now'))",
-            (anna_list["id"], carlos_id),
-        )
+    joined = client.post(
+        "/api/lists/join", json={"code": anna_list["share_code"]}, headers=carlos["headers"]
+    )
+    assert joined.status_code == 200
     url = f"/api/lists/{anna_list['id']}"
     assert client.get(url, headers=carlos["headers"]).json()["name"] == "Compras"
     assert client.get(url, headers=anna["headers"]).json()["name"] == "Покупки"
+
+
+def test_joining_returns_the_default_name_in_the_joiners_language(client, sign_in):
+    anna, carlos = sign_in(ANNA), sign_in(CARLOS)
+    anna_list = client.get("/api/lists", headers=anna["headers"]).json()[0]
+    joined = client.post(
+        "/api/lists/join", json={"code": anna_list["share_code"]}, headers=carlos["headers"]
+    ).json()
+    assert joined["name"] == "Compras"
+    carlos_lists = client.get("/api/lists", headers=carlos["headers"]).json()
+    assert [lst["name"] for lst in carlos_lists if lst["id"] == anna_list["id"]] == ["Compras"]
+    assert client.get("/api/lists", headers=anna["headers"]).json()[0]["name"] == "Покупки"
 
 
 def test_system_categories_are_the_full_ordered_set_with_uncategorized_last(client, sign_in):

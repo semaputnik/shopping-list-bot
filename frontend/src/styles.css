@@ -7,6 +7,7 @@
   --ground: var(--tg-theme-secondary-bg-color, #efeff4);
   --section: var(--tg-theme-section-bg-color, var(--bg));
   --text: var(--tg-theme-text-color, #000000);
+  --separator: var(--tg-theme-section-separator-color, rgba(60, 60, 67, 0.2));
   --hint: var(--tg-theme-hint-color, #8e8e93);
   --accent: var(--tg-theme-button-color, #3390ec);
   --accent-text: var(--tg-theme-button-text-color, #ffffff);
@@ -57,27 +58,135 @@ body {
   white-space: nowrap;
 }
 
+.avatars-button {
+  flex-shrink: 0;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
 .avatars {
   display: flex;
   flex-shrink: 0;
 }
 
+.avatars > .avatar + .avatar {
+  margin-left: -10px;
+}
+
 .avatar {
-  width: 36px;
-  height: 36px;
+  flex-shrink: 0;
   border-radius: 50%;
   object-fit: cover;
   border: 2px solid var(--ground);
 }
 
-.avatar--initials {
+.avatar--sm {
+  width: 24px;
+  height: 24px;
+  font-size: 10px;
+}
+
+.avatar--md {
+  width: 36px;
+  height: 36px;
+  font-size: 14px;
+}
+
+.avatar--lg {
+  width: 44px;
+  height: 44px;
+  font-size: 16px;
+  border-color: var(--section);
+}
+
+.avatar--initials,
+.avatar--more {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   background: var(--accent);
   color: var(--accent-text);
-  font-size: 14px;
   font-weight: 600;
+}
+
+.avatar--more {
+  background: var(--section);
+  color: var(--hint);
+}
+
+.screen__title {
+  margin: 0 4px 12px;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.members {
+  margin: 0;
+  padding: 0 16px;
+  list-style: none;
+  border-radius: 12px;
+  background: var(--section);
+}
+
+.members__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 60px;
+}
+
+.members__row + .members__row {
+  border-top: 0.5px solid var(--separator);
+}
+
+.members__name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.members__you,
+.members__username {
+  color: var(--hint);
+  font-size: 15px;
+}
+
+.members__you {
+  display: inline;
+}
+
+.share-button {
+  display: block;
+  width: 100%;
+  margin-top: 16px;
+}
+
+.members__hint {
+  margin: 12px 4px 0;
+  font-size: 15px;
+  color: var(--hint);
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--safe-bottom) + 24px);
+  transform: translateX(-50%);
+  max-width: calc(100vw - 32px);
+  padding: 10px 16px;
+  border-radius: 12px;
+  background: var(--text);
+  color: var(--bg);
+  font-size: 15px;
 }
 
 /* Inset grouped section, as in Telegram settings. */

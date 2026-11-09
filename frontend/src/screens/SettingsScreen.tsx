@@ -24,14 +24,9 @@ export function SettingsScreen({
 }: Props) {
   const [failed, setFailed] = useState(false);
   const [busy, setBusy] = useState(false);
-  // Nested screens use Telegram's native BackButton; the in-page one is only a fallback.
-  const [nativeBack, setNativeBack] = useState(true);
 
-  useEffect(() => {
-    const hide = showNativeBackButton(onBack);
-    setNativeBack(hide !== null);
-    return hide ?? undefined;
-  }, [onBack]);
+  // Nested screens use Telegram's native BackButton.
+  useEffect(() => showNativeBackButton(onBack), [onBack]);
 
   const choose = async (next: Language | null) => {
     if (busy || (next === null ? !overridden : overridden && next === language)) return;
@@ -65,11 +60,6 @@ export function SettingsScreen({
   return (
     <main className="screen">
       <header className="header">
-        {!nativeBack && (
-          <button type="button" className="text-button" onClick={onBack}>
-            ‹ {strings.back}
-          </button>
-        )}
         <h1 className="header__title">{strings.settings}</h1>
       </header>
       <h2 className="settings__section-title">{strings.languageSection}</h2>

@@ -1,40 +1,16 @@
-import { useState } from "react";
-import type { ShoppingList, User } from "../api";
+import type { ShoppingList } from "../api";
+import { AvatarStack } from "../components/Avatar";
 import type { Strings } from "../i18n";
 
 interface Props {
-  user: User;
   list: ShoppingList | null;
   strings: Strings;
+  onOpenMembers: () => void;
   onOpenSettings: () => void;
 }
 
-function initials(user: User): string {
-  const letters = [user.first_name, user.last_name].map((s) => (s ?? "").trim()[0] ?? "");
-  return letters.join("").toUpperCase() || "?";
-}
-
-function Avatar({ user }: { user: User }) {
-  const [broken, setBroken] = useState(false);
-  if (user.photo_url && !broken) {
-    return (
-      <img
-        className="avatar"
-        src={user.photo_url}
-        alt={user.first_name}
-        onError={() => setBroken(true)}
-      />
-    );
-  }
-  return (
-    <span className="avatar avatar--initials" aria-label={user.first_name}>
-      {initials(user)}
-    </span>
-  );
-}
-
-/** The List screen: header with the List name and Members, then the empty state. */
-export function ListScreen({ user, list, strings, onOpenSettings }: Props) {
+/** The List screen: header with the List name, Members and Settings, then the empty state. */
+export function ListScreen({ list, strings, onOpenMembers, onOpenSettings }: Props) {
   if (!list) {
     return (
       <main className="screen">
@@ -51,9 +27,14 @@ export function ListScreen({ user, list, strings, onOpenSettings }: Props) {
     <main className="screen">
       <header className="header">
         <h1 className="header__title">{list.name}</h1>
-        <div className="avatars">
-          <Avatar user={user} />
-        </div>
+        <button
+          type="button"
+          className="avatars-button"
+          aria-label={strings.members}
+          onClick={onOpenMembers}
+        >
+          <AvatarStack members={list.members} />
+        </button>
         <button
           type="button"
           className="icon-button"

@@ -46,8 +46,6 @@ class List(Base):
     name: Mapped[str] = mapped_column(String(200))
     # True while the List still has its auto-created name; it is then shown in each
     # viewer's language. Whatever renames a List must set this to False.
-    # True while the name is the auto-created one shown in the viewer's language.
-    # Renaming a List (ticket #4) must set this to False.
     name_is_default: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     share_code: Mapped[str] = mapped_column(String(64), unique=True, default=new_share_code)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"))

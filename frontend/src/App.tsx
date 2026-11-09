@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
-import { authenticate, fetchLists, updateLanguage, type ShoppingList, type User } from "./api";
+import {
+  ApiError,
+  authenticate,
+  fetchLists,
+  joinList,
+  updateLanguage,
+  type ShoppingList,
+  type User,
+} from "./api";
 import { pickLanguage, t, type Language } from "./i18n";
 import { ListScreen } from "./screens/ListScreen";
+import { MembersScreen } from "./screens/MembersScreen";
 import { Message } from "./screens/Message";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import { startTelegram } from "./telegram";
@@ -10,16 +19,24 @@ type State =
   | { kind: "loading" }
   | { kind: "not-telegram" }
   | { kind: "error" }
+  | { kind: "bad-link"; token: string; user: User; lists: ShoppingList[] }
   | {
       kind: "ready";
       token: string;
       user: User;
       lists: ShoppingList[];
-      screen: "list" | "settings";
+      currentId: number | null;
+      screen: Screen;
     };
+
+type Screen = "list" | "members" | "settings";
 
 export function App() {
   const [state, setState] = useState<State>({ kind: "loading" });
+  const backToList = useCallback(
+    () => setState((s) => (s.kind === "ready" ? { ...s, screen: "list" } : s)),
+    [],
+  );
   const [language, setLanguage] = useState<Language>(() =>
     pickLanguage(navigator.language),
   );
@@ -35,13 +52,27 @@ export function App() {
       }
       setLanguage(pickLanguage(telegram.languageCode));
       const session = await authenticate(telegram.rawInitData);
-      const lists = await fetchLists(session.token);
+      let lists = await fetchLists(session.token);
       setLanguage(session.user.language);
+      let currentId = lists[0]?.id ?? null;
+      if (session.start_param) {
+        // Opening a Share link joins the List (a no-op for a Member) and opens it.
+        try {
+          const joined = await joinList(session.token, session.start_param);
+          lists = [joined, ...lists.filter((l) => l.id !== joined.id)];
+          currentId = joined.id;
+        } catch (error) {
+          if (!(error instanceof ApiError && error.status === 404)) throw error;
+          setState({ kind: "bad-link", token: session.token, user: session.user, lists });
+          return;
+        }
+      }
       setState({
         kind: "ready",
         token: session.token,
         user: session.user,
         lists,
+        currentId,
         screen: "list",
       });
     } catch (error) {
@@ -68,12 +99,6 @@ export function App() {
     }
   }, []);
 
-  // Stable identity: the Settings screen binds Telegram's BackButton to it.
-  const closeSettings = useCallback(
-    () => setState((s) => (s.kind === "ready" ? { ...s, screen: "list" } : s)),
-    [],
-  );
-
   const strings = t(language);
   switch (state.kind) {
     case "loading":
@@ -88,25 +113,62 @@ export function App() {
           action={{ label: strings.retry, onClick: () => void boot() }}
         />
       );
-    case "ready":
+    case "bad-link": {
+      const { token, user, lists } = state;
+      return (
+        <Message
+          title={strings.badLinkTitle}
+          hint={strings.badLinkHint}
+          action={
+            lists.length > 0
+              ? {
+                  label: strings.openMyLists,
+                  onClick: () =>
+                    setState({
+                      kind: "ready",
+                      token,
+                      user,
+                      lists,
+                      currentId: lists[0].id,
+                      screen: "list",
+                    }),
+                }
+              : undefined
+          }
+        />
+      );
+    }
+    case "ready": {
+      const list = state.lists.find((l) => l.id === state.currentId) ?? null;
+      if (list && state.screen === "members") {
+        return (
+          <MembersScreen
+            user={state.user}
+            list={list}
+            strings={strings}
+            onBack={backToList}
+          />
+        );
+      }
       if (state.screen === "settings") {
         return (
           <SettingsScreen
             language={language}
             overridden={state.user.language_overridden}
             strings={strings}
-            onBack={closeSettings}
+            onBack={backToList}
             onChangeLanguage={(next) => changeLanguage(state.token, next)}
           />
         );
       }
       return (
         <ListScreen
-          user={state.user}
-          list={state.lists[0] ?? null}
+          list={list}
           strings={strings}
+          onOpenMembers={() => setState({ ...state, screen: "members" })}
           onOpenSettings={() => setState({ ...state, screen: "settings" })}
         />
       );
+    }
   }
 }
