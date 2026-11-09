@@ -12,3 +12,11 @@ wheels/
 # Impeccable session artifacts
 .impeccable/questions/
 .impeccable/config.local.json
+
+# App configuration and local data
+.env
+*.db
+*.db-shm
+*.db-wal
+.pytest_cache/
+.ruff_cache/
