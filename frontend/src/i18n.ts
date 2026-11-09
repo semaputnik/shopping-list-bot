@@ -28,6 +28,11 @@ type StringKey =
   | "deleteMessage"
   | "membersCount"
   | "actionFailed"
+  | "inputPlaceholder"
+  | "inputLabel"
+  | "addFailed"
+  | "loadFailed"
+  | "emptyInputHint"
   | "share"
   | "linkCopied"
   | "linkUnavailable"
@@ -46,7 +51,7 @@ const strings: Record<Language, Record<StringKey, string>> = {
   ru: {
     loading: "Загрузка…",
     emptyTitle: "Список пуст",
-    emptyHint: "Здесь появятся товары, которые нужно купить.",
+    emptyHint: "Здесь появятся товары, которые нужно купить. Или добавьте популярное:",
     errorTitle: "Не удалось войти",
     errorHint: "Закройте приложение и откройте его снова из Telegram.",
     retry: "Повторить",
@@ -72,6 +77,11 @@ const strings: Record<Language, Record<StringKey, string>> = {
       "Список удалится у всех участников ({n}) вместе с историей. Восстановить его будет нельзя.",
     membersCount: "Участников: {n}",
     actionFailed: "Не получилось. Попробуйте ещё раз.",
+    inputPlaceholder: "Добавить в список",
+    inputLabel: "Что нужно купить",
+    addFailed: "Не удалось добавить. Попробуйте ещё раз.",
+    loadFailed: "Не удалось обновить список. Откройте его заново.",
+    emptyInputHint: "Напишите название и нажмите Enter. Через запятую — заметка: молоко, 2 л.",
     share: "Поделиться",
     linkCopied: "Ссылка скопирована",
     linkUnavailable: "Не удалось получить ссылку",
@@ -89,7 +99,7 @@ const strings: Record<Language, Record<StringKey, string>> = {
   es: {
     loading: "Cargando…",
     emptyTitle: "La lista está vacía",
-    emptyHint: "Aquí aparecerán los productos que hay que comprar.",
+    emptyHint: "Aquí aparecerán los productos que hay que comprar. O añade algo popular:",
     errorTitle: "No se pudo iniciar sesión",
     errorHint: "Cierra la aplicación y ábrela de nuevo desde Telegram.",
     retry: "Reintentar",
@@ -115,6 +125,11 @@ const strings: Record<Language, Record<StringKey, string>> = {
       "La lista se eliminará para todos los miembros ({n}), con su historial. No se puede recuperar.",
     membersCount: "Miembros: {n}",
     actionFailed: "No se pudo. Inténtalo de nuevo.",
+    inputPlaceholder: "Añadir a la lista",
+    inputLabel: "Qué hay que comprar",
+    addFailed: "No se pudo añadir. Inténtalo de nuevo.",
+    loadFailed: "No se pudo actualizar la lista. Ábrela de nuevo.",
+    emptyInputHint: "Escribe el nombre y pulsa Enter. Tras una coma va la nota: leche, 2 l.",
     share: "Compartir",
     linkCopied: "Enlace copiado",
     linkUnavailable: "No se pudo obtener el enlace",
@@ -129,6 +144,12 @@ const strings: Record<Language, Record<StringKey, string>> = {
     languageAsTelegram: "Como en Telegram",
     languageSaveError: "No se pudo guardar el idioma. Inténtalo de nuevo.",
   },
+};
+
+/** Popular items offered as quick-add buttons on an empty List. */
+export const QUICK_ADD: Record<Language, string[]> = {
+  ru: ["Молоко", "Хлеб", "Яйца", "Бананы", "Картошка", "Сыр", "Курица", "Вода"],
+  es: ["Leche", "Pan", "Huevos", "Plátanos", "Patatas", "Queso", "Pollo", "Agua"],
 };
 
 /** Each language is always shown in its own name, whatever the interface language is. */

@@ -197,8 +197,11 @@ export function App() {
       }
       return (
         <ListScreen
+          key={current?.id ?? "none"}
+          token={state.token}
           lists={state.lists}
           list={current}
+          language={language}
           strings={strings}
           failed={failed}
           onSelect={(id) => setState({ ...state, currentId: id })}

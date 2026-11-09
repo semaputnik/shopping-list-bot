@@ -24,9 +24,14 @@ from .auth import (
     read_session_token,
     verify_init_data,
 )
+from .categories import CATEGORIES, guess_category
 from .config import Settings
 from .db import Base, make_engine, make_session_factory
 from .i18n import FIRST_LIST_NAME, SYSTEM_CATEGORIES, effective_language
+from .normalize import normalize
+from .parsing import parse_input
+
+MAX_ITEMS_PER_ADD = 100
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +75,43 @@ class ListOut(BaseModel):
     members: list[MemberOut]
     version: int
     updated_at: datetime
+
+
+class EntryOut(BaseModel):
+    id: int
+    product_id: int
+    name: str
+    note: str | None
+    category: str
+    added_by: int | None
+    created_at: datetime
+
+
+class CategoryGroupOut(BaseModel):
+    key: str
+    emoji: str
+    # Name in the user's interface language.
+    name: str
+    count: int
+    entries: list[EntryOut]
+
+
+class ListContentsOut(BaseModel):
+    list: ListOut
+    # Only non-empty groups, in the fixed system order ("Без категории" last).
+    categories: list[CategoryGroupOut]
+
+
+class AddEntriesIn(BaseModel):
+    # Raw input line(s): `;` and line breaks separate Entries, the first comma starts the Note.
+    text: str = Field(max_length=20000)
+    # Client-generated idempotency id; replaying the same id returns the same Entries.
+    client_id: str | None = Field(default=None, min_length=1, max_length=64)
+
+
+class AddEntriesOut(BaseModel):
+    version: int
+    entries: list[EntryOut]
 
 
 class MeUpdate(BaseModel):
@@ -388,6 +430,129 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         session.delete(_member_list(session, user, list_id))
         session.commit()
         return Response(status_code=204)
+
+    def _entry_out(entry: models.Entry) -> EntryOut:
+        return EntryOut(
+            id=entry.id,
+            product_id=entry.product_id,
+            name=entry.name,
+            note=entry.note,
+            category=entry.product.category_key,
+            added_by=entry.added_by,
+            created_at=entry.created_at,
+        )
+
+    @api.get("/lists/{list_id}/entries", response_model=ListContentsOut)
+    def list_entries(list_id: int, user: UserDep, session: SessionDep) -> ListContentsOut:
+        lst = _member_list(session, user, list_id)
+        entries = session.scalars(
+            select(models.Entry)
+            .where(models.Entry.list_id == lst.id)
+            .options(selectinload(models.Entry.product))
+            .order_by(models.Entry.created_at, models.Entry.id)
+        ).all()
+        language = effective_language(user.language, user.language_code)
+        groups = []
+        for category in CATEGORIES:
+            members = [_entry_out(e) for e in entries if e.product.category_key == category.key]
+            if members:
+                groups.append(
+                    CategoryGroupOut(
+                        key=category.key,
+                        emoji=category.emoji,
+                        name=category.name(language),
+                        count=len(members),
+                        entries=members,
+                    )
+                )
+        return ListContentsOut(
+            list=list_out(lst, language, settings.bot_username), categories=groups
+        )
+
+    @api.post("/lists/{list_id}/entries", response_model=AddEntriesOut, status_code=201)
+    def add_entries(
+        list_id: int,
+        body: AddEntriesIn,
+        response: Response,
+        user: UserDep,
+        session: SessionDep,
+    ) -> AddEntriesOut:
+        lst = _member_list(session, user, list_id)
+        items = parse_input(body.text)
+        if not items:
+            raise HTTPException(422, "no items in the input")
+        if len(items) > MAX_ITEMS_PER_ADD:
+            raise HTTPException(422, f"at most {MAX_ITEMS_PER_ADD} items per request")
+
+        def keys() -> list[str | None]:
+            if body.client_id is None:
+                return [None] * len(items)
+            return [f"{body.client_id}:{i}" for i in range(len(items))]
+
+        def replay() -> AddEntriesOut | None:
+            if body.client_id is None:
+                return None
+            found = session.scalars(
+                select(models.Entry)
+                .where(models.Entry.list_id == lst.id, models.Entry.client_id.in_(keys()))
+                .order_by(models.Entry.id)
+            ).all()
+            if not found:
+                return None
+            response.status_code = 200
+            # Known limitation for the sync ticket: a replay reports the List's *current*
+            # version, not the version the original add produced.
+            return AddEntriesOut(version=lst.version, entries=[_entry_out(e) for e in found])
+
+        if (replayed := replay()) is not None:
+            return replayed
+
+        created: list[models.Entry] = []
+        for attempt in range(2):
+            products = {
+                p.name_norm: p
+                for p in session.scalars(
+                    select(models.Product).where(models.Product.list_id == lst.id)
+                )
+            }
+            created = []
+            try:
+                for item, client_key in zip(items, keys(), strict=True):
+                    norm = normalize(item.name)
+                    product = products.get(norm)
+                    if product is None:
+                        product = models.Product(
+                            list_id=lst.id,
+                            name=item.name,
+                            name_norm=norm,
+                            category_key=guess_category(item.name),
+                        )
+                        session.add(product)
+                        products[norm] = product
+                    entry = models.Entry(
+                        list_id=lst.id,
+                        product=product,
+                        name=item.name,
+                        note=item.note,
+                        added_by=user.id,
+                        client_id=client_key,
+                    )
+                    session.add(entry)
+                    created.append(entry)
+                _touch(session, lst)
+                session.commit()
+                break
+            except IntegrityError:
+                # A concurrent request won a race: the same client_id (a replay) or the same
+                # new Product name. Replays return the winner's Entries; otherwise retry once.
+                session.rollback()
+                lst = _member_list(session, user, list_id)
+                if (replayed := replay()) is not None:
+                    return replayed
+                if attempt == 1:
+                    raise
+        session.refresh(lst)
+        return AddEntriesOut(version=lst.version, entries=[_entry_out(e) for e in created])
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:

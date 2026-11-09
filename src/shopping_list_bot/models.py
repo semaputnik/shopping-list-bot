@@ -71,3 +71,37 @@ class ListMember(Base):
 
     list: Mapped[List] = relationship(back_populates="members")
     user: Mapped[User] = relationship()
+
+
+class Product(Base):
+    """Something entered into a List at least once: the List's memory. One List only."""
+
+    __tablename__ = "product"
+    __table_args__ = (UniqueConstraint("list_id", "name_norm"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    list_id: Mapped[int] = mapped_column(ForeignKey("list.id", ondelete="CASCADE"))
+    # Display name as first typed; name_norm is the normalised key (see normalize.py).
+    name: Mapped[str] = mapped_column(String(200))
+    name_norm: Mapped[str] = mapped_column(String(200))
+    category_key: Mapped[str] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Entry(Base):
+    """A Product currently on a List. Several Entries may share a Product (ADR 0002)."""
+
+    __tablename__ = "entry"
+    __table_args__ = (UniqueConstraint("list_id", "client_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    list_id: Mapped[int] = mapped_column(ForeignKey("list.id", ondelete="CASCADE"))
+    product_id: Mapped[int] = mapped_column(ForeignKey("product.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(String(200))
+    note: Mapped[str | None] = mapped_column(String(500))
+    added_by: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # Client-generated idempotency id (a replayed add must not duplicate the Entry).
+    client_id: Mapped[str | None] = mapped_column(String(80))
+
+    product: Mapped[Product] = relationship()

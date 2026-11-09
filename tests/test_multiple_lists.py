@@ -206,7 +206,16 @@ class TestDelete:
     ):
         lst = create(client, anna["headers"], "Дача")
         add_member(lst, boris)
+        added = client.post(
+            f"/api/lists/{lst['id']}/entries",
+            json={"text": "молоко\nхлеб"},
+            headers=anna["headers"],
+        )
+        assert added.status_code == 201
         members_before = count_rows("list_member")
+        entries_before = count_rows("entry")
+        products_before = count_rows("product")
+        assert entries_before == products_before == 2
 
         response = client.delete(f"/api/lists/{lst['id']}", headers=boris["headers"])
         assert response.status_code == 204
@@ -215,6 +224,8 @@ class TestDelete:
             assert client.get(f"/api/lists/{lst['id']}", headers=who["headers"]).status_code == 404
         # The cascade took the memberships with it.
         assert count_rows("list_member") == members_before - 2
+        assert count_rows("entry") == entries_before - 2
+        assert count_rows("product") == products_before - 2
 
     def test_non_member_cannot_delete(self, client, anna, boris):
         lst = create(client, anna["headers"], "Дача")
