@@ -39,6 +39,14 @@ docker run -p 8000:8000 -v shared-lists-data:/data --env-file .env shared-lists 
 docker run -v shared-lists-data:/data --env-file .env shared-lists shopping-list-bot bot  # bot
 ```
 
+**Local dev stack with Telegram.** `docker-compose.dev.yml` runs three services: `app`, the bot, and an ngrok tunnel. The tunnel gives the Mini App the public https URL that Telegram requires. `.env` needs `SL_BOT_TOKEN`, `SL_BOT_USERNAME` and `NGROK_AUTHTOKEN`. `NGROK_URL` is optional; without it, the bot reads the tunnel URL from the ngrok inspector API through `docker/dev-bot-entrypoint.py`. The ngrok inspector is at http://localhost:4040.
+
+```bash
+docker compose -f docker-compose.dev.yml up -d --build   # start / rebuild after code changes
+docker compose -f docker-compose.dev.yml logs -f bot app # follow logs
+docker compose -f docker-compose.dev.yml down            # stop (the SQLite volume `data` is kept)
+```
+
 GitHub Actions has two workflows:
 - `.github/workflows/ci.yml` runs on every pull request: ruff lint and format check, pytest, the frontend typecheck and build, and a Docker build with a smoke test (`/healthz`, the frontend served, the bot module importable).
 - `.github/workflows/release.yml` runs on a `v*` tag push. It builds an amd64 and arm64 image and pushes it to `ghcr.io/semaputnik/shopping-list-bot`, tagged with the version, `major.minor`, the tag itself and the commit sha.
