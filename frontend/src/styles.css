@@ -145,3 +145,150 @@ body {
   font: inherit;
   font-weight: 600;
 }
+
+/* The pinned, search-style input line. */
+.composer {
+  position: sticky;
+  top: calc(var(--safe-top) + 4px);
+  z-index: 1;
+  margin: 0 0 12px;
+}
+
+.composer__input {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  max-height: 120px;
+  padding: 11px 14px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--section);
+  color: var(--text);
+  font: inherit;
+  resize: none;
+  outline: none;
+  field-sizing: content;
+}
+
+.composer__input::placeholder {
+  color: var(--hint);
+}
+
+.composer__input:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.notice {
+  margin: 0 0 12px;
+  padding: 0 4px;
+  font-size: 15px;
+  color: var(--hint);
+}
+
+.empty__hint + .empty__hint {
+  margin-top: 14px;
+}
+
+.quick {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.quick__button {
+  min-height: 44px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 22px;
+  background: var(--ground);
+  color: var(--accent);
+  font: inherit;
+  font-size: 15px;
+}
+
+/* A Category section: caps-style header, then an inset grouped list of rows. */
+.group {
+  margin-bottom: 20px;
+}
+
+.group__header {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0;
+  padding: 0 16px 6px;
+  font-size: 13px;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--hint);
+}
+
+.group__name {
+  flex: 1;
+}
+
+.rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-radius: 12px;
+  background: var(--section);
+  overflow: hidden;
+}
+
+.row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-height: 48px;
+  padding: 12px 16px;
+  position: relative;
+}
+
+.row + .row::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 16px;
+  right: 0;
+  height: 1px;
+  background: color-mix(in srgb, var(--hint) 30%, transparent);
+}
+
+.row__name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.row__note {
+  margin-left: auto;
+  flex-shrink: 0;
+  max-width: 45%;
+  font-size: 15px;
+  color: var(--hint);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+/* A just-added Entry fades from an accent wash to nothing. */
+.row--new {
+  animation: row-new 1.6s ease-out;
+}
+
+@keyframes row-new {
+  from {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+  to {
+    background: transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row--new {
+    animation-duration: 0.01s;
+  }
+}

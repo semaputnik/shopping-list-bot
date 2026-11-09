@@ -9,7 +9,7 @@ type State =
   | { kind: "loading" }
   | { kind: "not-telegram" }
   | { kind: "error" }
-  | { kind: "ready"; user: User; lists: ShoppingList[] };
+  | { kind: "ready"; token: string; user: User; lists: ShoppingList[] };
 
 export function App() {
   const [state, setState] = useState<State>({ kind: "loading" });
@@ -30,7 +30,7 @@ export function App() {
       const session = await authenticate(telegram.rawInitData);
       const lists = await fetchLists(session.token);
       setLanguage(session.user.language);
-      setState({ kind: "ready", user: session.user, lists });
+      setState({ kind: "ready", token: session.token, user: session.user, lists });
     } catch (error) {
       console.error(error);
       setState({ kind: "error" });
@@ -56,6 +56,14 @@ export function App() {
         />
       );
     case "ready":
-      return <ListScreen user={state.user} list={state.lists[0] ?? null} strings={strings} />;
+      return (
+        <ListScreen
+          token={state.token}
+          user={state.user}
+          list={state.lists[0] ?? null}
+          language={language}
+          strings={strings}
+        />
+      );
   }
 }
