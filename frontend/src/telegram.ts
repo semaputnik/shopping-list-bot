@@ -1,4 +1,5 @@
 import {
+  backButton,
   bindThemeParamsCssVars,
   bindViewportCssVars,
   disableVerticalSwipes,
@@ -74,8 +75,10 @@ async function doStartTelegram(): Promise<TelegramContext | null> {
  * (outside Telegram, or an old client), in which case the caller shows its own.
  */
 export function showNativeBackButton(onClick: () => void): (() => void) | null {
-  if (!isTMA() || !showBackButton.isAvailable() || !onBackButtonClick.isAvailable()) return null;
-  if (mountBackButton.isAvailable()) mountBackButton();
+  if (!isTMA()) return null;
+  // show/hide/onClick report isAvailable() === false until the BackButton is mounted.
+  if (mountBackButton.isAvailable() && !backButton.isMounted()) mountBackButton();
+  if (!showBackButton.isAvailable() || !onBackButtonClick.isAvailable()) return null;
   showBackButton();
   const off = onBackButtonClick(onClick);
   return () => {

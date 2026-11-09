@@ -105,7 +105,8 @@ def test_each_member_sees_the_default_name_in_their_own_language(client, sign_in
     anna, carlos = sign_in(ANNA), sign_in(CARLOS)
     anna_list = client.get("/api/lists", headers=anna["headers"]).json()[0]
     carlos_id = client.get("/api/me", headers=carlos["headers"]).json()["id"]
-    # There is no join endpoint yet (Share links are a later ticket): add the Member directly.
+    # TODO: switch to the Share-link join flow once #5 (PR #15) lands. There is no join
+    # endpoint yet, so the Member is added directly.
     with sqlite3.connect(tmp_path / "test.db") as db:
         db.execute(
             "INSERT INTO list_member (list_id, user_id, joined_at) VALUES (?, ?, datetime('now'))",

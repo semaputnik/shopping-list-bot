@@ -57,9 +57,15 @@ export function App() {
   const changeLanguage = useCallback(async (token: string, next: Language | null) => {
     const user = await updateLanguage(token, next);
     // An auto-created List name is rendered in the user's language, so refetch the Lists.
-    const lists = await fetchLists(token);
+    // The choice is saved by now: apply it even if the refetch below fails.
     setLanguage(user.language);
-    setState((s) => (s.kind === "ready" ? { ...s, user, lists } : s));
+    setState((s) => (s.kind === "ready" ? { ...s, user } : s));
+    try {
+      const lists = await fetchLists(token);
+      setState((s) => (s.kind === "ready" ? { ...s, lists } : s));
+    } catch {
+      // Keep the stale List name; it refreshes on the next load.
+    }
   }, []);
 
   // Stable identity: the Settings screen binds Telegram's BackButton to it.
