@@ -54,11 +54,19 @@ export function App() {
     void boot();
   }, [boot]);
 
-  const changeLanguage = useCallback(async (token: string, next: Language) => {
+  const changeLanguage = useCallback(async (token: string, next: Language | null) => {
     const user = await updateLanguage(token, next);
+    // An auto-created List name is rendered in the user's language, so refetch the Lists.
+    const lists = await fetchLists(token);
     setLanguage(user.language);
-    setState((s) => (s.kind === "ready" ? { ...s, user } : s));
+    setState((s) => (s.kind === "ready" ? { ...s, user, lists } : s));
   }, []);
+
+  // Stable identity: the Settings screen binds Telegram's BackButton to it.
+  const closeSettings = useCallback(
+    () => setState((s) => (s.kind === "ready" ? { ...s, screen: "list" } : s)),
+    [],
+  );
 
   const strings = t(language);
   switch (state.kind) {
@@ -79,8 +87,9 @@ export function App() {
         return (
           <SettingsScreen
             language={language}
+            overridden={state.user.language_overridden}
             strings={strings}
-            onBack={() => setState({ ...state, screen: "list" })}
+            onBack={closeSettings}
             onChangeLanguage={(next) => changeLanguage(state.token, next)}
           />
         );

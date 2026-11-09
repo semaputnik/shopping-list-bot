@@ -1,3 +1,5 @@
+import sqlite3
+
 ANNA = {"id": 1001, "first_name": "Анна", "language_code": "ru"}
 CARLOS = {"id": 2002, "first_name": "Carlos", "language_code": "es-MX"}
 JOHN = {"id": 3003, "first_name": "John", "language_code": "en"}
@@ -85,3 +87,72 @@ def test_system_category_names_follow_the_language(client, sign_in):
 def test_first_list_name_follows_the_language(client, sign_in):
     assert list_names(client, sign_in(CARLOS)["headers"]) == ["Compras"]
     assert list_names(client, sign_in(ANNA)["headers"]) == ["Покупки"]
+
+
+def test_first_list_name_switches_with_the_language(client, sign_in):
+    session = sign_in(ANNA)
+    assert list_names(client, session["headers"]) == ["Покупки"]
+    client.patch("/api/me", json={"language": "es"}, headers=session["headers"])
+    assert list_names(client, session["headers"]) == ["Compras"]
+    lst = client.get("/api/lists", headers=session["headers"]).json()[0]
+    one = client.get(f"/api/lists/{lst['id']}", headers=session["headers"]).json()
+    assert one["name"] == "Compras"
+    client.patch("/api/me", json={"language": "ru"}, headers=session["headers"])
+    assert list_names(client, session["headers"]) == ["Покупки"]
+
+
+def test_each_member_sees_the_default_name_in_their_own_language(client, sign_in, tmp_path):
+    anna, carlos = sign_in(ANNA), sign_in(CARLOS)
+    anna_list = client.get("/api/lists", headers=anna["headers"]).json()[0]
+    carlos_id = client.get("/api/me", headers=carlos["headers"]).json()["id"]
+    # There is no join endpoint yet (Share links are a later ticket): add the Member directly.
+    with sqlite3.connect(tmp_path / "test.db") as db:
+        db.execute(
+            "INSERT INTO list_member (list_id, user_id, joined_at) VALUES (?, ?, datetime('now'))",
+            (anna_list["id"], carlos_id),
+        )
+    url = f"/api/lists/{anna_list['id']}"
+    assert client.get(url, headers=carlos["headers"]).json()["name"] == "Compras"
+    assert client.get(url, headers=anna["headers"]).json()["name"] == "Покупки"
+
+
+def test_system_categories_are_the_full_ordered_set_with_uncategorized_last(client, sign_in):
+    ru = client.get("/api/categories", headers=sign_in(ANNA)["headers"]).json()
+    es = client.get("/api/categories", headers=sign_in(CARLOS)["headers"]).json()
+    assert [c["name"] for c in ru] == [
+        "Фрукты и овощи",
+        "Хлеб",
+        "Молочное",
+        "Мясо и рыба",
+        "Заморозка",
+        "Бакалея",
+        "Напитки",
+        "Бытовая химия",
+        "Гигиена",
+        "Прочее",
+        "Без категории",
+    ]
+    assert [c["name"] for c in es] == [
+        "Frutas y verduras",
+        "Pan",
+        "Lácteos",
+        "Carne y pescado",
+        "Congelados",
+        "Despensa",
+        "Bebidas",
+        "Limpieza",
+        "Higiene",
+        "Otros",
+        "Sin categoría",
+    ]
+    assert [c["key"] for c in ru] == [c["key"] for c in es]
+    assert ru[-1]["key"] == "uncategorized"
+
+
+def test_categories_require_authentication(client):
+    assert client.get("/api/categories").status_code == 401
+
+
+def test_empty_language_update_is_rejected(client, sign_in):
+    session = sign_in(ANNA)
+    assert client.patch("/api/me", json={}, headers=session["headers"]).status_code == 422

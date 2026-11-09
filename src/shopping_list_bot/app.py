@@ -25,7 +25,7 @@ from .auth import (
 )
 from .config import Settings
 from .db import Base, make_engine, make_session_factory
-from .i18n import FIRST_LIST_NAME, SYSTEM_CATEGORY_NAMES, effective_language
+from .i18n import FIRST_LIST_NAME, SYSTEM_CATEGORIES, effective_language
 
 
 class UserOut(BaseModel):
@@ -56,6 +56,7 @@ class MeUpdate(BaseModel):
 
 
 class CategoryOut(BaseModel):
+    key: str
     name: str
 
 
@@ -85,10 +86,11 @@ def user_out(user: models.User) -> UserOut:
     )
 
 
-def list_out(lst: models.List) -> ListOut:
+def list_out(lst: models.List, lang: str) -> ListOut:
     return ListOut(
         id=lst.id,
-        name=lst.name,
+        # An auto-created name is rendered in the viewer's language until a Member renames it.
+        name=FIRST_LIST_NAME[lang] if lst.name_is_default else lst.name,
         share_code=lst.share_code,
         version=lst.version,
         updated_at=lst.updated_at,
@@ -111,11 +113,19 @@ def _upsert_user(session: Session, tg: TelegramUser) -> tuple[models.User, bool]
 
 
 def _add_missing_columns(engine) -> None:
-    """create_all does not alter existing tables; add columns introduced later."""
-    columns = {c["name"] for c in inspect(engine).get_columns("user")}
-    if "language" not in columns:
-        with engine.begin() as conn:
-            conn.execute(text('ALTER TABLE "user" ADD COLUMN language VARCHAR(8)'))
+    """create_all does not alter existing tables; add columns introduced later.
+
+    Ad-hoc stopgap: replace with a migration tool (e.g. Alembic) once one is introduced.
+    """
+    inspector = inspect(engine)
+    additions = [
+        ("user", "language", "VARCHAR(8)"),
+        ("list", "name_is_default", "BOOLEAN NOT NULL DEFAULT 0"),
+    ]
+    for table, column, ddl in additions:
+        if column not in {c["name"] for c in inspector.get_columns(table)}:
+            with engine.begin() as conn:
+                conn.execute(text(f'ALTER TABLE "{table}" ADD COLUMN {column} {ddl}'))
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -194,6 +204,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if created and not arrived_by_share_link:
             lst = models.List(
                 name=FIRST_LIST_NAME[effective_language(user.language, user.language_code)],
+                name_is_default=True,
                 created_by=user.id,
             )
             lst.members.append(models.ListMember(user_id=user.id))
@@ -222,7 +233,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def categories(user: UserDep) -> list[CategoryOut]:
         """System Categories named in the user's effective language."""
         lang = effective_language(user.language, user.language_code)
-        return [CategoryOut(name=n) for n in SYSTEM_CATEGORY_NAMES[lang]]
+        return [CategoryOut(key=key, name=names[lang]) for key, names in SYSTEM_CATEGORIES]
 
     def _member_lists(user: models.User):
         return (
@@ -232,14 +243,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @api.get("/lists", response_model=list[ListOut])
     def my_lists(user: UserDep, session: SessionDep) -> list[ListOut]:
         stmt = _member_lists(user).order_by(models.List.updated_at.desc(), models.List.id.desc())
-        return [list_out(lst) for lst in session.scalars(stmt)]
+        lang = effective_language(user.language, user.language_code)
+        return [list_out(lst, lang) for lst in session.scalars(stmt)]
 
     @api.get("/lists/{list_id}", response_model=ListOut)
     def get_list(list_id: int, user: UserDep, session: SessionDep) -> ListOut:
         lst = session.scalar(_member_lists(user).where(models.List.id == list_id))
         if lst is None:  # also hides the existence of Lists the user is not a Member of
             raise HTTPException(404, "list not found")
-        return list_out(lst)
+        return list_out(lst, effective_language(user.language, user.language_code))
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:

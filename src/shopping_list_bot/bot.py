@@ -13,6 +13,7 @@ from aiogram.types import (
     WebAppInfo,
 )
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 
 from . import models
 from .config import Settings
@@ -33,21 +34,33 @@ def open_keyboard(webapp_url: str, lang: str) -> InlineKeyboardMarkup:
 
 def build_dispatcher(settings: Settings) -> Dispatcher:
     dp = Dispatcher()
-    session_factory = make_session_factory(make_engine(settings.database_url))
+    engine = make_engine(settings.database_url)
+    session_factory = make_session_factory(engine)
 
-    def language_for(telegram_id: int, language_code: str | None) -> str:
-        """The language chosen in Settings if the user set one, else Telegram's."""
+    def lookup_language(telegram_id: int) -> str | None:
         with session_factory() as session:
-            chosen = session.scalar(
+            return session.scalar(
                 select(models.User.language).where(models.User.telegram_id == telegram_id)
             )
+
+    async def language_for(telegram_id: int, language_code: str | None) -> str:
+        """The language chosen in Settings if the user set one, else Telegram's.
+
+        The database is shared with the backend, which owns the schema. If it is unreachable
+        or not migrated yet, /start still replies, in Telegram's language.
+        """
+        try:
+            chosen = await asyncio.to_thread(lookup_language, telegram_id)
+        except SQLAlchemyError:
+            logging.getLogger(__name__).warning("Language lookup failed", exc_info=True)
+            chosen = None
         return effective_language(chosen, language_code)
 
     @dp.message(CommandStart())
     async def start(message: Message) -> None:
         sender = message.from_user
         lang = (
-            language_for(sender.id, sender.language_code)
+            await language_for(sender.id, sender.language_code)
             if sender
             else effective_language(None, None)
         )
@@ -55,6 +68,7 @@ def build_dispatcher(settings: Settings) -> Dispatcher:
             START_TEXT[lang], reply_markup=open_keyboard(settings.webapp_url, lang)
         )
 
+    dp.shutdown.register(lambda: engine.dispose())
     return dp
 
 

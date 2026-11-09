@@ -12,33 +12,21 @@ def pick_language(language_code: str | None) -> str:
     return base if base in SUPPORTED_LANGUAGES else DEFAULT_LANGUAGE
 
 
-# System Category names (docs/ui-spec.md section 3.5), in display order.
-SYSTEM_CATEGORY_NAMES = {
-    "ru": [
-        "Фрукты и овощи",
-        "Хлеб",
-        "Молочное",
-        "Мясо и рыба",
-        "Заморозка",
-        "Бакалея",
-        "Напитки",
-        "Бытовая химия",
-        "Гигиена",
-        "Прочее",
-    ],
-    "es": [
-        "Frutas y verduras",
-        "Pan",
-        "Lácteos",
-        "Carne y pescado",
-        "Congelados",
-        "Despensa",
-        "Bebidas",
-        "Limpieza",
-        "Higiene",
-        "Otros",
-    ],
-}
+# System Categories (docs/ui-spec.md section 3.5) in display order: a stable key and the
+# name per language. "Без категории" is always last.
+SYSTEM_CATEGORIES = [
+    ("fruit_veg", {"ru": "Фрукты и овощи", "es": "Frutas y verduras"}),
+    ("bread", {"ru": "Хлеб", "es": "Pan"}),
+    ("dairy", {"ru": "Молочное", "es": "Lácteos"}),
+    ("meat_fish", {"ru": "Мясо и рыба", "es": "Carne y pescado"}),
+    ("frozen", {"ru": "Заморозка", "es": "Congelados"}),
+    ("pantry", {"ru": "Бакалея", "es": "Despensa"}),
+    ("drinks", {"ru": "Напитки", "es": "Bebidas"}),
+    ("household", {"ru": "Бытовая химия", "es": "Limpieza"}),
+    ("hygiene", {"ru": "Гигиена", "es": "Higiene"}),
+    ("other", {"ru": "Прочее", "es": "Otros"}),
+    ("uncategorized", {"ru": "Без категории", "es": "Sin categoría"}),
+]
 
 
 def effective_language(language: str | None, language_code: str | None) -> str:

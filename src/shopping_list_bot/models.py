@@ -1,7 +1,15 @@
 import secrets
 from datetime import UTC, datetime
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    String,
+    UniqueConstraint,
+    false,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -36,6 +44,9 @@ class List(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(200))
+    # True while the List still has its auto-created name; it is then shown in each
+    # viewer's language. Whatever renames a List must set this to False.
+    name_is_default: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     share_code: Mapped[str] = mapped_column(String(64), unique=True, default=new_share_code)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

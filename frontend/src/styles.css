@@ -171,7 +171,7 @@ body {
   font-size: 13px;
   font-weight: 400;
   text-transform: uppercase;
-  color: var(--hint);
+  color: var(--tg-theme-section-header-text-color, var(--hint));
 }
 
 .settings__group {
@@ -191,15 +191,25 @@ body {
   min-height: 48px;
   padding: 0 16px;
   border: 0;
-  border-top: 1px solid var(--ground);
   background: none;
   color: var(--text);
   font: inherit;
   text-align: left;
 }
 
-.settings__group li:first-child .settings__option {
-  border-top: 0;
+/* Hairline separator, inset from the leading edge. */
+.settings__group li + li {
+  position: relative;
+}
+
+.settings__group li + li::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 16px;
+  border-top: 1px solid
+    var(--tg-theme-section-separator-color, color-mix(in srgb, var(--hint) 30%, transparent));
 }
 
 .settings__option[aria-checked="true"]::after {

@@ -3,9 +3,12 @@ import {
   bindViewportCssVars,
   disableVerticalSwipes,
   expandViewport,
+  hideBackButton,
   init,
   isTMA,
+  onBackButtonClick,
   miniAppReady,
+  mountBackButton,
   mountMiniApp,
   mountSwipeBehavior,
   mountThemeParamsSync,
@@ -15,6 +18,7 @@ import {
   setMiniAppBackgroundColor,
   setMiniAppBottomBarColor,
   setMiniAppHeaderColor,
+  showBackButton,
 } from "@telegram-apps/sdk-react";
 
 export interface TelegramContext {
@@ -62,4 +66,20 @@ async function doStartTelegram(): Promise<TelegramContext | null> {
   if (!rawInitData) return null;
   const user = retrieveLaunchParams().tgWebAppData?.user;
   return { rawInitData, languageCode: user?.language_code ?? null };
+}
+
+/**
+ * Shows Telegram's native BackButton and calls `onClick` when it is pressed.
+ * Returns a function that hides it again, or null when the native button is unavailable
+ * (outside Telegram, or an old client), in which case the caller shows its own.
+ */
+export function showNativeBackButton(onClick: () => void): (() => void) | null {
+  if (!isTMA() || !showBackButton.isAvailable() || !onBackButtonClick.isAvailable()) return null;
+  if (mountBackButton.isAvailable()) mountBackButton();
+  showBackButton();
+  const off = onBackButtonClick(onClick);
+  return () => {
+    off();
+    if (hideBackButton.isAvailable()) hideBackButton();
+  };
 }

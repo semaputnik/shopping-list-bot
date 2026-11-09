@@ -13,6 +13,7 @@ type StringKey =
   | "settings"
   | "back"
   | "languageSection"
+  | "languageAsTelegram"
   | "languageSaveError";
 
 const strings: Record<Language, Record<StringKey, string>> = {
@@ -29,6 +30,7 @@ const strings: Record<Language, Record<StringKey, string>> = {
     settings: "Настройки",
     back: "Назад",
     languageSection: "Язык",
+    languageAsTelegram: "Как в Telegram",
     languageSaveError: "Не удалось сохранить язык. Попробуйте ещё раз.",
   },
   es: {
@@ -44,6 +46,7 @@ const strings: Record<Language, Record<StringKey, string>> = {
     settings: "Ajustes",
     back: "Atrás",
     languageSection: "Idioma",
+    languageAsTelegram: "Como en Telegram",
     languageSaveError: "No se pudo guardar el idioma. Inténtalo de nuevo.",
   },
 };
