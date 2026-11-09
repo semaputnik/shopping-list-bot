@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
-import { authenticate, fetchLists, type ShoppingList, type User } from "./api";
+import {
+  ApiError,
+  authenticate,
+  fetchLists,
+  joinList,
+  type ShoppingList,
+  type User,
+} from "./api";
 import { pickLanguage, t, type Language } from "./i18n";
 import { ListScreen } from "./screens/ListScreen";
+import { MembersScreen } from "./screens/MembersScreen";
 import { Message } from "./screens/Message";
 import { startTelegram } from "./telegram";
 
@@ -9,7 +17,10 @@ type State =
   | { kind: "loading" }
   | { kind: "not-telegram" }
   | { kind: "error" }
-  | { kind: "ready"; user: User; lists: ShoppingList[] };
+  | { kind: "bad-link"; user: User; lists: ShoppingList[] }
+  | { kind: "ready"; user: User; lists: ShoppingList[]; currentId: number | null; screen: Screen };
+
+type Screen = "list" | "members";
 
 export function App() {
   const [state, setState] = useState<State>({ kind: "loading" });
@@ -28,9 +39,22 @@ export function App() {
       }
       setLanguage(pickLanguage(telegram.languageCode));
       const session = await authenticate(telegram.rawInitData);
-      const lists = await fetchLists(session.token);
+      let lists = await fetchLists(session.token);
       setLanguage(session.user.language);
-      setState({ kind: "ready", user: session.user, lists });
+      let currentId = lists[0]?.id ?? null;
+      if (session.start_param) {
+        // Opening a Share link joins the List (a no-op for a Member) and opens it.
+        try {
+          const joined = await joinList(session.token, session.start_param);
+          lists = [joined, ...lists.filter((l) => l.id !== joined.id)];
+          currentId = joined.id;
+        } catch (error) {
+          if (!(error instanceof ApiError && error.status === 404)) throw error;
+          setState({ kind: "bad-link", user: session.user, lists });
+          return;
+        }
+      }
+      setState({ kind: "ready", user: session.user, lists, currentId, screen: "list" });
     } catch (error) {
       console.error(error);
       setState({ kind: "error" });
@@ -55,7 +79,49 @@ export function App() {
           action={{ label: strings.retry, onClick: () => void boot() }}
         />
       );
-    case "ready":
-      return <ListScreen user={state.user} list={state.lists[0] ?? null} strings={strings} />;
+    case "bad-link": {
+      const { user, lists } = state;
+      return (
+        <Message
+          title={strings.badLinkTitle}
+          hint={strings.badLinkHint}
+          action={
+            lists.length > 0
+              ? {
+                  label: strings.openMyLists,
+                  onClick: () =>
+                    setState({
+                      kind: "ready",
+                      user,
+                      lists,
+                      currentId: lists[0].id,
+                      screen: "list",
+                    }),
+                }
+              : undefined
+          }
+        />
+      );
+    }
+    case "ready": {
+      const list = state.lists.find((l) => l.id === state.currentId) ?? null;
+      if (list && state.screen === "members") {
+        return (
+          <MembersScreen
+            user={state.user}
+            list={list}
+            strings={strings}
+            onBack={() => setState({ ...state, screen: "list" })}
+          />
+        );
+      }
+      return (
+        <ListScreen
+          list={list}
+          strings={strings}
+          onOpenMembers={() => setState({ ...state, screen: "members" })}
+        />
+      );
+    }
   }
 }

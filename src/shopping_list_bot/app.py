@@ -40,12 +40,28 @@ class UserOut(BaseModel):
     language: str
 
 
+class MemberOut(BaseModel):
+    id: int
+    first_name: str
+    last_name: str | None
+    username: str | None
+    photo_url: str | None
+
+
 class ListOut(BaseModel):
     id: int
     name: str
     share_code: str
+    # The Share link, `https://t.me/<bot>?startapp=<code>`; null while SL_BOT_USERNAME is unset.
+    share_url: str | None
+    # Members in the order they joined (the creator first).
+    members: list[MemberOut]
     version: int
     updated_at: datetime
+
+
+class JoinIn(BaseModel):
+    code: str
 
 
 class AuthIn(BaseModel):
@@ -73,11 +89,29 @@ def user_out(user: models.User) -> UserOut:
     )
 
 
-def list_out(lst: models.List) -> ListOut:
+def member_out(user: models.User) -> MemberOut:
+    return MemberOut(
+        id=user.id,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        username=user.username,
+        photo_url=user.photo_url,
+    )
+
+
+def share_url(bot_username: str, share_code: str) -> str | None:
+    username = bot_username.lstrip("@")
+    return f"https://t.me/{username}?startapp={share_code}" if username else None
+
+
+def list_out(lst: models.List, bot_username: str = "") -> ListOut:
+    members = sorted(lst.members, key=lambda m: m.id)
     return ListOut(
         id=lst.id,
         name=lst.name,
         share_code=lst.share_code,
+        share_url=share_url(bot_username, lst.share_code),
+        members=[member_out(m.user) for m in members],
         version=lst.version,
         updated_at=lst.updated_at,
     )
@@ -164,7 +198,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             user, created = _upsert_user(session, data.user)
             created = False
         # A first-time user gets their own first List, unless they arrived through a Share
-        # link of an existing List (they only join that one, in a later ticket). An unknown
+        # link of an existing List (the client then joins that one through POST /api/lists/join). An unknown
         # or stale code does not count: they would be left with no List at all.
         arrived_by_share_link = bool(data.start_param) and (
             session.scalar(select(models.List.id).where(models.List.share_code == data.start_param))
@@ -198,14 +232,32 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @api.get("/lists", response_model=list[ListOut])
     def my_lists(user: UserDep, session: SessionDep) -> list[ListOut]:
         stmt = _member_lists(user).order_by(models.List.updated_at.desc(), models.List.id.desc())
-        return [list_out(lst) for lst in session.scalars(stmt)]
+        return [list_out(lst, settings.bot_username) for lst in session.scalars(stmt)]
+
+    @api.post("/lists/join", response_model=ListOut)
+    def join_list(body: JoinIn, user: UserDep, session: SessionDep) -> ListOut:
+        """Open a Share link: make the user a Member of the List (idempotent for Members)."""
+        lst = session.scalar(select(models.List).where(models.List.share_code == body.code))
+        if lst is None:
+            raise HTTPException(404, "share link is not valid")
+        if all(m.user_id != user.id for m in lst.members):
+            lst.members.append(models.ListMember(user_id=user.id))
+            lst.version += 1
+            lst.updated_at = models.utcnow()
+            try:
+                session.commit()
+            except IntegrityError:  # concurrent join by the same user: already a Member
+                session.rollback()
+                lst = session.scalar(select(models.List).where(models.List.share_code == body.code))
+                assert lst is not None
+        return list_out(lst, settings.bot_username)
 
     @api.get("/lists/{list_id}", response_model=ListOut)
     def get_list(list_id: int, user: UserDep, session: SessionDep) -> ListOut:
         lst = session.scalar(_member_lists(user).where(models.List.id == list_id))
         if lst is None:  # also hides the existence of Lists the user is not a Member of
             raise HTTPException(404, "list not found")
-        return list_out(lst)
+        return list_out(lst, settings.bot_username)
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
