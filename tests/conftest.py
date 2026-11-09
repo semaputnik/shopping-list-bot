@@ -27,6 +27,7 @@ def sign_init_data(
     bot_token: str = TEST_BOT_TOKEN,
     auth_date: int | None = None,
     start_param: str | None = None,
+    extra: dict[str, str] | None = None,
 ) -> str:
     """Build a Telegram ``initData`` query string signed like Telegram does."""
     fields = {"auth_date": str(auth_date if auth_date is not None else int(time.time()))}
@@ -34,6 +35,7 @@ def sign_init_data(
         fields["user"] = json.dumps(user, ensure_ascii=False, separators=(",", ":"))
     if start_param is not None:
         fields["start_param"] = start_param
+    fields.update(extra or {})
     data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(fields.items()))
     secret_key = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
     fields["hash"] = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()

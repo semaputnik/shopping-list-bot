@@ -9,6 +9,7 @@ export interface User {
   language: "ru" | "es";
 }
 
+/** A List in GLOSSARY.md terms (named ShoppingList to avoid clashing with the TS/DOM List names). */
 export interface ShoppingList {
   id: number;
   name: string;

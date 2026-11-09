@@ -102,11 +102,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
     engine = make_engine(settings.database_url)
     session_factory = make_session_factory(engine)
-    secret = (
-        settings.session_secret
-        or hmac.new(
-            b"shared-lists-session", settings.bot_token.encode(), hashlib.sha256
-        ).hexdigest()
+    # Fail closed: with neither SL_SESSION_SECRET nor a bot token there is no secret, and
+    # no session is issued (sign-in needs the bot token anyway) or accepted.
+    secret = settings.session_secret or (
+        hmac.new(b"shared-lists-session", settings.bot_token.encode(), hashlib.sha256).hexdigest()
+        if settings.bot_token
+        else ""
     )
 
     @asynccontextmanager
@@ -129,6 +130,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         scheme, _, token = (authorization or "").partition(" ")
         if scheme.lower() != "bearer" or not token:
             raise HTTPException(401, "not authenticated")
+        if not secret:
+            raise HTTPException(401, "invalid session")
         try:
             user_id = read_session_token(token, secret)
         except AuthError:
@@ -160,9 +163,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             session.rollback()
             user, created = _upsert_user(session, data.user)
             created = False
-        # A first-time user arriving without a Share link gets their own first List.
-        # One arriving through a Share link only joins that List (a later ticket).
-        if created and not data.start_param:
+        # A first-time user gets their own first List, unless they arrived through a Share
+        # link of an existing List (they only join that one, in a later ticket). An unknown
+        # or stale code does not count: they would be left with no List at all.
+        arrived_by_share_link = bool(data.start_param) and (
+            session.scalar(select(models.List.id).where(models.List.share_code == data.start_param))
+            is not None
+        )
+        if created and not arrived_by_share_link:
             lst = models.List(
                 name=FIRST_LIST_NAME[pick_language(user.language_code)], created_by=user.id
             )

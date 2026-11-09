@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     # Public https URL of the Mini App (where the backend serves the frontend).
     webapp_url: str = "https://localhost:5173"
     database_url: str = "sqlite:///./shared_lists.db"
-    # Secret for signing session tokens. Falls back to a key derived from the bot token.
+    # Secret for signing session tokens. Falls back to a key derived from the bot token; with neither, sessions are refused.
     session_secret: str = ""
     # initData older than this is rejected.
     init_data_max_age_seconds: int = 24 * 3600

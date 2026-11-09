@@ -12,6 +12,9 @@ import {
   mountViewport,
   retrieveLaunchParams,
   retrieveRawInitData,
+  setMiniAppBackgroundColor,
+  setMiniAppBottomBarColor,
+  setMiniAppHeaderColor,
 } from "@telegram-apps/sdk-react";
 
 export interface TelegramContext {
@@ -19,11 +22,20 @@ export interface TelegramContext {
   languageCode: string | null;
 }
 
+let started: Promise<TelegramContext | null> | undefined;
+
 /**
- * Starts the Mini App: theme variables, ready(), expand(), disableVerticalSwipes().
- * Returns null when the page is not opened inside Telegram.
+ * Starts the Mini App once per page load: theme variables, ready(), expand(),
+ * disableVerticalSwipes(). The SDK binders throw if called twice (Retry, StrictMode),
+ * so the promise is memoised and every caller shares it.
+ * Resolves to null when the page is not opened inside Telegram.
  */
-export async function startTelegram(): Promise<TelegramContext | null> {
+export function startTelegram(): Promise<TelegramContext | null> {
+  started ??= doStartTelegram();
+  return started;
+}
+
+async function doStartTelegram(): Promise<TelegramContext | null> {
   if (!isTMA()) return null;
   init();
 
@@ -32,6 +44,10 @@ export async function startTelegram(): Promise<TelegramContext | null> {
   if (bindThemeParamsCssVars.isAvailable()) bindThemeParamsCssVars();
 
   if (mountMiniApp.isAvailable()) await mountMiniApp();
+  // The page ground is secondary_bg_color; match Telegram's own chrome to it (no seam).
+  if (setMiniAppHeaderColor.isAvailable()) setMiniAppHeaderColor("secondary_bg_color");
+  if (setMiniAppBackgroundColor.isAvailable()) setMiniAppBackgroundColor("secondary_bg_color");
+  if (setMiniAppBottomBarColor.isAvailable()) setMiniAppBottomBarColor("secondary_bg_color");
   if (miniAppReady.isAvailable()) miniAppReady();
 
   if (mountViewport.isAvailable()) await mountViewport();

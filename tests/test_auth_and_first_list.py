@@ -1,7 +1,14 @@
+import hashlib
+import hmac
 import time
 
 import pytest
-from conftest import sign_init_data
+from conftest import TEST_BOT_TOKEN, sign_init_data
+from fastapi.testclient import TestClient
+
+from shopping_list_bot.app import create_app
+from shopping_list_bot.auth import issue_session_token
+from shopping_list_bot.config import Settings
 
 ANNA = {
     "id": 1001,
@@ -11,6 +18,13 @@ ANNA = {
     "photo_url": "https://t.me/i/userpic/320/anna.jpg",
     "language_code": "ru",
 }
+
+
+def derived_secret(bot_token: str) -> str:
+    """The session secret create_app derives when SL_SESSION_SECRET is unset."""
+    return hmac.new(b"shared-lists-session", bot_token.encode(), hashlib.sha256).hexdigest()
+
+
 CARLOS = {"id": 2002, "first_name": "Carlos", "language_code": "es-MX"}
 
 
@@ -58,15 +72,67 @@ class TestInitDataVerification:
     def test_missing_user_is_rejected(self, client):
         assert post_auth(client, sign_init_data(None)).status_code == 401
 
-    @pytest.mark.parametrize("garbage", ["", "not-init-data", "hash=abc"])
+    @pytest.mark.parametrize("garbage", ["", "not-init-data", "hash=abc", "hash=%D0%90"])
     def test_garbage_is_rejected(self, client, garbage):
         assert post_auth(client, garbage).status_code == 401
+
+    def test_init_data_shaped_like_real_telegram_output_verifies(self, client):
+        user = {
+            **ANNA,
+            "photo_url": "https://t.me/i/userpic/320/a?b=c&d=e",
+            "allows_write_to_pm": True,
+        }
+        init_data = sign_init_data(
+            user,
+            extra={
+                "query_id": "AAHdF6IQAAAAAN0XohDhrOrc",
+                "chat_instance": "-1234567890123456789",
+                "chat_type": "sender",
+                "signature": "abc_DEF-123",
+            },
+        )
+        assert post_auth(client, init_data).status_code == 200
 
     def test_api_requires_a_session(self, client):
         assert client.get("/api/me").status_code == 401
         assert client.get("/api/lists").status_code == 401
         bad = {"Authorization": "Bearer 1.9999999999.forged"}
         assert client.get("/api/me", headers=bad).status_code == 401
+
+    def test_non_ascii_bearer_token_is_rejected(self, client):
+        bad = {"Authorization": "Bearer 1.9999999999.\u00e9".encode("latin-1")}
+        assert client.get("/api/me", headers=bad).status_code == 401
+
+    def test_expired_session_is_rejected(self, tmp_path):
+        settings = Settings(
+            bot_token=TEST_BOT_TOKEN,
+            database_url=f"sqlite:///{tmp_path / 'expired.db'}",
+            frontend_dist=tmp_path / "no-frontend",
+            session_ttl_seconds=-10,
+            _env_file=None,
+        )
+        with TestClient(create_app(settings)) as c:
+            token = post_auth(c, sign_init_data(ANNA)).json()["token"]
+            assert c.get("/api/me", headers={"Authorization": f"Bearer {token}"}).status_code == 401
+
+    def test_validly_signed_session_for_unknown_user_is_rejected(self, client):
+        token, _ = issue_session_token(424242, derived_secret(TEST_BOT_TOKEN), 3600)
+        assert (
+            client.get("/api/me", headers={"Authorization": f"Bearer {token}"}).status_code == 401
+        )
+
+    def test_no_secret_configured_accepts_no_session(self, tmp_path):
+        settings = Settings(
+            bot_token="",
+            database_url=f"sqlite:///{tmp_path / 'nosecret.db'}",
+            frontend_dist=tmp_path / "no-frontend",
+            _env_file=None,
+        )
+        with TestClient(create_app(settings)) as c:
+            assert post_auth(c, sign_init_data(ANNA)).status_code == 401
+            # A token minted with the public, would-be-derived key must not work.
+            token, _ = issue_session_token(1, derived_secret(""), 3600)
+            assert c.get("/api/me", headers={"Authorization": f"Bearer {token}"}).status_code == 401
 
 
 class TestUserUpsert:
@@ -116,15 +182,29 @@ class TestFirstList:
         again = sign_in(ANNA)
         assert len(client.get("/api/lists", headers=again["headers"]).json()) == 1
 
-    def test_arriving_through_a_share_link_creates_no_list(self, client, sign_in):
-        session = sign_in(ANNA, start_param="some-share-code")
-        assert session["response"]["start_param"] == "some-share-code"
+    def share_code_of(self, client, sign_in, user):
+        (lst,) = client.get("/api/lists", headers=sign_in(user)["headers"]).json()
+        return lst["share_code"]
+
+    def test_arriving_through_a_real_share_link_creates_no_own_list(self, client, sign_in):
+        code = self.share_code_of(client, sign_in, ANNA)
+        session = sign_in(CARLOS, start_param=code)
+        assert session["response"]["start_param"] == code
         assert client.get("/api/lists", headers=session["headers"]).json() == []
 
-    def test_user_who_first_arrived_by_share_link_is_not_given_a_list_later(self, client, sign_in):
-        sign_in(ANNA, start_param="some-share-code")
-        later = sign_in(ANNA)
+    def test_user_who_first_arrived_by_a_real_share_link_is_not_given_a_list_later(
+        self, client, sign_in
+    ):
+        code = self.share_code_of(client, sign_in, ANNA)
+        sign_in(CARLOS, start_param=code)
+        later = sign_in(CARLOS)
         assert client.get("/api/lists", headers=later["headers"]).json() == []
+
+    @pytest.mark.parametrize(("user", "name"), [(ANNA, "Покупки"), (CARLOS, "Compras")])
+    def test_unknown_start_param_still_gets_the_first_list(self, client, sign_in, user, name):
+        session = sign_in(user, start_param="stale-or-bogus-code")
+        lists = client.get("/api/lists", headers=session["headers"]).json()
+        assert [lst["name"] for lst in lists] == [name]
 
     def test_list_has_an_unguessable_share_code_and_starting_version(self, client, sign_in):
         headers = sign_in(ANNA)["headers"]

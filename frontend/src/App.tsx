@@ -20,6 +20,7 @@ export function App() {
   const boot = useCallback(async () => {
     setState({ kind: "loading" });
     try {
+      // startTelegram() is memoised, so Retry only repeats auth and the List fetch.
       const telegram = await startTelegram();
       if (!telegram) {
         setState({ kind: "not-telegram" });

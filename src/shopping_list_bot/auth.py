@@ -48,7 +48,7 @@ def verify_init_data(
     data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(fields.items()))
     secret_key = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
     expected = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(expected, received_hash):
+    if not hmac.compare_digest(expected.encode(), received_hash.encode()):
         raise AuthError("bad signature")
 
     try:
@@ -96,7 +96,8 @@ def read_session_token(token: str, secret: str, now: float | None = None) -> int
     """Return the user id from a valid, unexpired token, or raise ``AuthError``."""
     try:
         user_id, expires_at, signature = token.split(".")
-        if not hmac.compare_digest(_sign(secret, f"{user_id}.{expires_at}"), signature):
+        expected = _sign(secret, f"{user_id}.{expires_at}")
+        if not hmac.compare_digest(expected.encode(), signature.encode()):
             raise AuthError("bad token")
         if int(expires_at) < (time.time() if now is None else now):
             raise AuthError("token expired")
