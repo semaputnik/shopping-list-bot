@@ -5,7 +5,8 @@ name: Release image
 # Repository settings needed (Settings → Secrets and variables → Actions):
 #   secrets.DOCKERHUB_USERNAME  Docker Hub account (or organisation member) that pushes
 #   secrets.DOCKERHUB_TOKEN     Docker Hub access token with Read & Write scope (not the password)
-#   vars.DOCKERHUB_IMAGE        optional, e.g. "myname/shared-lists"; defaults to <username>/shared-lists
+#   DOCKERHUB_IMAGE             optional variable or secret, e.g. "myname/shared-lists";
+#                               defaults to <username>/shared-lists
 
 on:
   push:
@@ -24,7 +25,8 @@ jobs:
     name: Build and push to Docker Hub
     runs-on: ubuntu-latest
     env:
-      IMAGE: ${{ vars.DOCKERHUB_IMAGE || format('{0}/shared-lists', secrets.DOCKERHUB_USERNAME) }}
+      # DOCKERHUB_IMAGE may be a repository variable or a secret; a secret is masked in the logs.
+      IMAGE: ${{ vars.DOCKERHUB_IMAGE || secrets.DOCKERHUB_IMAGE || format('{0}/shared-lists', secrets.DOCKERHUB_USERNAME) }}
     steps:
       - name: Check Docker Hub credentials
         env:
