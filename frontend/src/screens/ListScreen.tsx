@@ -423,6 +423,22 @@ export function ListScreen({
     );
   }, []);
 
+  // Connectivity, shown as a persistent status; coming back online pulls what was missed.
+  const [online, setOnline] = useState(() => navigator.onLine);
+  useEffect(() => {
+    const up = () => {
+      setOnline(true);
+      void refresh();
+    };
+    const down = () => setOnline(false);
+    window.addEventListener("online", up);
+    window.addEventListener("offline", down);
+    return () => {
+      window.removeEventListener("online", up);
+      window.removeEventListener("offline", down);
+    };
+  }, [refresh]);
+
   const reload = useCallback(
     (failure: "check" | "load" | "buy" | "undoBuy") => {
       if (listId === undefined) return;
@@ -453,6 +469,8 @@ export function ListScreen({
         },
         (e) => {
           console.error(e);
+          // Never show a check the server did not take: put it back, then pull the truth.
+          applyChecked((x) => x === id, !checked);
           reload("check");
         },
       );
@@ -511,12 +529,26 @@ export function ListScreen({
     }
   };
 
-  // The native «Куплено (N)» button exists only while something is Checked and no sheet covers
-  // the screen. Bound once per visibility change; the label is updated in place.
+  /** «Повторить» on the error toast: a failed add goes again (its text was handed back), the rest
+   * re-read the List so what is shown is the server's truth. */
+  const retry = async () => {
+    const failed = error;
+    setError(null);
+    if (failed === "add" && text.trim()) {
+      const again = text;
+      setText("");
+      await submit(again);
+      return;
+    }
+    await refresh();
+  };
+
+  // The native «Куплено (N)» button exists only while something is Checked and no sheet (nor the
+  // Entry card) covers the screen, so a stray tap while editing cannot commit a Purchase. Bound once per visibility change; the label is updated in place.
   const boughtLabel = `${strings.bought} (${checkedCount})`;
   const label = useRef(boughtLabel);
   label.current = boughtLabel;
-  const buttonVisible = checkedCount > 0 && panel === null;
+  const buttonVisible = checkedCount > 0 && panel === null && openId === null;
   useEffect(() => {
     if (!buttonVisible) return;
     return bindMainButton(label.current, () => void onBuy());
@@ -867,21 +899,39 @@ export function ListScreen({
           </ul>
         )}
       </form>
-      {error && (
-        <p className="notice" role="alert">
-          {
-            {
-              add: strings.addFailed,
-              load: strings.loadFailed,
-              check: strings.checkFailed,
-              delete: strings.entryDeleteFailed,
-              undo: strings.undoFailed,
-              save: strings.entrySaveFailed,
-              buy: strings.buyFailed,
-              undoBuy: strings.undoBuyFailed,
-            }[error]
-          }
+      {!online && (
+        <p className="toast toast--status" role="status">
+          {strings.offline}
         </p>
+      )}
+      {online && error && (
+        <div className="toast" role="alert">
+          <span className="toast__text">
+            {
+              {
+                add: strings.addFailed,
+                load: strings.loadFailed,
+                check: strings.checkFailed,
+                delete: strings.entryDeleteFailed,
+                undo: strings.undoFailed,
+                save: strings.entrySaveFailed,
+                buy: strings.buyFailed,
+                undoBuy: strings.undoBuyFailed,
+              }[error]
+            }
+          </span>
+          <button type="button" className="toast__action" onClick={() => void retry()}>
+            {strings.retry}
+          </button>
+          <button
+            type="button"
+            className="toast__close"
+            aria-label={strings.close}
+            onClick={() => setError(null)}
+          >
+            ✕
+          </button>
+        </div>
       )}
       {undoable && removed.length === 0 && (
         <div className="snackbar" role="status">
