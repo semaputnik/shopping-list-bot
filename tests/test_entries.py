@@ -71,12 +71,29 @@ class TestParsing:
             ("2 3 яблока", [("2 3 яблока", None)]),
             ("яблока 2 3", [("яблока 2 3", None)]),
             ("7up", [("7up", None)]),
-            ("2л молока", [("2л молока", None)]),
+            ("2л молока", [("молока", "2л")]),
+            # a leading <number> <unit> head moves into the Note as one piece
+            ("2 л молока", [("молока", "2 л")]),
+            ("1 кг картошки", [("картошки", "1 кг")]),
+            ("500 г сыра", [("сыра", "500 г")]),
+            ("1,5 л воды", [("воды", "1,5 л")]),
+            ("10 шт яиц", [("яиц", "10 шт")]),
+            ("2 kg de patatas", [("de patatas", "2 kg")]),
+            ("2 л молока 3", [("2 л молока 3", None)]),
+            ("2 л 3 молока", [("2 л 3 молока", None)]),
+            ("2 лимона", [("лимона", "2")]),
+            # a spaced "7 up" is a quantity and a name; "7up" is one word
+            ("7 up", [("up", "7")]),
+            # a bare number before the comma is not a name
+            ("2,молоко", [("2,молоко", None)]),
             ("coca-cola 2", [("coca-cola", "2")]),
         ],
     )
     def test_input_is_split_into_names_and_notes(self, client, anna, text, expected):
         assert pairs(add(client, anna, text)) == expected
+
+    def test_text_over_the_limit_is_rejected(self, client, anna):
+        assert add(client, anna, "а" * 20001).status_code == 422
 
     def test_multiline_paste_adds_every_line(self, client, anna):
         pasted = "Молоко, 2 л\nХлеб\n\nЯйца 10\nСыр; Бананы\n"

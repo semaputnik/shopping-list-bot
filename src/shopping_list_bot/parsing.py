@@ -24,6 +24,8 @@ _UNIT = re.compile(_UNITS, re.IGNORECASE)
 _TAIL = re.compile(
     rf"^(?P<name>.*?\S)\s+(?P<tail>\d+(?:[.,]\d+)?\s*(?:{_UNITS}))\.?$", re.IGNORECASE
 )
+# A leading "<number> <unit>" head followed by the item ("2 л молока", "500г сыра").
+_HEAD = re.compile(rf"^(?P<head>\d+(?:[.,]\d+)?\s*(?:{_UNITS}))\s+(?P<name>\S.*)$", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -40,6 +42,13 @@ def _split_number(name: str) -> tuple[str, str | None]:
     tail = _TAIL.match(name)
     if tail and not _NUMBER.fullmatch(tail["name"].split()[-1]):
         return tail["name"], tail["tail"]
+    head = _HEAD.match(name)
+    if head:
+        # "2 л молока" -> «молока» + «2 л»; the number is never taken without its unit.
+        rest_tokens = head["name"].split()
+        if _NUMBER.fullmatch(rest_tokens[0]) or _NUMBER.fullmatch(rest_tokens[-1]):
+            return name, None  # "2 л 3 молока", "2 л молока 3": ambiguous
+        return head["name"], head["head"]
     first = _NUMBER.fullmatch(tokens[0]) is not None
     last = _NUMBER.fullmatch(tokens[-1]) is not None
     if first == last:  # no number, or numbers on both ends ("2 молока 3"): leave as typed
@@ -71,6 +80,8 @@ def parse_input(text: str) -> list[ParsedItem]:
         )
         name, note = name.strip(), note.strip()
         number = None
+        if separator and _NUMBER.fullmatch(name):  # "2,молоко": a bare number is not a name
+            name, note = chunk, ""
         if not name:  # ", 2 л" has no name: keep the text as typed, split nothing out of it
             name, note = chunk.strip(" ,"), ""
             if not name:

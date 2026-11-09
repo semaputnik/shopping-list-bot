@@ -1,47 +1,25 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import { addEntries, fetchContents, type ListContents, type ShoppingList, type User } from "../api";
+import { addEntries, fetchContents, type ListContents, type ShoppingList } from "../api";
+import { AvatarStack } from "../components/Avatar";
 import { QUICK_ADD, type Language, type Strings } from "../i18n";
 
 interface Props {
   token: string;
-  user: User;
   list: ShoppingList | null;
   language: Language;
   strings: Strings;
+  onOpenMembers: () => void;
 }
 
 const HIGHLIGHT_MS = 1600;
 
-function initials(user: User): string {
-  const letters = [user.first_name, user.last_name].map((s) => (s ?? "").trim()[0] ?? "");
-  return letters.join("").toUpperCase() || "?";
-}
-
-function Avatar({ user }: { user: User }) {
-  const [broken, setBroken] = useState(false);
-  if (user.photo_url && !broken) {
-    return (
-      <img
-        className="avatar"
-        src={user.photo_url}
-        alt={user.first_name}
-        onError={() => setBroken(true)}
-      />
-    );
-  }
-  return (
-    <span className="avatar avatar--initials" aria-label={user.first_name}>
-      {initials(user)}
-    </span>
-  );
-}
-
 /** The List screen: header, the pinned input line, then Entries grouped by Category. */
-export function ListScreen({ token, user, list, language, strings }: Props) {
+export function ListScreen({ token, list, language, strings, onOpenMembers }: Props) {
   const [contents, setContents] = useState<ListContents | null>(null);
   const [fresh, setFresh] = useState<ReadonlySet<number>>(new Set());
   const [error, setError] = useState<"add" | "load" | null>(null);
   const [text, setText] = useState("");
+  const [pendingQuick, setPendingQuick] = useState<ReadonlySet<string>>(new Set());
   const input = useRef<HTMLTextAreaElement>(null);
   const listId = list?.id;
 
@@ -137,9 +115,14 @@ export function ListScreen({ token, user, list, language, strings }: Props) {
     <main className="screen">
       <header className="header">
         <h1 className="header__title">{list.name}</h1>
-        <div className="avatars">
-          <Avatar user={user} />
-        </div>
+        <button
+          type="button"
+          className="avatars-button"
+          aria-label={strings.members}
+          onClick={onOpenMembers}
+        >
+          <AvatarStack members={list.members} />
+        </button>
       </header>
 
       <form className="composer" onSubmit={onSubmit}>
@@ -172,7 +155,22 @@ export function ListScreen({ token, user, list, language, strings }: Props) {
           <p className="empty__hint">{strings.emptyHint}</p>
           <div className="quick">
             {QUICK_ADD[language].map((name) => (
-              <button key={name} type="button" className="quick__button" onClick={() => void submit(name)}>
+              <button
+                key={name}
+                type="button"
+                className="quick__button"
+                disabled={pendingQuick.has(name)}
+                onClick={() => {
+                  setPendingQuick((prev) => new Set(prev).add(name));
+                  void submit(name).finally(() =>
+                    setPendingQuick((prev) => {
+                      const next = new Set(prev);
+                      next.delete(name);
+                      return next;
+                    }),
+                  );
+                }}
+              >
                 {name}
               </button>
             ))}

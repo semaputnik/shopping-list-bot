@@ -14,7 +14,16 @@ type StringKey =
   | "inputLabel"
   | "addFailed"
   | "loadFailed"
-  | "emptyInputHint";
+  | "emptyInputHint"
+  | "share"
+  | "linkCopied"
+  | "linkUnavailable"
+  | "members"
+  | "you"
+  | "membersHint"
+  | "badLinkTitle"
+  | "badLinkHint"
+  | "openMyLists";
 
 const strings: Record<Language, Record<StringKey, string>> = {
   ru: {
@@ -30,8 +39,17 @@ const strings: Record<Language, Record<StringKey, string>> = {
     inputPlaceholder: "Добавить в список",
     inputLabel: "Что нужно купить",
     addFailed: "Не удалось добавить. Попробуйте ещё раз.",
-    loadFailed: "Не удалось обновить список. Потяните вниз или откройте заново.",
+    loadFailed: "Не удалось обновить список. Откройте его заново.",
     emptyInputHint: "Напишите название и нажмите Enter. Через запятую — заметка: молоко, 2 л.",
+    share: "Поделиться",
+    linkCopied: "Ссылка скопирована",
+    linkUnavailable: "Не удалось получить ссылку",
+    members: "Участники",
+    you: "вы",
+    membersHint: "У всех участников одинаковые права. Отправьте ссылку, чтобы добавить ещё кого-то.",
+    badLinkTitle: "Ссылка недействительна",
+    badLinkHint: "Попросите прислать ссылку на список ещё раз.",
+    openMyLists: "Открыть мои списки",
   },
   es: {
     loading: "Cargando…",
@@ -48,6 +66,15 @@ const strings: Record<Language, Record<StringKey, string>> = {
     addFailed: "No se pudo añadir. Inténtalo de nuevo.",
     loadFailed: "No se pudo actualizar la lista. Ábrela de nuevo.",
     emptyInputHint: "Escribe el nombre y pulsa Enter. Tras una coma va la nota: leche, 2 l.",
+    share: "Compartir",
+    linkCopied: "Enlace copiado",
+    linkUnavailable: "No se pudo obtener el enlace",
+    members: "Miembros",
+    you: "tú",
+    membersHint: "Todos los miembros tienen los mismos derechos. Envía el enlace para añadir a alguien más.",
+    badLinkTitle: "El enlace no es válido",
+    badLinkHint: "Pide que te envíen de nuevo el enlace de la lista.",
+    openMyLists: "Abrir mis listas",
   },
 };
 
