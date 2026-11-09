@@ -49,7 +49,11 @@ docker compose -f docker-compose.dev.yml down            # stop (the SQLite volu
 
 GitHub Actions has two workflows:
 - `.github/workflows/ci.yml` runs on every pull request: ruff lint and format check, pytest, the frontend typecheck and build, and a Docker build with a smoke test (`/healthz`, the frontend served, the bot module importable).
-- `.github/workflows/release.yml` runs on a `v*` tag push. It builds an amd64 and arm64 image and pushes it to `ghcr.io/semaputnik/shopping-list-bot`, tagged with the version, `major.minor`, the tag itself and the commit sha.
+- `.github/workflows/release.yml` runs on a `v*` tag push. It builds an amd64 and arm64 image and pushes it to Docker Hub as `<DOCKERHUB_IMAGE>` (default `<username>/shared-lists`). Tags are `1.2.3`, `1.2`, `latest` (not for pre-release tags like `v1.3.0-rc1`) and `sha-<short>`. It needs the repository secrets `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` (a Read & Write access token); the optional variable `DOCKERHUB_IMAGE` overrides the image name. Release with:
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0
+```
 
 **Sync tuning** (all optional, `SL_` prefix): `CHECK_WINS_WINDOW_SECONDS` (2.0; another Member's uncheck within this long after a check is dropped), `CHANGES_MAX_GAP` (100), `CHANGES_RETENTION` (500 versions of log per List), `SSE_HEARTBEAT_SECONDS` (15), `IDEMPOTENCY_TTL_SECONDS` (24 h).
 
