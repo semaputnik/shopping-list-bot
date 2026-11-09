@@ -79,7 +79,7 @@ body {
 }
 
 .avatars > .avatar + .avatar {
-  margin-left: -10px;
+  margin-left: -8px;
 }
 
 .avatar {
@@ -98,7 +98,7 @@ body {
 .avatar--md {
   width: 36px;
   height: 36px;
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .avatar--lg {
@@ -1044,4 +1044,9 @@ body {
   flex-shrink: 0;
   margin-left: auto;
   padding-left: 8px;
+}
+
+/* On a row the avatar sits on the section surface, so its ring matches that, not the page ground. */
+.row__by .avatar {
+  border-color: var(--section);
 }
