@@ -13,6 +13,7 @@ type StringKey =
   | "inputPlaceholder"
   | "inputLabel"
   | "addFailed"
+  | "loadFailed"
   | "emptyInputHint";
 
 const strings: Record<Language, Record<StringKey, string>> = {
@@ -29,6 +30,7 @@ const strings: Record<Language, Record<StringKey, string>> = {
     inputPlaceholder: "Добавить в список",
     inputLabel: "Что нужно купить",
     addFailed: "Не удалось добавить. Попробуйте ещё раз.",
+    loadFailed: "Не удалось обновить список. Потяните вниз или откройте заново.",
     emptyInputHint: "Напишите название и нажмите Enter. Через запятую — заметка: молоко, 2 л.",
   },
   es: {
@@ -44,6 +46,7 @@ const strings: Record<Language, Record<StringKey, string>> = {
     inputPlaceholder: "Añadir a la lista",
     inputLabel: "Qué hay que comprar",
     addFailed: "No se pudo añadir. Inténtalo de nuevo.",
+    loadFailed: "No se pudo actualizar la lista. Ábrela de nuevo.",
     emptyInputHint: "Escribe el nombre y pulsa Enter. Tras una coma va la nota: leche, 2 l.",
   },
 };

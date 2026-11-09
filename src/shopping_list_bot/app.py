@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from . import models
 from .auth import (
@@ -272,6 +272,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         entries = session.scalars(
             select(models.Entry)
             .where(models.Entry.list_id == lst.id)
+            .options(selectinload(models.Entry.product))
             .order_by(models.Entry.created_at, models.Entry.id)
         ).all()
         language = pick_language(user.language_code)
@@ -321,6 +322,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if not found:
                 return None
             response.status_code = 200
+            # Known limitation for the sync ticket: a replay reports the List's *current*
+            # version, not the version the original add produced.
             return AddEntriesOut(version=lst.version, entries=[_entry_out(e) for e in found])
 
         if (replayed := replay()) is not None:

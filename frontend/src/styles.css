@@ -151,7 +151,9 @@ body {
   position: sticky;
   top: calc(var(--safe-top) + 4px);
   z-index: 1;
-  margin: 0 0 12px;
+  margin: 0 0 8px;
+  padding: 4px 0;
+  background: var(--ground); /* rows scroll underneath, not through */
 }
 
 .composer__input {
@@ -167,7 +169,7 @@ body {
   font: inherit;
   resize: none;
   outline: none;
-  field-sizing: content;
+  overflow-y: auto;
 }
 
 .composer__input::placeholder {

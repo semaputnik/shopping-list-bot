@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { addEntries, fetchContents, type ListContents, type ShoppingList, type User } from "../api";
 import { QUICK_ADD, type Language, type Strings } from "../i18n";
 
@@ -40,44 +40,66 @@ function Avatar({ user }: { user: User }) {
 export function ListScreen({ token, user, list, language, strings }: Props) {
   const [contents, setContents] = useState<ListContents | null>(null);
   const [fresh, setFresh] = useState<ReadonlySet<number>>(new Set());
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<"add" | "load" | null>(null);
   const [text, setText] = useState("");
   const input = useRef<HTMLTextAreaElement>(null);
   const listId = list?.id;
 
+  // Responses can arrive out of order after quick consecutive adds: never replace newer contents.
+  const showContents = useCallback((next: ListContents) => {
+    setContents((prev) => (prev && prev.list.version > next.list.version ? prev : next));
+  }, []);
+
   useEffect(() => {
     if (listId === undefined) return;
-    fetchContents(token, listId).then(setContents, (e) => {
+    fetchContents(token, listId).then(showContents, (e) => {
       console.error(e);
-      setError(true);
+      setError("load");
     });
-  }, [token, listId]);
+  }, [token, listId, showContents]);
+
+  // Grow the textarea with its content (field-sizing is not available in older iOS WebKit).
+  useLayoutEffect(() => {
+    const el = input.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [text]);
 
   const submit = useCallback(
     async (raw: string) => {
       if (listId === undefined || !raw.trim()) return;
-      setError(false);
+      setError(null);
+      let ids: number[];
       try {
         const result = await addEntries(token, listId, raw, crypto.randomUUID());
-        const ids = result.entries.map((e) => e.id);
-        setContents(await fetchContents(token, listId));
-        setFresh((prev) => new Set([...prev, ...ids]));
-        window.setTimeout(
-          () =>
-            setFresh((prev) => {
-              const next = new Set(prev);
-              ids.forEach((id) => next.delete(id));
-              return next;
-            }),
-          HIGHLIGHT_MS,
-        );
+        ids = result.entries.map((e) => e.id);
       } catch (e) {
         console.error(e);
         setText((current) => current || raw); // give the text back, nothing is lost
-        setError(true);
+        setError("add");
+        return;
       }
+      // The add succeeded: a failed refresh must not hand the text back (a retry would duplicate).
+      try {
+        showContents(await fetchContents(token, listId));
+      } catch (e) {
+        console.error(e);
+        setError("load");
+        return;
+      }
+      setFresh((prev) => new Set([...prev, ...ids]));
+      window.setTimeout(
+        () =>
+          setFresh((prev) => {
+            const next = new Set(prev);
+            ids.forEach((id) => next.delete(id));
+            return next;
+          }),
+        HIGHLIGHT_MS,
+      );
     },
-    [token, listId],
+    [token, listId, showContents],
   );
 
   const send = () => {
@@ -136,7 +158,7 @@ export function ListScreen({ token, user, list, language, strings }: Props) {
       </form>
       {error && (
         <p className="notice" role="alert">
-          {strings.addFailed}
+          {error === "add" ? strings.addFailed : strings.loadFailed}
         </p>
       )}
 

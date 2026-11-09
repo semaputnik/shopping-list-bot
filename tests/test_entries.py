@@ -50,6 +50,20 @@ class TestParsing:
             ("2 молока", [("молока", "2")]),
             ("молоко 2", [("молоко", "2")]),
             ("колбаса 0.5", [("колбаса", "0.5")]),
+            # decimal commas do not split the name from the Note
+            ("вода 1,5 л", [("вода", "1,5 л")]),
+            ("колбаса 0,5", [("колбаса", "0,5")]),
+            ("1,5 молока", [("молока", "1,5")]),
+            ("молоко, 1,5 л", [("молоко", "1,5 л")]),
+            ("молоко 1,5, жирное", [("молоко", "1,5, жирное")]),
+            # a trailing <number> <unit> tail moves into the Note
+            ("молоко 2 л", [("молоко", "2 л")]),
+            ("молоко 2л", [("молоко", "2л")]),
+            ("яйца 10 шт", [("яйца", "10 шт")]),
+            ("agua 1.5 L", [("agua", "1.5 L")]),
+            ("2 л", [("2 л", None)]),
+            # a name-less chunk is kept as typed
+            (", 2 л", [("2 л", None)]),
             ("молоко 2, жирное", [("молоко", "2, жирное")]),
             # ambiguous numbers stay in the name
             ("7", [("7", None)]),
@@ -73,14 +87,8 @@ class TestParsing:
             ("Сыр", None),
             ("Бананы", None),
         ]
-        assert (
-            len(
-                client.get(f"/api/lists/{anna['list_id']}/entries", headers=anna["headers"]).json()[
-                    "categories"
-                ]
-            )
-            >= 3
-        )
+        keys = [g["key"] for g in contents(client, anna)["categories"]]
+        assert keys == ["produce", "bread", "dairy"]
 
     @pytest.mark.parametrize("text", ["", "   ", ";;;", "\n\n", " , "])
     def test_input_without_items_is_rejected(self, client, anna, text):
@@ -103,6 +111,18 @@ class TestEntryDetails:
         assert entry["added_by"] == me["id"]
         assert entry["created_at"]
         assert entry["id"]
+
+    def test_name_and_note_are_truncated(self, client, anna):
+        entry = add(client, anna, "я" * 300 + ", " + "н" * 700).json()["entries"][0]
+        assert entry["name"] == "я" * 200
+        assert entry["note"] == "н" * 500
+
+    def test_rejected_add_leaves_the_version_alone(self, client, anna):
+        path = f"/api/lists/{anna['list_id']}"
+        before = client.get(path, headers=anna["headers"]).json()["version"]
+        assert add(client, anna, " ; ").status_code == 422
+        assert add(client, anna, ";".join(f"item{i}" for i in range(101))).status_code == 422
+        assert client.get(path, headers=anna["headers"]).json()["version"] == before
 
     def test_adding_bumps_the_list_version(self, client, anna):
         before = client.get(f"/api/lists/{anna['list_id']}", headers=anna["headers"]).json()
