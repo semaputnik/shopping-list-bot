@@ -270,3 +270,46 @@ export function undoPurchase(
 export function uncheckAll(token: string, listId: number): Promise<{ version: number; unchecked: number }> {
   return request(`/api/lists/${listId}/entries/uncheck-all`, { method: "POST" }, token);
 }
+
+/** One past Purchase in the History: a snapshot of what was bought. */
+export interface HistoryPurchase {
+  id: number;
+  purchased_at: string;
+  purchased_by: number | null;
+  /** First name of whoever pressed «Куплено»; null if that user is gone. */
+  purchased_by_name: string | null;
+  entries: { id: number; name: string; note: string | null }[];
+}
+
+export interface HistoryPage {
+  purchases: HistoryPurchase[];
+  /** Pass back as `cursor` for the next, older page; null on the last page. */
+  next_cursor: string | null;
+}
+
+/** A page of the List's History, newest first. */
+export function fetchHistory(
+  token: string,
+  listId: number,
+  cursor: string | null,
+  limit: number,
+): Promise<HistoryPage> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (cursor) params.set("cursor", cursor);
+  return request<HistoryPage>(`/api/lists/${listId}/purchases?${params}`, {}, token);
+}
+
+/** Puts a past item back on the List, unchecked, with the same Note. */
+export function readdFromHistory(
+  token: string,
+  listId: number,
+  purchaseId: number,
+  itemId: number,
+  clientId: string,
+): Promise<{ version: number; entries: Entry[] }> {
+  return request(
+    `/api/lists/${listId}/purchases/${purchaseId}/entries/${itemId}/readd`,
+    { method: "POST", body: JSON.stringify({ client_id: clientId }) },
+    token,
+  );
+}
