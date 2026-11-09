@@ -760,7 +760,40 @@ body {
 .row--checked .row__name,
 .row--checked .row__note {
   color: var(--hint);
+}
+
+.row--checked .row__note {
   text-decoration: line-through;
+}
+
+/* Crossing off is a pen stroke drawn across the name, left to right, and undrawn on uncheck. */
+.row__label {
+  background: linear-gradient(currentColor, currentColor) no-repeat 0 58% / 0% 1.5px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  transition:
+    background-size 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+    color 0.22s ease-out;
+}
+
+.row--checked .row__label {
+  background-size: 100% 1.5px;
+}
+
+.row--checked .row__check {
+  animation: check-pop 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes check-pop {
+  0% {
+    transform: scale(0.82);
+  }
+  60% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
 
 /* Hairline separators start at the text, as in Telegram's own lists (16 + 22 check + 12 gap). */
@@ -855,8 +888,15 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .row--new {
+  .row--new,
+  .row--checked .row__check,
+  .group--done .group__emoji {
     animation-duration: 0.01s;
+  }
+
+  .row__label,
+  .progress__fill {
+    transition-duration: 0.01s;
   }
 }
 
@@ -1031,11 +1071,76 @@ body {
   font-weight: 600;
 }
 
-/* Trip progress under the List name. */
+/* Trip progress under the List name: a line of text and a hairline that fills as items go in. */
 .progress {
-  margin: -4px 4px 4px;
+  margin: -4px 4px 6px;
+}
+
+.progress__text {
+  margin: 0 0 6px;
   color: var(--hint);
   font-size: 15px;
+}
+
+.progress--full .progress__text {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.progress__track {
+  display: block;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--hint) 22%, transparent);
+}
+
+.progress__fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transform-origin: left center;
+  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* A Category with everything in the basket: its tile earns a small check. */
+.group--done .group__emoji {
+  position: relative;
+  animation: tile-done 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.group--done .group__emoji::after {
+  content: "";
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--ground);
+  border-radius: 50%;
+  background: var(--accent)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 6.2 5 8.2 9 4' fill='none' stroke='white' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+    center / 12px no-repeat;
+}
+
+@keyframes tile-done {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.empty__summary {
+  max-width: 30ch;
+  margin: 0 auto 8px;
+  color: var(--text);
+  font-size: 17px;
 }
 
 /* Who added the Entry, when the List is shared. */

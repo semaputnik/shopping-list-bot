@@ -74,6 +74,7 @@ type StringKey =
   | "boughtSaved"
   | "doneTitle"
   | "doneHint"
+  | "andMore"
   | "uncheckAll"
   | "checkFailed"
   | "bought"
@@ -162,6 +163,7 @@ const strings: Record<Language, Record<StringKey, string>> = {
     boughtSaved: "в истории",
     doneTitle: "Всё куплено",
     doneHint: "Покупка сохранена в истории.",
+    andMore: "и ещё {n}",
     uncheckAll: "Снять все отметки",
     checkFailed: "Отметка не сохранилась. Проверьте связь.",
     bought: "Куплено",
@@ -249,6 +251,7 @@ const strings: Record<Language, Record<StringKey, string>> = {
     boughtSaved: "en el historial",
     doneTitle: "Todo comprado",
     doneHint: "La compra se guardó en el historial.",
+    andMore: "y {n} más",
     uncheckAll: "Quitar todas las marcas",
     checkFailed: "La marca no se guardó. Revisa la conexión.",
     bought: "Comprado",

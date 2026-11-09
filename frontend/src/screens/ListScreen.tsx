@@ -139,6 +139,7 @@ export function ListScreen({
   const [removed, setRemoved] = useState<Removed[]>([]);
   // The trip just ended with «Куплено»: an emptied List says so instead of looking blank.
   const [justBought, setJustBought] = useState(false);
+  const [boughtNames, setBoughtNames] = useState<string[]>([]);
   const [info, setInfo] = useState<string | null>(null);
   const infoTimer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(infoTimer.current), []); // deleted Entries still undoable, oldest first
@@ -496,6 +497,13 @@ export function ListScreen({
   const anyChecked = checkedCount > 0;
   const totalCount = (contents?.categories ?? []).reduce((n, g) => n + g.entries.length, 0);
   const shared = (list?.members.length ?? 0) > 1;
+  const allInBasket = totalCount > 0 && checkedCount === totalCount;
+  // The moment the last Entry goes into the basket gets one success tap, not every render.
+  const wasAllInBasket = useRef(allInBasket);
+  useEffect(() => {
+    if (allInBasket && !wasAllInBasket.current) haptic.success();
+    wasAllInBasket.current = allInBasket;
+  }, [allInBasket]);
 
   const dismissUndo = useCallback(() => {
     window.clearTimeout(undoTimer.current);
@@ -514,7 +522,12 @@ export function ListScreen({
     haptic.success();
     setError(null);
     try {
+      const bought = (contentsRef.current?.categories ?? [])
+        .flatMap((g) => g.entries)
+        .filter((e) => e.checked)
+        .map((e) => e.name);
       const result = await buy(token, listId);
+      setBoughtNames(bought);
       showContents(await fetchContents(token, listId));
       window.clearTimeout(undoTimer.current);
       setRemoved([]); // the newest action owns the snackbar (see removeEntry)
@@ -877,13 +890,21 @@ export function ListScreen({
       </header>
 
       {totalCount > 0 && (
-        <p className="progress" aria-live="polite">
-          {checkedCount === totalCount
-            ? strings.allInBasket
-            : strings.progress
-                .replace("{left}", String(totalCount - checkedCount))
-                .replace("{total}", String(totalCount))}
-        </p>
+        <div className={allInBasket ? "progress progress--full" : "progress"}>
+          <p className="progress__text" aria-live="polite">
+            {allInBasket
+              ? strings.allInBasket
+              : strings.progress
+                  .replace("{left}", String(totalCount - checkedCount))
+                  .replace("{total}", String(totalCount))}
+          </p>
+          <span className="progress__track" aria-hidden="true">
+            <span
+              className="progress__fill"
+              style={{ transform: `scaleX(${checkedCount / totalCount})` }}
+            />
+          </span>
+        </div>
       )}
 
       <form className="composer" onSubmit={onSubmit}>
@@ -1005,6 +1026,13 @@ export function ListScreen({
             ✅
           </span>
           <p className="empty__title">{strings.doneTitle}</p>
+          {boughtNames.length > 0 && (
+            <p className="empty__summary">
+              {boughtNames.length <= 3
+                ? boughtNames.join(", ")
+                : `${boughtNames.slice(0, 3).join(", ")} ${withCount(strings.andMore, boughtNames.length - 3)}`}
+            </p>
+          )}
           <p className="empty__hint">{strings.doneHint}</p>
           <button type="button" className="empty__action" onClick={onOpenHistory}>
             {strings.history}
@@ -1045,7 +1073,10 @@ export function ListScreen({
       )}
 
       {groups.map((group) => (
-        <section key={group.key} className="group">
+        <section
+          key={group.key}
+          className={group.entries.every((e) => e.checked) ? "group group--done" : "group"}
+        >
           <h2 className="group__header">
             <span className="group__emoji" aria-hidden="true">
               {group.emoji}
@@ -1079,7 +1110,9 @@ export function ListScreen({
                 >
                   <span className="row__check" aria-hidden="true" />
                   <span className="row__text">
-                    <span className="row__name">{entry.name}</span>
+                    <span className="row__name">
+                      <span className="row__label">{entry.name}</span>
+                    </span>
                     {entry.note && <span className="row__note">{entry.note}</span>}
                   </span>
                   {shared && (
