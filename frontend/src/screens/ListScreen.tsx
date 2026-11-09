@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import type { ShoppingList, User } from "../api";
 import { withCount, type Strings } from "../i18n";
-import { confirmDestructive } from "../telegram";
+import { confirmDestructive, haptic } from "../telegram";
 import { NameSheet, Sheet } from "./Sheet";
 
 interface Props {
@@ -13,10 +13,11 @@ interface Props {
   /** True when the last action failed on the server. */
   failed: boolean;
   onSelect: (id: number) => void;
-  onCreate: (name: string) => Promise<void>;
-  onRename: (id: number, name: string) => Promise<void>;
-  onLeave: (id: number) => Promise<void>;
-  onDelete: (id: number) => Promise<void>;
+  /** Mutations resolve true on success, false when the request failed. */
+  onCreate: (name: string) => Promise<boolean>;
+  onRename: (id: number, name: string) => Promise<boolean>;
+  onLeave: (id: number) => Promise<boolean>;
+  onDelete: (id: number) => Promise<boolean>;
 }
 
 type Panel = null | "switcher" | "menu" | "create" | "rename";
@@ -59,7 +60,14 @@ export function ListScreen({
   onDelete,
 }: Props) {
   const [panel, setPanel] = useState<Panel>(null);
+  // The sheet the BackButton returns to; null closes the sheets altogether.
+  const [parent, setParent] = useState<Panel>(null);
   const close = () => setPanel(null);
+  const open = (next: Panel, from: Panel = null) => {
+    setParent(from);
+    setPanel(next);
+  };
+  const back = useCallback(() => setPanel(parent), [parent]);
 
   const leave = async () => {
     if (!list) return;
@@ -91,7 +99,7 @@ export function ListScreen({
         </p>
       )}
       {panel === "switcher" && (
-        <Sheet title={strings.switchList} onClose={close} closeLabel={strings.cancel}>
+        <Sheet title={strings.switchList} onClose={back} closeLabel={strings.cancel}>
           <ul className="rows">
             {lists.map((l) => (
               <li key={l.id}>
@@ -100,6 +108,7 @@ export function ListScreen({
                   className="row"
                   aria-current={l.id === list?.id}
                   onClick={() => {
+                    if (l.id !== list?.id) haptic.select();
                     onSelect(l.id);
                     close();
                   }}
@@ -114,7 +123,7 @@ export function ListScreen({
           </ul>
           <ul className="rows">
             <li>
-              <button type="button" className="row row--accent" onClick={() => setPanel("create")}>
+              <button type="button" className="row row--accent" onClick={() => open("create", "switcher")}>
                 {strings.newList}
               </button>
             </li>
@@ -122,15 +131,15 @@ export function ListScreen({
         </Sheet>
       )}
       {panel === "menu" && list && (
-        <Sheet title={strings.listMenu} onClose={close} closeLabel={strings.cancel}>
+        <Sheet title={strings.listMenu} onClose={back} closeLabel={strings.cancel}>
           <ul className="rows">
             <li>
-              <button type="button" className="row" onClick={() => setPanel("rename")}>
+              <button type="button" className="row" onClick={() => open("rename", "menu")}>
                 {strings.renameList}
               </button>
             </li>
             <li>
-              <button type="button" className="row" onClick={() => void leave()}>
+              <button type="button" className="row row--destructive" onClick={() => void leave()}>
                 {strings.leaveList}
               </button>
             </li>
@@ -150,11 +159,8 @@ export function ListScreen({
           submitLabel={strings.createList}
           cancelLabel={strings.cancel}
           initial=""
-          onClose={close}
-          onSubmit={async (name) => {
-            close();
-            await onCreate(name);
-          }}
+          onClose={back}
+          onSubmit={onCreate}
         />
       )}
       {panel === "rename" && list && (
@@ -165,11 +171,8 @@ export function ListScreen({
           submitLabel={strings.save}
           cancelLabel={strings.cancel}
           initial={list.name}
-          onClose={close}
-          onSubmit={async (name) => {
-            close();
-            await onRename(list.id, name);
-          }}
+          onClose={back}
+          onSubmit={(name) => onRename(list.id, name)}
         />
       )}
     </>
@@ -180,7 +183,7 @@ export function ListScreen({
       <main className="screen">
         <section className="empty">
           <p className="empty__title">{strings.noList}</p>
-          <button type="button" className="empty__action" onClick={() => setPanel("create")}>
+          <button type="button" className="empty__action" onClick={() => open("create")}>
             {strings.newList}
           </button>
         </section>
@@ -191,17 +194,19 @@ export function ListScreen({
   return (
     <main className="screen">
       <header className="header">
-        <button
-          type="button"
-          className="header__switch"
-          aria-haspopup="dialog"
-          onClick={() => setPanel("switcher")}
-        >
-          <h1 className="header__title">{list.name}</h1>
-          <span className="header__chevron" aria-hidden="true">
-            ▾
-          </span>
-        </button>
+        <h1 className="header__heading">
+          <button
+            type="button"
+            className="header__switch"
+            aria-haspopup="dialog"
+            onClick={() => open("switcher")}
+          >
+            <span className="header__title">{list.name}</span>
+            <span className="header__chevron" aria-hidden="true">
+              ▾
+            </span>
+          </button>
+        </h1>
         <div className="avatars">
           <Avatar user={user} />
         </div>
@@ -209,7 +214,7 @@ export function ListScreen({
           type="button"
           className="header__menu"
           aria-label={strings.listMenu}
-          onClick={() => setPanel("menu")}
+          onClick={() => open("menu")}
         >
           ⋯
         </button>

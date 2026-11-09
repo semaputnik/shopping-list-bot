@@ -1,4 +1,5 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { bindBackButton } from "../telegram";
 
 interface SheetProps {
   title: string;
@@ -7,8 +8,12 @@ interface SheetProps {
   children: ReactNode;
 }
 
-/** A bottom sheet over a dimmed backdrop; tapping the backdrop closes it. */
+/**
+ * A bottom sheet over a dimmed backdrop; tapping the backdrop closes it. While it is open
+ * Telegram's BackButton is shown and calls `onClose` (which may return to a parent sheet).
+ */
 export function Sheet({ title, closeLabel, onClose, children }: SheetProps) {
+  useEffect(() => bindBackButton(onClose), [onClose]);
   return (
     <div className="sheet-backdrop" onClick={onClose}>
       <div
@@ -36,7 +41,8 @@ interface NameSheetProps {
   cancelLabel: string;
   initial: string;
   onClose: () => void;
-  onSubmit: (name: string) => void | Promise<void>;
+  /** Resolves true when the request succeeded; on false the sheet stays open with the text. */
+  onSubmit: (name: string) => Promise<boolean>;
 }
 
 /** A sheet with one text field, used to name a new List or rename an existing one. */
@@ -51,13 +57,19 @@ export function NameSheet({
   onSubmit,
 }: NameSheetProps) {
   const [name, setName] = useState(initial);
+  const [busy, setBusy] = useState(false);
   const trimmed = name.trim();
   return (
     <Sheet title={title} closeLabel={cancelLabel} onClose={onClose}>
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          if (trimmed) void onSubmit(trimmed);
+          if (!trimmed || busy) return;
+          setBusy(true);
+          void onSubmit(trimmed).then((ok) => {
+            if (ok) onClose();
+            else setBusy(false);
+          });
         }}
       >
         <label className="field">
@@ -71,7 +83,7 @@ export function NameSheet({
             onChange={(event) => setName(event.target.value)}
           />
         </label>
-        <button type="submit" className="sheet__submit" disabled={!trimmed}>
+        <button type="submit" className="sheet__submit" disabled={!trimmed || busy}>
           {submitLabel}
         </button>
       </form>

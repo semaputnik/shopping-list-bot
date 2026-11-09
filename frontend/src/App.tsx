@@ -12,7 +12,7 @@ import {
 import { pickLanguage, t, type Language } from "./i18n";
 import { ListScreen } from "./screens/ListScreen";
 import { Message } from "./screens/Message";
-import { startTelegram } from "./telegram";
+import { haptic, startTelegram } from "./telegram";
 
 type State =
   | { kind: "loading" }
@@ -26,6 +26,13 @@ export function App() {
     pickLanguage(navigator.language),
   );
   const [failed, setFailed] = useState(false);
+
+  // The failure toast hides itself.
+  useEffect(() => {
+    if (!failed) return;
+    const timer = setTimeout(() => setFailed(false), 4000);
+    return () => clearTimeout(timer);
+  }, [failed]);
 
   const boot = useCallback(async () => {
     setState({ kind: "loading" });
@@ -59,8 +66,8 @@ export function App() {
 
   /** Runs a List mutation, then reloads the Lists (ordered by recent change) from the server. */
   const mutate = useCallback(
-    async (run: (token: string) => Promise<number | null | undefined>) => {
-      if (state.kind !== "ready") return;
+    async (run: (token: string) => Promise<number | null | undefined>): Promise<boolean> => {
+      if (state.kind !== "ready") return false;
       try {
         // `run` returns the id to show next, or undefined to keep the current List.
         const next = await run(state.token);
@@ -72,9 +79,13 @@ export function App() {
           const currentId = lists.some((l) => l.id === wanted) ? wanted : (lists[0]?.id ?? null);
           return { ...prev, lists, currentId };
         });
+        haptic.success();
+        return true;
       } catch (error) {
         console.error(error);
         setFailed(true);
+        haptic.error();
+        return false;
       }
     },
     [state],

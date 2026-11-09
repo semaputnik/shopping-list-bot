@@ -58,6 +58,21 @@ class TestCreateAndRename:
         )
         assert response.status_code == 422
 
+    def test_rename_with_too_long_name_is_rejected(self, client, anna):
+        lst = create(client, anna["headers"], "Дача")
+        response = client.patch(
+            f"/api/lists/{lst['id']}", json={"name": "x" * 201}, headers=anna["headers"]
+        )
+        assert response.status_code == 422
+
+    def test_mutations_require_a_session(self, client, anna):
+        lst = create(client, anna["headers"], "Дача")
+        url = f"/api/lists/{lst['id']}"
+        assert client.patch(url, json={"name": "x"}).status_code == 401
+        assert client.post(f"{url}/leave").status_code == 401
+        assert client.delete(url).status_code == 401
+        assert names(client, anna["headers"]).count("Дача") == 1
+
     def test_non_member_cannot_rename(self, client, anna, boris):
         lst = create(client, anna["headers"], "Дача")
         response = client.patch(

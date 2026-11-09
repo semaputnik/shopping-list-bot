@@ -11,9 +11,9 @@ from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Request,
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, StringConstraints
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from . import models
 from .auth import (
@@ -207,7 +207,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @api.get("/lists", response_model=list[ListOut])
     def my_lists(user: UserDep, session: SessionDep) -> list[ListOut]:
-        stmt = _member_lists(user).order_by(models.List.updated_at.desc(), models.List.id.desc())
+        stmt = (
+            _member_lists(user)
+            .options(selectinload(models.List.members))
+            .order_by(models.List.updated_at.desc(), models.List.id.desc())
+        )
         return [list_out(lst) for lst in session.scalars(stmt)]
 
     @api.get("/lists/{list_id}", response_model=ListOut)
@@ -248,11 +252,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def leave_list(list_id: int, user: UserDep, session: SessionDep) -> Response:
         lst = _member_list(session, user, list_id)
         membership = next(m for m in lst.members if m.user_id == user.id)
-        if len(lst.members) == 1:  # the last Member leaves: the List goes with them
+        # Delete the membership first (this takes the write lock), then count what is left in
+        # the same transaction, so two last Members leaving at once cannot both see "not last".
+        session.delete(membership)
+        session.flush()
+        session.expire(lst, ["members"])
+        remaining = session.scalar(
+            select(func.count())
+            .select_from(models.ListMember)
+            .where(models.ListMember.list_id == list_id)
+        )
+        if remaining == 0:  # the last Member left: the List goes with them
             session.delete(lst)
         else:
-            session.delete(membership)
-            lst.members.remove(membership)
+            # A leave counts as a change for the switcher order (version + updated_at bump).
             _touch(lst)
         session.commit()
         return Response(status_code=204)

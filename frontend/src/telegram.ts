@@ -3,10 +3,18 @@ import {
   bindViewportCssVars,
   disableVerticalSwipes,
   expandViewport,
+  hideBackButton,
   init,
+  isBackButtonMounted,
   isTMA,
   miniAppReady,
+  mountBackButton,
   mountMiniApp,
+  hapticFeedbackNotificationOccurred,
+  offBackButtonClick,
+  onBackButtonClick,
+  hapticFeedbackSelectionChanged,
+  showBackButton,
   mountSwipeBehavior,
   mountThemeParamsSync,
   mountViewport,
@@ -87,3 +95,32 @@ export async function confirmDestructive(opts: {
   }
   return window.confirm(`${opts.title}\n\n${opts.message}`);
 }
+
+/**
+ * Shows Telegram's native BackButton and calls `onBack` when it is pressed. Returns a
+ * cleanup that removes the listener and hides the button. Used by every sheet and nested
+ * screen, so the BackButton, not the «Закрыть» button, dismisses them. No-op outside Telegram.
+ */
+export function bindBackButton(onBack: () => void): () => void {
+  if (!showBackButton.isAvailable() || !onBackButtonClick.isAvailable()) return () => {};
+  if (mountBackButton.isAvailable() && !isBackButtonMounted()) mountBackButton();
+  onBackButtonClick(onBack);
+  showBackButton();
+  return () => {
+    if (offBackButtonClick.isAvailable()) offBackButtonClick(onBack);
+    if (hideBackButton.isAvailable()) hideBackButton();
+  };
+}
+
+/** Haptics on state changes (no-ops outside Telegram or on clients without support). */
+export const haptic = {
+  success() {
+    if (hapticFeedbackNotificationOccurred.isAvailable()) hapticFeedbackNotificationOccurred("success");
+  },
+  error() {
+    if (hapticFeedbackNotificationOccurred.isAvailable()) hapticFeedbackNotificationOccurred("error");
+  },
+  select() {
+    if (hapticFeedbackSelectionChanged.isAvailable()) hapticFeedbackSelectionChanged();
+  },
+};
