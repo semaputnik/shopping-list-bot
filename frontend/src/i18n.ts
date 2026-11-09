@@ -67,7 +67,13 @@ type StringKey =
   | "checkFailed"
   | "bought"
   | "buyFailed"
-  | "undoBuyFailed";
+  | "undoBuyFailed"
+  | "history"
+  | "historyEmpty"
+  | "historyAdded"
+  | "historyAddFailed"
+  | "historyAddBack"
+  | "historyLoadFailed";
 
 const strings: Record<Language, Record<StringKey, string>> = {
   ru: {
@@ -139,6 +145,12 @@ const strings: Record<Language, Record<StringKey, string>> = {
     bought: "Куплено",
     buyFailed: "Не удалось отметить покупку. Список обновлён.",
     undoBuyFailed: "Не удалось отменить покупку. Список обновлён.",
+    history: "История покупок",
+    historyEmpty: "Пока пусто. Здесь появятся покупки после нажатия «Куплено».",
+    historyAdded: "Добавлено в список",
+    historyAddFailed: "Не удалось добавить. Попробуйте ещё раз.",
+    historyAddBack: "Добавить в список снова",
+    historyLoadFailed: "Не удалось загрузить историю.",
   },
   es: {
     loading: "Cargando…",
@@ -209,6 +221,12 @@ const strings: Record<Language, Record<StringKey, string>> = {
     bought: "Comprado",
     buyFailed: "No se pudo registrar la compra. Lista actualizada.",
     undoBuyFailed: "No se pudo deshacer la compra. Lista actualizada.",
+    history: "Historial de compras",
+    historyEmpty: "Aún no hay nada. Las compras aparecerán aquí al pulsar «Comprado».",
+    historyAdded: "Añadido a la lista",
+    historyAddFailed: "No se pudo añadir. Inténtalo de nuevo.",
+    historyAddBack: "Volver a añadir a la lista",
+    historyLoadFailed: "No se pudo cargar el historial.",
   },
 };
 

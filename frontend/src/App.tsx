@@ -13,6 +13,7 @@ import {
   type User,
 } from "./api";
 import { pickLanguage, t, type Language } from "./i18n";
+import { HistoryScreen } from "./screens/HistoryScreen";
 import { ListScreen } from "./screens/ListScreen";
 import { MembersScreen } from "./screens/MembersScreen";
 import { Message } from "./screens/Message";
@@ -34,7 +35,7 @@ type State =
       screen: Screen;
     };
 
-type Screen = "list" | "members" | "settings";
+type Screen = "list" | "members" | "settings" | "history";
 
 export function App() {
   const [state, setState] = useState<State>({ kind: "loading" });
@@ -287,6 +288,17 @@ export function App() {
           <MembersScreen user={state.user} list={current} strings={strings} onBack={backToList} />
         );
       }
+      if (current && state.screen === "history") {
+        return (
+          <HistoryScreen
+            token={state.token}
+            listId={current.id}
+            language={language}
+            strings={strings}
+            onBack={backToList}
+          />
+        );
+      }
       if (state.screen === "settings") {
         return (
           <SettingsScreen
@@ -317,6 +329,7 @@ export function App() {
           onSelect={(id) => setState({ ...state, currentId: id })}
           onOpenMembers={() => setState({ ...state, screen: "members" })}
           onOpenSettings={() => setState({ ...state, screen: "settings" })}
+          onOpenHistory={() => setState({ ...state, screen: "history" })}
           onCreate={(name) => mutate(async (token) => (await createList(token, name)).id)}
           onRename={(id, name) =>
             mutate(async (token) => {
