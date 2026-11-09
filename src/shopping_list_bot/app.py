@@ -8,11 +8,11 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
-from sqlalchemy import inspect, select, text, update
+from pydantic import BaseModel, Field, StringConstraints
+from sqlalchemy import func, inspect, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -30,6 +30,7 @@ from .db import Base, make_engine, make_session_factory
 from .i18n import FIRST_LIST_NAME, effective_language
 from .normalize import normalize
 from .parsing import parse_input
+from .suggest import MAX_SUGGESTIONS, rank
 
 MAX_ITEMS_PER_ADD = 100
 
@@ -58,6 +59,13 @@ class MemberOut(BaseModel):
     photo_url: str | None
 
 
+ListName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+
+
+class ListIn(BaseModel):
+    name: ListName
+
+
 class ListOut(BaseModel):
     id: int
     name: str
@@ -80,6 +88,8 @@ class EntryOut(BaseModel):
     # First name of whoever added the Entry; null if that user is gone.
     added_by_name: str | None
     created_at: datetime
+    checked: bool
+    checked_by: int | None
 
 
 class CategoryGroupOut(BaseModel):
@@ -110,10 +120,24 @@ class AddEntriesOut(BaseModel):
 
 
 class EntryUpdate(BaseModel):
-    # Only the fields that are sent change. A blank Note clears it.
+    # Only the fields that are sent change; an empty body is a no-op. A blank Note clears it.
     note: str | None = Field(default=None, max_length=500)
     # Key of a system Category; moves the whole Product.
     category: str | None = Field(default=None, max_length=32)
+    # The wanted state, not a toggle: replaying a request is harmless.
+    checked: bool | None = None
+
+
+class SuggestionOut(BaseModel):
+    product_id: int
+    name: str
+    category: str
+    # True when the Product already has an Entry on the List (a duplicate is still allowed).
+    on_list: bool
+
+
+class ProductHiddenOut(BaseModel):
+    version: int
 
 
 class EntryChangeOut(BaseModel):
@@ -125,6 +149,12 @@ class EntryDeleteOut(BaseModel):
     version: int
 
 
+class UncheckAllOut(BaseModel):
+    version: int
+    # How many Entries were Checked and are not any more.
+    unchecked: int
+
+
 class MeUpdate(BaseModel):
     # "ru" or "es" sets the language; null goes back to following Telegram.
     language: Literal["ru", "es"] | None
@@ -133,6 +163,7 @@ class MeUpdate(BaseModel):
 class CategoryOut(BaseModel):
     key: str
     name: str
+    emoji: str
 
 
 class JoinIn(BaseModel):
@@ -219,6 +250,10 @@ def _add_missing_columns(engine) -> None:
         ("user", "language", "VARCHAR(8)"),
         ("list", "name_is_default", "BOOLEAN NOT NULL DEFAULT 0"),
         ("entry", "deleted_at", "DATETIME"),
+        ("product", "purchase_count", "INTEGER NOT NULL DEFAULT 0"),
+        ("product", "hidden", "BOOLEAN NOT NULL DEFAULT 0"),
+        ("entry", "checked_at", "DATETIME"),
+        ("entry", "checked_by", "INTEGER REFERENCES user (id) ON DELETE SET NULL"),
     ]
     for table, column, ddl in additions:
         if column not in {c["name"] for c in inspector.get_columns(table)}:
@@ -333,7 +368,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def categories(user: UserDep) -> list[CategoryOut]:
         """System Categories named in the user's effective language."""
         lang = effective_language(user.language, user.language_code)
-        return [CategoryOut(key=c.key, name=c.name(lang)) for c in CATEGORIES]
+        return [CategoryOut(key=c.key, name=c.name(lang), emoji=c.emoji) for c in CATEGORIES]
+
+    def _lang(user: models.User) -> str:
+        return effective_language(user.language, user.language_code)
 
     def _member_lists(user: models.User):
         return (
@@ -346,8 +384,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @api.get("/lists", response_model=list[ListOut])
     def my_lists(user: UserDep, session: SessionDep) -> list[ListOut]:
         stmt = _member_lists(user).order_by(models.List.updated_at.desc(), models.List.id.desc())
-        lang = effective_language(user.language, user.language_code)
+        lang = _lang(user)
         return [list_out(lst, lang, settings.bot_username) for lst in session.scalars(stmt)]
+
+    @api.get("/lists/{list_id}", response_model=ListOut)
+    def get_list(list_id: int, user: UserDep, session: SessionDep) -> ListOut:
+        lst = session.scalar(_member_lists(user).where(models.List.id == list_id))
+        if lst is None:  # also hides the existence of Lists the user is not a Member of
+            raise HTTPException(404, "list not found")
+        return list_out(lst, _lang(user), settings.bot_username)
+
+    def _touch(session: Session, lst: models.List) -> None:
+        """Record a mutation: bump the List's version and its change time.
+
+        One atomic UPDATE (version = version + 1), so concurrent mutations cannot lose an
+        increment the way a read-modify-write on the loaded object could.
+        """
+        session.execute(
+            update(models.List)
+            .where(models.List.id == lst.id)
+            .values(version=models.List.version + 1, updated_at=models.utcnow())
+        )
+        session.flush()
+        session.refresh(lst)
+
+    def _member_list(session: Session, user: models.User, list_id: int) -> models.List:
+        lst = session.scalar(_member_lists(user).where(models.List.id == list_id))
+        if lst is None:
+            raise HTTPException(404, "list not found")
+        return lst
 
     @api.post("/lists/join", response_model=ListOut)
     def join_list(body: JoinIn, user: UserDep, session: SessionDep) -> ListOut:
@@ -357,26 +422,61 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(404, "share link is not valid")
         if all(m.user_id != user.id for m in lst.members):
             lst.members.append(models.ListMember(user_id=user.id))
-            lst.version += 1
-            lst.updated_at = models.utcnow()
             try:
-                session.commit()
+                session.flush()
             except IntegrityError:  # concurrent join by the same user: already a Member
                 session.rollback()
-                lst = session.scalar(select(models.List).where(models.List.share_code == body.code))
-                assert lst is not None
-        return list_out(
-            lst, effective_language(user.language, user.language_code), settings.bot_username
-        )
+            else:
+                _touch(session, lst)
+                session.commit()
+        return list_out(_member_list(session, user, lst.id), _lang(user), settings.bot_username)
 
-    @api.get("/lists/{list_id}", response_model=ListOut)
-    def get_list(list_id: int, user: UserDep, session: SessionDep) -> ListOut:
-        lst = session.scalar(_member_lists(user).where(models.List.id == list_id))
-        if lst is None:  # also hides the existence of Lists the user is not a Member of
-            raise HTTPException(404, "list not found")
-        return list_out(
-            lst, effective_language(user.language, user.language_code), settings.bot_username
+    @api.post("/lists", response_model=ListOut, status_code=201)
+    def create_list(body: ListIn, user: UserDep, session: SessionDep) -> ListOut:
+        lst = models.List(name=body.name, created_by=user.id)
+        lst.members.append(models.ListMember(user_id=user.id))
+        session.add(lst)
+        session.commit()
+        return list_out(_member_list(session, user, lst.id), _lang(user), settings.bot_username)
+
+    @api.patch("/lists/{list_id}", response_model=ListOut)
+    def rename_list(list_id: int, body: ListIn, user: UserDep, session: SessionDep) -> ListOut:
+        lst = _member_list(session, user, list_id)
+        lst.name = body.name
+        lst.name_is_default = False  # an explicit name replaces the localized default
+        _touch(session, lst)
+        session.commit()
+        return list_out(_member_list(session, user, lst.id), _lang(user), settings.bot_username)
+
+    @api.post("/lists/{list_id}/leave", status_code=204)
+    def leave_list(list_id: int, user: UserDep, session: SessionDep) -> Response:
+        lst = _member_list(session, user, list_id)
+        membership = next(m for m in lst.members if m.user_id == user.id)
+        # Delete the membership first (this takes the write lock), then count what is left in
+        # the same transaction, so two last Members leaving at once cannot both see "not last".
+        session.delete(membership)
+        session.flush()
+        session.expire(lst, ["members"])
+        remaining = session.scalar(
+            select(func.count())
+            .select_from(models.ListMember)
+            .where(models.ListMember.list_id == list_id)
         )
+        if remaining == 0:  # the last Member left: the List goes with them
+            session.delete(lst)
+        else:
+            # A leave counts as a change for the switcher order (version + updated_at bump).
+            _touch(session, lst)
+        session.commit()
+        return Response(status_code=204)
+
+    @api.delete("/lists/{list_id}", status_code=204)
+    def delete_list(list_id: int, user: UserDep, session: SessionDep) -> Response:
+        # Any Member may delete the List for everyone; the UI asks for confirmation first.
+        # Members (and, in later tickets, Entries, Products and History) go by FK cascade.
+        session.delete(_member_list(session, user, list_id))
+        session.commit()
+        return Response(status_code=204)
 
     def _entry_out(entry: models.Entry) -> EntryOut:
         return EntryOut(
@@ -388,17 +488,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             added_by=entry.added_by,
             added_by_name=entry.author.first_name if entry.author else None,
             created_at=entry.created_at,
+            checked=entry.checked_at is not None,
+            checked_by=entry.checked_by if entry.checked_at is not None else None,
         )
-
-    def _member_list_or_404(session: Session, user: models.User, list_id: int) -> models.List:
-        lst = session.scalar(_member_lists(user).where(models.List.id == list_id))
-        if lst is None:
-            raise HTTPException(404, "list not found")
-        return lst
 
     @api.get("/lists/{list_id}/entries", response_model=ListContentsOut)
     def list_entries(list_id: int, user: UserDep, session: SessionDep) -> ListContentsOut:
-        lst = _member_list_or_404(session, user, list_id)
+        lst = _member_list(session, user, list_id)
         entries = session.scalars(
             select(models.Entry)
             .where(models.Entry.list_id == lst.id, models.Entry.deleted_at.is_(None))
@@ -431,7 +527,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         user: UserDep,
         session: SessionDep,
     ) -> AddEntriesOut:
-        lst = _member_list_or_404(session, user, list_id)
+        lst = _member_list(session, user, list_id)
         items = parse_input(body.text)
         if not items:
             raise HTTPException(422, "no items in the input")
@@ -474,6 +570,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 for item, client_key in zip(items, keys(), strict=True):
                     norm = normalize(item.name)
                     product = products.get(norm)
+                    if product is not None:
+                        product.hidden = False  # entering the name again restores the memory
                     if product is None:
                         product = models.Product(
                             list_id=lst.id,
@@ -493,18 +591,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     )
                     session.add(entry)
                     created.append(entry)
-                session.execute(
-                    update(models.List)
-                    .where(models.List.id == lst.id)
-                    .values(version=models.List.version + 1, updated_at=models.utcnow())
-                )
+                _touch(session, lst)
                 session.commit()
                 break
             except IntegrityError:
                 # A concurrent request won a race: the same client_id (a replay) or the same
                 # new Product name. Replays return the winner's Entries; otherwise retry once.
                 session.rollback()
-                lst = _member_list_or_404(session, user, list_id)
+                lst = _member_list(session, user, list_id)
                 if (replayed := replay()) is not None:
                     return replayed
                 if attempt == 1:
@@ -535,8 +629,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def update_entry(
         list_id: int, entry_id: int, body: EntryUpdate, user: UserDep, session: SessionDep
     ) -> EntryChangeOut:
-        """Edit the Note, or move the whole Product to another Category."""
-        lst = _member_list_or_404(session, user, list_id)
+        """Edit the Note, move the whole Product to another Category, or check/uncheck it."""
+        lst = _member_list(session, user, list_id)
         entry = _entry_or_404(session, lst, entry_id)
         sent = body.model_fields_set
         if "category" in sent and body.category not in CATEGORY_BY_KEY:
@@ -548,7 +642,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             # Entries added later find the Product by name and follow.
             assert body.category is not None
             entry.product.category_key = body.category
-        if sent & {"note", "category"}:
+        changed = bool(sent & {"note", "category"})
+        if "checked" in sent:
+            if body.checked is None:
+                raise HTTPException(422, "checked must be true or false")
+            if (entry.checked_at is not None) != body.checked:
+                entry.checked_at = models.utcnow() if body.checked else None
+                entry.checked_by = user.id if body.checked else None
+                changed = True
+        if changed:
             _bump(session, lst)
         return EntryChangeOut(version=lst.version, entry=_entry_out(entry))
 
@@ -557,7 +659,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         list_id: int, entry_id: int, user: UserDep, session: SessionDep
     ) -> EntryDeleteOut:
         """Remove an Entry from the List. Idempotent; the Product stays in memory."""
-        lst = _member_list_or_404(session, user, list_id)
+        lst = _member_list(session, user, list_id)
         entry = _entry_or_404(session, lst, entry_id, include_deleted=True)
         if entry.deleted_at is None:
             entry.deleted_at = models.utcnow()
@@ -569,12 +671,92 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         list_id: int, entry_id: int, user: UserDep, session: SessionDep
     ) -> EntryChangeOut:
         """Undo a delete: the Entry comes back where it was. A no-op for a live Entry."""
-        lst = _member_list_or_404(session, user, list_id)
+        lst = _member_list(session, user, list_id)
         entry = _entry_or_404(session, lst, entry_id, include_deleted=True)
         if entry.deleted_at is not None:
             entry.deleted_at = None
             _bump(session, lst)
         return EntryChangeOut(version=lst.version, entry=_entry_out(entry))
+
+    @api.get("/lists/{list_id}/suggestions", response_model=list[SuggestionOut])
+    def suggestions(
+        list_id: int,
+        user: UserDep,
+        session: SessionDep,
+        q: Annotated[str, Query(max_length=200)] = "",
+    ) -> list[SuggestionOut]:
+        """Products of this List matching the typed text (never other Lists' Products)."""
+        lst = _member_list(session, user, list_id)
+        query = normalize(q)
+        if not query:
+            return []
+        products = session.scalars(
+            select(models.Product).where(
+                models.Product.list_id == lst.id, models.Product.hidden.is_(False)
+            )
+        ).all()
+        top = rank(query, products)[:MAX_SUGGESTIONS]
+        on_list = set(
+            session.scalars(
+                select(models.Entry.product_id)
+                .where(models.Entry.list_id == lst.id, models.Entry.deleted_at.is_(None))
+                .where(models.Entry.product_id.in_([p.id for p in top]))
+            )
+        )
+        return [
+            SuggestionOut(
+                product_id=p.id, name=p.name, category=p.category_key, on_list=p.id in on_list
+            )
+            for p in top
+        ]
+
+    @api.delete("/lists/{list_id}/products/{product_id}", response_model=ProductHiddenOut)
+    def hide_product(
+        list_id: int, product_id: int, user: UserDep, session: SessionDep
+    ) -> ProductHiddenOut:
+        """Remove a Product from the List's memory. It is only hidden from suggestions."""
+        lst = _member_list(session, user, list_id)
+        product = session.scalar(
+            select(models.Product).where(
+                models.Product.id == product_id, models.Product.list_id == lst.id
+            )
+        )
+        if product is None:
+            raise HTTPException(404, "product not found")
+        if not product.hidden:
+            product.hidden = True
+            session.execute(
+                update(models.List)
+                .where(models.List.id == lst.id)
+                .values(version=models.List.version + 1, updated_at=models.utcnow())
+            )
+            session.commit()
+            session.refresh(lst)
+        return ProductHiddenOut(version=lst.version)
+
+    @api.post("/lists/{list_id}/entries/uncheck-all", response_model=UncheckAllOut)
+    def uncheck_all(list_id: int, user: UserDep, session: SessionDep) -> UncheckAllOut:
+        """Uncheck every Checked Entry of the List (the «Снять все отметки» menu action)."""
+        lst = _member_list(session, user, list_id)
+        result = session.execute(
+            update(models.Entry)
+            .where(
+                models.Entry.list_id == lst.id,
+                models.Entry.deleted_at.is_(None),
+                models.Entry.checked_at.is_not(None),
+            )
+            .values(checked_at=None, checked_by=None)
+        )
+        count = result.rowcount
+        if count:
+            session.execute(
+                update(models.List)
+                .where(models.List.id == lst.id)
+                .values(version=models.List.version + 1, updated_at=models.utcnow())
+            )
+        session.commit()
+        session.refresh(lst)
+        return UncheckAllOut(version=lst.version, unchecked=count)
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Category, Entry } from "../api";
 import type { Language, Strings } from "../i18n";
-import { showNativeBackButton } from "../telegram";
+import { Sheet } from "../screens/Sheet";
 
 interface Props {
   entry: Entry;
@@ -72,8 +72,6 @@ export function EntrySheet({
     onClose();
   }, [flush, onClose]);
 
-  useEffect(() => showNativeBackButton(close), [close]);
-
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") close();
@@ -82,13 +80,15 @@ export function EntrySheet({
     return () => window.removeEventListener("keydown", onKey);
   }, [close]);
 
+  // Unmounting (also when the List is switched under an open sheet) must not drop a Note still
+  // waiting for its debounce: flush it, the save then reports through onSaveFailed.
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
-      window.clearTimeout(timer.current);
+      void flush();
     };
-  }, []);
+  }, [flush]);
 
   // Save the pending Note first, so Undo brings back what was typed, not the old Note.
   const remove = async () => {
@@ -124,62 +124,55 @@ export function EntrySheet({
   });
 
   return (
-    <div className="sheet-root">
-      <div className="sheet-scrim" onClick={close} aria-hidden="true" />
-      <div className="sheet" role="dialog" aria-modal="true" aria-label={entry.name}>
-        <div className="sheet__grip" aria-hidden="true" />
-        <div className="sheet__head">
-          <h2 className="sheet__title">{entry.name}</h2>
-          <button type="button" className="icon-button" aria-label={strings.close} onClick={close}>
-            ✕
-          </button>
-        </div>
+    <Sheet title={entry.name} closeLabel={strings.close} onClose={close}>
+      <label className="field">
+        <span className="field__label">{strings.entryNote}</span>
+        <textarea
+          className="entry-card__note"
+          rows={2}
+          maxLength={500}
+          value={note}
+          placeholder={strings.entryNotePlaceholder}
+          onChange={(e) => onNoteChange(e.target.value)}
+          onBlur={() => void flush()}
+        />
+      </label>
 
-        <label className="sheet__field">
-          <span className="sheet__label">{strings.entryNote}</span>
-          <textarea
-            className="sheet__input"
-            rows={2}
-            maxLength={500}
-            value={note}
-            placeholder={strings.entryNotePlaceholder}
-            onChange={(e) => onNoteChange(e.target.value)}
-            onBlur={() => void flush()}
-          />
-        </label>
+      <label className="field">
+        <span className="field__label">{strings.entryCategory}</span>
+        <select
+          className="field__input"
+          value={category}
+          disabled={categories.length === 0}
+          onChange={(e) => void pickCategory(e.target.value)}
+        >
+          {categories.length === 0 && <option value={category}>{categoryName}</option>}
+          {categories.map((c) => (
+            <option key={c.key} value={c.key}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+      </label>
 
-        <label className="sheet__field">
-          <span className="sheet__label">{strings.entryCategory}</span>
-          <select
-            className="sheet__input"
-            value={category}
-            disabled={categories.length === 0}
-            onChange={(e) => void pickCategory(e.target.value)}
-          >
-            {categories.length === 0 && <option value={category}>{categoryName}</option>}
-            {categories.map((c) => (
-              <option key={c.key} value={c.key}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        </label>
+      <p className="entry-card__meta">
+        {entry.added_by_name ? `${strings.entryAddedBy} ${entry.added_by_name} · ` : ""}
+        {when}
+      </p>
 
-        <p className="sheet__meta">
-          {entry.added_by_name ? `${strings.entryAddedBy} ${entry.added_by_name} · ` : ""}
-          {when}
+      {failed && (
+        <p className="entry-card__error" role="alert">
+          {strings.entrySaveFailed}
         </p>
+      )}
 
-        {failed && (
-          <p className="settings__error" role="alert">
-            {strings.entrySaveFailed}
-          </p>
-        )}
-
-        <button type="button" className="sheet__delete" onClick={() => void remove()}>
-          {strings.entryDelete}
-        </button>
-      </div>
-    </div>
+      <ul className="sheet-list">
+        <li>
+          <button type="button" className="sheet-row sheet-row--destructive" onClick={() => void remove()}>
+            {strings.entryDelete}
+          </button>
+        </li>
+      </ul>
+    </Sheet>
   );
 }

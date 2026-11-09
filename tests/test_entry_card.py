@@ -129,6 +129,17 @@ class TestCategory:
         (again,) = add(client, anna, "молоко")
         assert again["category"] == "other"
 
+    def test_category_change_is_scoped_to_the_list_not_just_the_user(self, client, anna):
+        other = client.post("/api/lists", json={"name": "Дача"}, headers=anna["headers"]).json()
+        other_who = {"headers": anna["headers"], "list_id": other["id"]}
+        (mine,) = add(client, anna, "молоко")
+        (theirs,) = add(client, other_who, "молоко")
+        patch(client, anna, mine["id"], category="other")
+        assert category_of(contents(client, anna), mine["id"]) == "other"
+        assert category_of(contents(client, other_who), theirs["id"]) == "dairy"
+        (later,) = add(client, other_who, "молоко")
+        assert later["category"] == "dairy"
+
     def test_category_change_is_scoped_to_the_list(self, client, anna, sign_in):
         carlos = sign_in(CARLOS)
         carlos_list = client.get("/api/lists", headers=carlos["headers"]).json()[0]["id"]
@@ -219,6 +230,16 @@ class TestDelete:
         dairy = next(g for g in contents(client, anna)["categories"] if g["key"] == "dairy")
         # back in its original place among the Entries
         assert [e["note"] for e in dairy["entries"]] == ["2 л", "3 л"]
+
+    def test_a_checked_entry_comes_back_checked(self, client, anna):
+        # Undo restores the Entry exactly as it was, so the check mark survives a delete.
+        (milk,) = add(client, anna, "молоко")
+        client.patch(entry_url(anna, milk["id"]), json={"checked": True}, headers=anna["headers"])
+        client.delete(entry_url(anna, milk["id"]), headers=anna["headers"])
+        r = client.post(entry_url(anna, milk["id"], "/restore"), headers=anna["headers"])
+        assert r.json()["entry"]["checked"] is True
+        (back,) = all_entries(contents(client, anna))
+        assert back["checked"] is True
 
     def test_restoring_a_live_entry_is_a_no_op(self, client, anna):
         (milk,) = add(client, anna, "молоко")

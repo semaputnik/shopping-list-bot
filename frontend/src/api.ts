@@ -24,6 +24,7 @@ export interface Member {
 export interface ShoppingList {
   id: number;
   name: string;
+  member_count: number;
   share_code: string;
   /** The Share link; null while the backend has no SL_BOT_USERNAME. */
   share_url: string | null;
@@ -53,7 +54,10 @@ async function request<T>(path: string, init: RequestInit = {}, token?: string):
   headers.set("Content-Type", "application/json");
   if (token) headers.set("Authorization", `Bearer ${token}`);
   const response = await fetch(path, { ...init, headers });
-  if (!response.ok) throw new ApiError(`${init.method ?? "GET"} ${path}: ${response.status}`, response.status);
+  if (!response.ok) {
+    throw new ApiError(`${init.method ?? "GET"} ${path}: ${response.status}`, response.status);
+  }
+  if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
 
@@ -70,8 +74,17 @@ export function updateLanguage(token: string, language: "ru" | "es" | null): Pro
   return request<User>("/api/me", { method: "PATCH", body: JSON.stringify({ language }) }, token);
 }
 
+/** The user's Lists, most recently changed first. */
 export function fetchLists(token: string): Promise<ShoppingList[]> {
   return request<ShoppingList[]>("/api/lists", {}, token);
+}
+
+export function createList(token: string, name: string): Promise<ShoppingList> {
+  return request<ShoppingList>(
+    "/api/lists",
+    { method: "POST", body: JSON.stringify({ name }) },
+    token,
+  );
 }
 
 export interface Entry {
@@ -84,6 +97,8 @@ export interface Entry {
   /** First name of whoever added it; null if that user is gone. */
   added_by_name: string | null;
   created_at: string;
+  checked: boolean;
+  checked_by: number | null;
 }
 
 export interface CategoryGroup {
@@ -126,6 +141,7 @@ export function addEntries(
 export interface Category {
   key: string;
   name: string;
+  emoji: string;
 }
 
 /** The system Categories, named in the user's language, in display order. */
@@ -133,12 +149,15 @@ export function fetchCategories(token: string): Promise<Category[]> {
   return request<Category[]>("/api/categories", {}, token);
 }
 
-/** Edits one Entry. `note: null` clears the Note; `category` moves the whole Product. */
+/**
+ * Edits one Entry; only the fields sent change. `note: null` clears the Note, `category` moves
+ * the whole Product, `checked` is the wanted state (not a toggle).
+ */
 export function updateEntry(
   token: string,
   listId: number,
   entryId: number,
-  change: { note?: string | null; category?: string },
+  change: { note?: string | null; category?: string; checked?: boolean },
 ): Promise<{ version: number; entry: Entry }> {
   return request(
     `/api/lists/${listId}/entries/${entryId}`,
@@ -147,13 +166,54 @@ export function updateEntry(
   );
 }
 
+
+/** A Product from the List's memory matching the typed text. */
+export interface Suggestion {
+  product_id: number;
+  name: string;
+  category: string;
+  /** The Product already has an Entry on the List (adding it again still creates another row). */
+  on_list: boolean;
+}
+
+export function fetchSuggestions(token: string, listId: number, q: string): Promise<Suggestion[]> {
+  return request<Suggestion[]>(`/api/lists/${listId}/suggestions?q=${encodeURIComponent(q)}`, {}, token);
+}
+
+/** Removes a Product from the List's memory; it is only hidden from suggestions. */
+export function hideProduct(token: string, listId: number, productId: number): Promise<{ version: number }> {
+  return request<{ version: number }>(`/api/lists/${listId}/products/${productId}`, { method: "DELETE" }, token);
+}
+
+export function renameList(token: string, id: number, name: string): Promise<ShoppingList> {
+  return request<ShoppingList>(
+    `/api/lists/${id}`,
+    { method: "PATCH", body: JSON.stringify({ name }) },
+    token,
+  );
+}
+
 export function deleteEntry(token: string, listId: number, entryId: number): Promise<{ version: number }> {
   return request(`/api/lists/${listId}/entries/${entryId}`, { method: "DELETE" }, token);
 }
 
-/** Undo of a delete. */
-export function restoreEntry(token: string, listId: number, entryId: number): Promise<{ version: number }> {
+/** Undo of a delete: the Entry comes back as it was (a Checked Entry is still Checked). */
+export function restoreEntry(
+  token: string,
+  listId: number,
+  entryId: number,
+): Promise<{ version: number; entry: Entry }> {
   return request(`/api/lists/${listId}/entries/${entryId}/restore`, { method: "POST" }, token);
+}
+
+/** Leaves the List for this user only; the last Member leaving deletes it. */
+export function leaveList(token: string, id: number): Promise<void> {
+  return request<void>(`/api/lists/${id}/leave`, { method: "POST" }, token);
+}
+
+/** Deletes the List for all its Members. Always ask for confirmation first. */
+export function deleteList(token: string, id: number): Promise<void> {
+  return request<void>(`/api/lists/${id}`, { method: "DELETE" }, token);
 }
 
 /** Opens a Share link: joins the List (a no-op for a Member). Rejects with ApiError 404 for an invalid code. */
@@ -163,4 +223,9 @@ export function joinList(token: string, code: string): Promise<ShoppingList> {
     { method: "POST", body: JSON.stringify({ code }) },
     token,
   );
+}
+
+/** Unchecks every Entry of the List. */
+export function uncheckAll(token: string, listId: number): Promise<{ version: number; unchecked: number }> {
+  return request(`/api/lists/${listId}/entries/uncheck-all`, { method: "POST" }, token);
 }

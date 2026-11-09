@@ -1,30 +1,57 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
 import {
   addEntries,
   deleteEntry,
   fetchCategories,
   fetchContents,
+  fetchSuggestions,
+  hideProduct,
   restoreEntry,
   updateEntry,
+  uncheckAll,
   type Category,
   type ListContents,
   type ShoppingList,
+  type Suggestion,
 } from "../api";
 import { AvatarStack } from "../components/Avatar";
 import { EntrySheet } from "../components/EntrySheet";
-import { QUICK_ADD, type Language, type Strings } from "../i18n";
-import { notifyHaptic } from "../telegram";
+import { applyEntryChange } from "../entryChange";
+import { QUICK_ADD, withCount, type Language, type Strings } from "../i18n";
+import { confirmDestructive, haptic } from "../telegram";
+import { NameSheet, Sheet } from "./Sheet";
 
 interface Props {
   token: string;
+  /** All the user's Lists, most recently changed first. */
+  lists: ShoppingList[];
   list: ShoppingList | null;
   language: Language;
   strings: Strings;
+  /** True when the last action failed on the server. */
+  failed: boolean;
+  onSelect: (id: number) => void;
   onOpenMembers: () => void;
   onOpenSettings: () => void;
+  /** Mutations resolve true on success, false when the request failed. */
+  onCreate: (name: string) => Promise<boolean>;
+  onRename: (id: number, name: string) => Promise<boolean>;
+  onLeave: (id: number) => Promise<boolean>;
+  onDelete: (id: number) => Promise<boolean>;
 }
 
+type Panel = null | "switcher" | "menu" | "create" | "rename";
+
 const HIGHLIGHT_MS = 1600;
+const SUGGEST_DELAY_MS = 120;
 const UNDO_MS = 5000;
 
 interface Removed {
@@ -32,18 +59,95 @@ interface Removed {
   name: string;
 }
 
-/** The List screen: header with Members and Settings, the pinned input line, then Entries grouped by Category. */
-export function ListScreen({ token, list, language, strings, onOpenMembers, onOpenSettings }: Props) {
+/** Same folding as the backend: case and diacritics ignored. */
+function fold(value: string): string {
+  return value.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+/** The Entry being typed: the text after the last `;` or line break. */
+function currentSegment(text: string): { start: number; query: string } {
+  const start = Math.max(text.lastIndexOf(";"), text.lastIndexOf("\n")) + 1;
+  const segment = text.slice(start);
+  // After a comma the Note is being typed, which has no suggestions.
+  return { start, query: segment.includes(",") ? "" : segment.trim() };
+}
+
+/**
+ * The List screen: header (switcher, Members, menu), the pinned input line, then Entries grouped
+ * by Category. Rendered with `key={list.id}` so every List starts with its own state.
+ */
+export function ListScreen({
+  token,
+  lists,
+  list,
+  language,
+  strings,
+  failed,
+  onSelect,
+  onOpenMembers,
+  onOpenSettings,
+  onCreate,
+  onRename,
+  onLeave,
+  onDelete,
+}: Props) {
+  const [panel, setPanel] = useState<Panel>(null);
+  // The sheet the BackButton returns to; null closes the sheets altogether.
+  const [parent, setParent] = useState<Panel>(null);
+  const close = useCallback(() => {
+    setParent(null);
+    setPanel(null);
+  }, []);
+  const openPanel = (next: Panel, from: Panel = null) => {
+    setParent(from);
+    setPanel(next);
+  };
+  // Back from a nested sheet returns to its parent (and forgets it); otherwise closes all.
+  const back = useCallback(() => {
+    setParent(null);
+    setPanel(parent);
+  }, [parent]);
+
   const [contents, setContents] = useState<ListContents | null>(null);
   const [fresh, setFresh] = useState<ReadonlySet<number>>(new Set());
-  const [error, setError] = useState<"add" | "load" | "delete" | "undo" | "save" | null>(null);
+  const [error, setError] = useState<"add" | "load" | "check" | "delete" | "undo" | "save" | null>(null);
   const [text, setText] = useState("");
   const [pendingQuick, setPendingQuick] = useState<ReadonlySet<string>>(new Set());
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [active, setActive] = useState(-1); // index into the options; -1 = none highlighted
+  const [dismissed, setDismissed] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
   const listId = list?.id;
   const [openId, setOpenId] = useState<number | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [removed, setRemoved] = useState<Removed[]>([]); // deleted Entries still undoable, oldest first
+  const { start: segmentStart, query } = currentSegment(text);
+  const isNew = query !== "" && !suggestions.some((s) => fold(s.name) === fold(query));
+  // Options in order: matching Products, then «Добавить «…»» for a new name.
+  const optionCount = suggestions.length + (isNew ? 1 : 0);
+  const open = query !== "" && !dismissed && optionCount > 0;
+
+  useEffect(() => {
+    setDismissed(false);
+    setActive(-1);
+    if (listId === undefined || query === "") {
+      setSuggestions([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      fetchSuggestions(token, listId, query).then(
+        (found) => {
+          if (!cancelled) setSuggestions(found);
+        },
+        (e) => console.error(e), // suggestions are optional: typing and adding still work
+      );
+    }, SUGGEST_DELAY_MS);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [token, listId, query]);
 
   // Responses can arrive out of order after quick consecutive adds: never replace newer contents.
   const showContents = useCallback((next: ListContents) => {
@@ -72,32 +176,46 @@ export function ListScreen({ token, list, language, strings, onOpenMembers, onOp
     fetchCategories(token).then(setCategories, (e) => console.error(e));
   }, [token]);
 
-  // Fetched up front so the sheet's select is ready; retried on open if that failed.
+  // Fetched up front so the card's select is ready; retried on open if that failed.
   useEffect(loadCategories, [loadCategories]);
 
-  const openSheet = (id: number) => {
+  const openCard = (id: number) => {
     setOpenId(id);
     if (categories.length === 0) loadCategories();
   };
 
-  const closeSheet = useCallback(() => setOpenId(null), []);
+  const closeCard = useCallback(() => setOpenId(null), []);
+
+  /** Sends one edit and applies the answer locally; a refetch only when it cannot be applied. */
+  const editEntry = useCallback(
+    async (entryId: number, change: { note?: string | null; category?: string }) => {
+      if (listId === undefined) return;
+      const result = await updateEntry(token, listId, entryId, change);
+      let applied = false;
+      setContents((prev) => {
+        const next = prev && applyEntryChange(prev, result.entry, result.version, categories);
+        applied = next !== null;
+        return next ?? prev;
+      });
+      if (!applied) await refresh();
+    },
+    [token, listId, categories, refresh],
+  );
 
   const saveNote = useCallback(
-    async (note: string) => {
-      if (listId === undefined || openId === null) return;
-      await updateEntry(token, listId, openId, { note: note.trim() ? note : null });
-      await refresh();
+    (note: string) => {
+      if (openId === null) return Promise.resolve();
+      return editEntry(openId, { note: note.trim() ? note : null });
     },
-    [token, listId, openId, refresh],
+    [openId, editEntry],
   );
 
   const changeCategory = useCallback(
-    async (category: string) => {
-      if (listId === undefined || openId === null) return;
-      await updateEntry(token, listId, openId, { category });
-      await refresh();
+    (category: string) => {
+      if (openId === null) return Promise.resolve();
+      return editEntry(openId, { category });
     },
-    [token, listId, openId, refresh],
+    [openId, editEntry],
   );
 
   const removeEntry = async (id: number, name: string) => {
@@ -110,7 +228,7 @@ export function ListScreen({ token, list, language, strings, onOpenMembers, onOp
       setError("delete");
       return;
     }
-    notifyHaptic("warning");
+    haptic.error();
     setError(null);
     setRemoved((prev) => [...prev, { id, name }]);
     window.setTimeout(() => setRemoved((prev) => prev.filter((r) => r.id !== id)), UNDO_MS);
@@ -128,7 +246,7 @@ export function ListScreen({ token, list, language, strings, onOpenMembers, onOp
       setError("undo");
       return;
     }
-    notifyHaptic("success");
+    haptic.success();
     await refresh();
   };
 
@@ -176,6 +294,62 @@ export function ListScreen({ token, list, language, strings, onOpenMembers, onOp
     [token, listId, showContents],
   );
 
+  /** Applies a Checked state to the local copy right away; the Entry never moves. */
+  const applyChecked = useCallback((match: (id: number) => boolean, checked: boolean) => {
+    setContents((prev) =>
+      prev && {
+        ...prev,
+        categories: prev.categories.map((g) => ({
+          ...g,
+          entries: g.entries.map((e) => (match(e.id) ? { ...e, checked } : e)),
+        })),
+      },
+    );
+  }, []);
+
+  const reload = useCallback(
+    (failure: "check" | "load") => {
+      if (listId === undefined) return;
+      setError(failure);
+      fetchContents(token, listId).then(showContents, console.error);
+    },
+    [token, listId, showContents],
+  );
+
+  const toggle = useCallback(
+    (id: number, checked: boolean) => {
+      if (listId === undefined) return;
+      haptic.select();
+      setError(null);
+      applyChecked((x) => x === id, checked);
+      updateEntry(token, listId, id, { checked }).then(
+        (result) => setContents((prev) => prev && { ...prev, list: { ...prev.list, version: Math.max(prev.list.version, result.version) } }),
+        (e) => {
+          console.error(e);
+          reload("check");
+        },
+      );
+    },
+    [token, listId, applyChecked, reload],
+  );
+
+  const anyChecked = (contents?.categories ?? []).some((g) => g.entries.some((e) => e.checked));
+
+  const onUncheckAll = () => {
+    close();
+    if (listId === undefined) return;
+    haptic.select();
+    setError(null);
+    applyChecked(() => true, false);
+    uncheckAll(token, listId).then(
+      (result) => setContents((prev) => prev && { ...prev, list: { ...prev.list, version: Math.max(prev.list.version, result.version) } }),
+      (e) => {
+        console.error(e);
+        reload("check");
+      },
+    );
+  };
+
   const send = () => {
     const raw = text;
     if (!raw.trim()) return;
@@ -184,7 +358,45 @@ export function ListScreen({ token, list, language, strings, onOpenMembers, onOp
     void submit(raw);
   };
 
+  /** Adds the typed text with the Entry being typed replaced by the chosen Product's name. */
+  const choose = (index: number) => {
+    const suggestion = suggestions[index]; // undefined for «Добавить «…»»: the text goes as typed
+    const raw = suggestion ? text.slice(0, segmentStart) + suggestion.name : text;
+    setText("");
+    input.current?.focus();
+    void submit(raw);
+  };
+
+  const forget = async (suggestion: Suggestion) => {
+    if (listId === undefined) return;
+    try {
+      await hideProduct(token, listId, suggestion.product_id);
+      setSuggestions((prev) => prev.filter((s) => s.product_id !== suggestion.product_id));
+      setActive(-1);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (open && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+      event.preventDefault();
+      // Cycles through -1 (nothing highlighted, Enter adds the text as typed) and every option.
+      const slots = optionCount + 1;
+      const step = event.key === "ArrowDown" ? 1 : slots - 1;
+      setActive((i) => ((i + 1 + step) % slots) - 1);
+      return;
+    }
+    if (open && event.key === "Escape") {
+      event.preventDefault();
+      setDismissed(true);
+      return;
+    }
+    if (open && active >= 0 && event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      choose(active);
+      return;
+    }
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
       send();
@@ -196,26 +408,170 @@ export function ListScreen({ token, list, language, strings, onOpenMembers, onOp
     send();
   };
 
+  const leave = async () => {
+    if (!list) return;
+    close();
+    const ok = await confirmDestructive({
+      title: strings.leaveTitle,
+      message: list.members.length <= 1 ? strings.leaveLastMessage : strings.leaveMessage,
+      confirmLabel: strings.leaveList,
+    });
+    if (ok) await onLeave(list.id);
+  };
+
+  const remove = async () => {
+    if (!list) return;
+    close();
+    const ok = await confirmDestructive({
+      title: strings.deleteTitle,
+      message: withCount(strings.deleteMessage, list.members.length),
+      confirmLabel: strings.deleteList,
+    });
+    if (ok) await onDelete(list.id);
+  };
+
+  const sheets = (
+    <>
+      {failed && (
+        <p className="toast" role="alert">
+          {strings.actionFailed}
+        </p>
+      )}
+      {panel === "switcher" && (
+        <Sheet title={strings.switchList} onClose={close} closeLabel={strings.cancel}>
+          <ul className="sheet-list">
+            {lists.map((l) => (
+              <li key={l.id}>
+                <button
+                  type="button"
+                  className="sheet-row"
+                  aria-current={l.id === list?.id}
+                  onClick={() => {
+                    if (l.id !== list?.id) haptic.select();
+                    onSelect(l.id);
+                    close();
+                  }}
+                >
+                  <span className="sheet-row__name">{l.name}</span>
+                  <span className="sheet-row__meta">
+                    {l.id === list?.id ? "✓" : withCount(strings.membersCount, l.members.length)}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          <ul className="sheet-list">
+            <li>
+              <button type="button" className="sheet-row sheet-row--accent" onClick={() => openPanel("create", "switcher")}>
+                {strings.newList}
+              </button>
+            </li>
+          </ul>
+        </Sheet>
+      )}
+      {panel === "menu" && list && (
+        <Sheet title={strings.listMenu} onClose={close} closeLabel={strings.cancel}>
+          <ul className="sheet-list">
+            <li>
+              <button type="button" className="sheet-row" onClick={() => openPanel("rename", "menu")}>
+                {strings.renameList}
+              </button>
+            </li>
+            <li>
+              <button type="button" className="sheet-row" disabled={!anyChecked} onClick={onUncheckAll}>
+                {strings.uncheckAll}
+              </button>
+            </li>
+            <li>
+              <button
+                type="button"
+                className="sheet-row"
+                onClick={() => {
+                  close();
+                  onOpenSettings();
+                }}
+              >
+                {strings.settings}
+              </button>
+            </li>
+            <li>
+              <button type="button" className="sheet-row sheet-row--destructive" onClick={() => void leave()}>
+                {strings.leaveList}
+              </button>
+            </li>
+            <li>
+              <button type="button" className="sheet-row sheet-row--destructive" onClick={() => void remove()}>
+                {strings.deleteList}
+              </button>
+            </li>
+          </ul>
+        </Sheet>
+      )}
+      {panel === "create" && (
+        <NameSheet
+          title={strings.newList}
+          label={strings.listName}
+          placeholder={strings.listNamePlaceholder}
+          submitLabel={strings.createList}
+          cancelLabel={strings.cancel}
+          initial=""
+          onClose={back}
+          onDone={close}
+          onSubmit={onCreate}
+        />
+      )}
+      {panel === "rename" && list && (
+        <NameSheet
+          title={strings.renameList}
+          label={strings.listName}
+          placeholder={strings.listNamePlaceholder}
+          submitLabel={strings.save}
+          cancelLabel={strings.cancel}
+          initial={list.name}
+          onClose={back}
+          onDone={close}
+          onSubmit={(name) => onRename(list.id, name)}
+        />
+      )}
+    </>
+  );
+
   if (!list) {
     return (
       <main className="screen">
         <section className="empty">
           <p className="empty__title">{strings.noList}</p>
+          <button type="button" className="empty__action" onClick={() => openPanel("create")}>
+            {strings.newList}
+          </button>
           <button type="button" className="text-button" onClick={onOpenSettings}>
             {strings.settings}
           </button>
         </section>
+        {sheets}
       </main>
     );
   }
 
   const groups = contents?.categories ?? [];
   const openEntry =
-    openId === null ? null : groups.flatMap((g) => g.entries).find((e) => e.id === openId) ?? null;
+    openId === null ? null : (groups.flatMap((g) => g.entries).find((e) => e.id === openId) ?? null);
   return (
     <main className="screen">
       <header className="header">
-        <h1 className="header__title">{list.name}</h1>
+        <h1 className="header__heading">
+          <button
+            type="button"
+            className="header__switch"
+            aria-haspopup="dialog"
+            onClick={() => openPanel("switcher")}
+          >
+            <span className="header__title">{list.name}</span>
+            <span className="header__chevron" aria-hidden="true">
+              ▾
+            </span>
+          </button>
+        </h1>
         <button
           type="button"
           className="avatars-button"
@@ -226,11 +582,11 @@ export function ListScreen({ token, list, language, strings, onOpenMembers, onOp
         </button>
         <button
           type="button"
-          className="icon-button"
-          aria-label={strings.settings}
-          onClick={onOpenSettings}
+          className="header__menu"
+          aria-label={strings.listMenu}
+          onClick={() => openPanel("menu")}
         >
-          ⚙︎
+          ⋯
         </button>
       </header>
 
@@ -244,9 +600,64 @@ export function ListScreen({ token, list, language, strings, onOpenMembers, onOp
           aria-label={strings.inputLabel}
           enterKeyHint="send"
           autoFocus
+          role="combobox"
+          aria-expanded={open}
+          aria-controls="suggestions"
+          aria-autocomplete="list"
+          aria-activedescendant={open && active >= 0 ? `suggestion-${active}` : undefined}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKeyDown}
         />
+        {open && (
+          <ul id="suggestions" className="suggest" role="listbox" aria-label={strings.suggestions}>
+            {suggestions.map((s, i) => (
+              <li key={s.product_id} className="suggest__item" role="presentation">
+                <button
+                  type="button"
+                  id={`suggestion-${i}`}
+                  role="option"
+                  aria-selected={active === i}
+                  className={active === i ? "suggest__option suggest__option--active" : "suggest__option"}
+                  onMouseDown={(e) => e.preventDefault()} // keep the input focused
+                  onClick={() => choose(i)}
+                >
+                  <span className="suggest__name">{s.name}</span>
+                  {s.on_list && <span className="suggest__hint">{strings.alreadyOnList}</span>}
+                </button>
+                <button
+                  type="button"
+                  className="suggest__forget"
+                  aria-label={`${strings.forgetProduct}: ${s.name}`}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => void forget(s)}
+                >
+                  ✕
+                </button>
+              </li>
+            ))}
+            {isNew && (
+              <li className="suggest__item" role="presentation">
+                <button
+                  type="button"
+                  id={`suggestion-${suggestions.length}`}
+                  role="option"
+                  aria-selected={active === suggestions.length}
+                  className={
+                    active === suggestions.length
+                      ? "suggest__option suggest__option--active"
+                      : "suggest__option"
+                  }
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => choose(suggestions.length)}
+                >
+                  <span className="suggest__name">
+                    {strings.addNew} «{query}»
+                  </span>
+                </button>
+              </li>
+            )}
+          </ul>
+        )}
       </form>
       {error && (
         <p className="notice" role="alert">
@@ -254,6 +665,7 @@ export function ListScreen({ token, list, language, strings, onOpenMembers, onOp
             {
               add: strings.addFailed,
               load: strings.loadFailed,
+              check: strings.checkFailed,
               delete: strings.entryDeleteFailed,
               undo: strings.undoFailed,
               save: strings.entrySaveFailed,
@@ -304,17 +716,31 @@ export function ListScreen({ token, list, language, strings, onOpenMembers, onOp
           </h2>
           <ul className="rows">
             {group.entries.map((entry) => (
-              <li key={entry.id} className={fresh.has(entry.id) ? "row row--new" : "row"}>
-                <button type="button" className="row__name" onClick={() => openSheet(entry.id)}>
-                  {entry.name}
+              <li
+                key={entry.id}
+                className={["row", entry.checked && "row--checked", fresh.has(entry.id) && "row--new"]
+                  .filter(Boolean)
+                  .join(" ")}
+              >
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={entry.checked}
+                  aria-label={entry.name}
+                  className="row__toggle"
+                  onClick={() => toggle(entry.id, !entry.checked)}
+                >
+                  <span className="row__check" aria-hidden="true" />
                 </button>
-                {entry.note && <span className="row__note">{entry.note}</span>}
+                <button type="button" className="row__open" onClick={() => openCard(entry.id)}>
+                  <span className="row__name">{entry.name}</span>
+                  {entry.note && <span className="row__note">{entry.note}</span>}
+                </button>
               </li>
             ))}
           </ul>
         </section>
       ))}
-
       {openEntry && (
         <EntrySheet
           key={openEntry.id}
@@ -327,7 +753,7 @@ export function ListScreen({ token, list, language, strings, onOpenMembers, onOp
           onChangeCategory={changeCategory}
           onDelete={() => void removeEntry(openEntry.id, openEntry.name)}
           onSaveFailed={() => setError("save")}
-          onClose={closeSheet}
+          onClose={closeCard}
         />
       )}
 
@@ -341,6 +767,7 @@ export function ListScreen({ token, list, language, strings, onOpenMembers, onOp
           </button>
         </div>
       )}
+      {sheets}
     </main>
   );
 }

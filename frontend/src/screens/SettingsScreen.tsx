@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { LANGUAGE_NAMES, type Language, type Strings } from "../i18n";
-import { showNativeBackButton } from "../telegram";
+import { bindBackButton } from "../telegram";
 
 interface Props {
   language: Language;
@@ -26,7 +26,7 @@ export function SettingsScreen({
   const [busy, setBusy] = useState(false);
 
   // Nested screens use Telegram's native BackButton.
-  useEffect(() => showNativeBackButton(onBack), [onBack]);
+  useEffect(() => bindBackButton(onBack), [onBack]);
 
   const choose = async (next: Language | null) => {
     if (busy || (next === null ? !overridden : overridden && next === language)) return;

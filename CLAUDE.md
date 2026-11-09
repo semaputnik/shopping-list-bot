@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project state
 
-The walking skeleton exists: Telegram sign-in, the first List, and an empty List screen, plus Share links (`POST /api/lists/join`) and the Members screen. Backend is in `src/shopping_list_bot/` (FastAPI + SQLAlchemy + SQLite, see `docs/adr/0003-sqlite-database.md`), the Mini App in `frontend/` (React + Vite + TypeScript), and the bot in `src/shopping_list_bot/bot.py` (aiogram). Everything else is built ticket by ticket from GitHub issue #1.
+The walking skeleton exists: Telegram sign-in, the first List, and an empty List screen, plus Share links (`POST /api/lists/join`) and the Members screen. Suggestions from the List's memory: `GET /api/lists/{id}/suggestions?q=` (ranking in `suggest.py`) and `DELETE /api/lists/{id}/products/{product_id}` (hides a Product from memory). Backend is in `src/shopping_list_bot/` (FastAPI + SQLAlchemy + SQLite, see `docs/adr/0003-sqlite-database.md`), the Mini App in `frontend/` (React + Vite + TypeScript), and the bot in `src/shopping_list_bot/bot.py` (aiogram). Everything else is built ticket by ticket from GitHub issue #1.
 
 **Product spec:** [docs/ui-spec.md](docs/ui-spec.md) (Russian). It covers scope, screens, input parsing, sync, Telegram Mini App rules, the data model, MVP staging, and acceptance criteria. Read the relevant section before building a feature.
 
