@@ -63,7 +63,9 @@ export function App() {
         token: session.token,
         user: session.user,
         lists,
-        currentId, screen: "list" });
+        currentId,
+        screen: "list",
+      });
     } catch (error) {
       console.error(error);
       setState({ kind: "error" });

@@ -25,7 +25,9 @@ _TAIL = re.compile(
     rf"^(?P<name>.*?\S)\s+(?P<tail>\d+(?:[.,]\d+)?\s*(?:{_UNITS}))\.?$", re.IGNORECASE
 )
 # A leading "<number> <unit>" head followed by the item ("2 л молока", "500г сыра").
-_HEAD = re.compile(rf"^(?P<head>\d+(?:[.,]\d+)?\s*(?:{_UNITS}))\s+(?P<name>\S.*)$", re.IGNORECASE)
+_HEAD = re.compile(
+    rf"^(?P<head>\d+(?:[.,]\d+)?\s*(?:{_UNITS})\.?)\s+(?P<name>\S.*)$", re.IGNORECASE
+)
 
 
 @dataclass(frozen=True)
@@ -48,7 +50,8 @@ def _split_number(name: str) -> tuple[str, str | None]:
         rest_tokens = head["name"].split()
         if _NUMBER.fullmatch(rest_tokens[0]) or _NUMBER.fullmatch(rest_tokens[-1]):
             return name, None  # "2 л 3 молока", "2 л молока 3": ambiguous
-        return head["name"], head["head"]
+        name_part = re.sub(r"^de\s+", "", head["name"], flags=re.IGNORECASE)  # "2 kg de patatas"
+        return (name_part if name_part.strip() else head["name"]), head["head"]
     first = _NUMBER.fullmatch(tokens[0]) is not None
     last = _NUMBER.fullmatch(tokens[-1]) is not None
     if first == last:  # no number, or numbers on both ends ("2 молока 3"): leave as typed
@@ -63,7 +66,7 @@ def _split_number(name: str) -> tuple[str, str | None]:
     neighbour = rest[0] if first else rest[-1]
     if _NUMBER.fullmatch(neighbour):
         return name, None
-    if _UNIT.fullmatch(" ".join(rest)):  # "2 л" is a quantity, not an item called "л"
+    if _UNIT.fullmatch(" ".join(rest).rstrip(".")):  # "2 л" is a quantity, not an item called "л"
         return name, None
     return " ".join(rest), number
 
