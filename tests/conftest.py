@@ -46,6 +46,7 @@ def sign_init_data(
 def client(tmp_path: Path) -> Iterator[TestClient]:
     settings = Settings(
         bot_token=TEST_BOT_TOKEN,
+        bot_username="shared_lists_test_bot",
         database_url=f"sqlite:///{tmp_path / 'test.db'}",
         frontend_dist=tmp_path / "no-frontend",
         _env_file=None,

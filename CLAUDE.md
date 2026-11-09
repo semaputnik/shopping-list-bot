@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project state
 
-The walking skeleton exists: Telegram sign-in, the first List, and an empty List screen. Backend is in `src/shopping_list_bot/` (FastAPI + SQLAlchemy + SQLite, see `docs/adr/0003-sqlite-database.md`), the Mini App in `frontend/` (React + Vite + TypeScript), and the bot in `src/shopping_list_bot/bot.py` (aiogram). Everything else is built ticket by ticket from GitHub issue #1.
+The walking skeleton exists: Telegram sign-in, the first List, and an empty List screen, plus Share links (`POST /api/lists/join`) and the Members screen. Backend is in `src/shopping_list_bot/` (FastAPI + SQLAlchemy + SQLite, see `docs/adr/0003-sqlite-database.md`), the Mini App in `frontend/` (React + Vite + TypeScript), and the bot in `src/shopping_list_bot/bot.py` (aiogram). Everything else is built ticket by ticket from GitHub issue #1.
 
 **Product spec:** [docs/ui-spec.md](docs/ui-spec.md) (Russian). It covers scope, screens, input parsing, sync, Telegram Mini App rules, the data model, MVP staging, and acceptance criteria. Read the relevant section before building a feature.
 
@@ -31,7 +31,7 @@ cd frontend && npm run build             # typecheck (tsc) + production build in
 cd frontend && npm run typecheck         # typecheck only
 ```
 
-**Configuration** is read from `SL_*` environment variables or a `.env` file: `SL_BOT_TOKEN`, `SL_WEBAPP_URL` (public https URL of the Mini App), `SL_DATABASE_URL` (default `sqlite:///./shared_lists.db`), `SL_SESSION_SECRET` (optional; derived from the bot token if empty; with neither set, no session is issued or accepted). No real bot token is needed to run tests or build.
+**Configuration** is read from `SL_*` environment variables or a `.env` file: `SL_BOT_TOKEN`, `SL_BOT_USERNAME` (the bot's @username without `@`; builds Share links `https://t.me/<bot>?startapp=<code>`, `share_url` is null without it), `SL_WEBAPP_URL` (public https URL of the Mini App), `SL_DATABASE_URL` (default `sqlite:///./shared_lists.db`), `SL_SESSION_SECRET` (optional; derived from the bot token if empty; with neither set, no session is issued or accepted). No real bot token is needed to run tests or build.
 
 **Tests:** the only automated seam is the backend HTTP API. `tests/conftest.py` gives each test a fresh SQLite file and a `sign_in` fixture that authenticates with `initData` signed by a test bot token. Test external behaviour (request in, response out), never internals. The frontend has no automated tests; it must typecheck and build.
 
