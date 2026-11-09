@@ -86,6 +86,8 @@ class EntryOut(BaseModel):
     category: str
     added_by: int | None
     created_at: datetime
+    checked: bool
+    checked_by: int | None
 
 
 class CategoryGroupOut(BaseModel):
@@ -125,6 +127,22 @@ class SuggestionOut(BaseModel):
 
 class ProductHiddenOut(BaseModel):
     version: int
+
+
+class CheckIn(BaseModel):
+    # The wanted state, not a toggle: replaying a request is harmless.
+    checked: bool
+
+
+class CheckOut(BaseModel):
+    version: int
+    entry: EntryOut
+
+
+class UncheckAllOut(BaseModel):
+    version: int
+    # How many Entries were Checked and are not any more.
+    unchecked: int
 
 
 class MeUpdate(BaseModel):
@@ -222,6 +240,8 @@ def _add_missing_columns(engine) -> None:
         ("list", "name_is_default", "BOOLEAN NOT NULL DEFAULT 0"),
         ("product", "purchase_count", "INTEGER NOT NULL DEFAULT 0"),
         ("product", "hidden", "BOOLEAN NOT NULL DEFAULT 0"),
+        ("entry", "checked_at", "DATETIME"),
+        ("entry", "checked_by", "INTEGER REFERENCES user (id) ON DELETE SET NULL"),
     ]
     for table, column, ddl in additions:
         if column not in {c["name"] for c in inspector.get_columns(table)}:
@@ -455,6 +475,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             category=entry.product.category_key,
             added_by=entry.added_by,
             created_at=entry.created_at,
+            checked=entry.checked_at is not None,
+            checked_by=entry.checked_by if entry.checked_at is not None else None,
         )
 
     @api.get("/lists/{list_id}/entries", response_model=ListContentsOut)
@@ -626,6 +648,51 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             session.commit()
             session.refresh(lst)
         return ProductHiddenOut(version=lst.version)
+
+    @api.patch("/lists/{list_id}/entries/{entry_id}", response_model=CheckOut)
+    def set_checked(
+        list_id: int, entry_id: int, body: CheckIn, user: UserDep, session: SessionDep
+    ) -> CheckOut:
+        """Check or uncheck one Entry. It stays in place; setting the state it has is a no-op."""
+        lst = _member_list(session, user, list_id)
+        entry = session.scalar(
+            select(models.Entry)
+            .where(models.Entry.id == entry_id, models.Entry.list_id == lst.id)
+            .options(selectinload(models.Entry.product))
+        )
+        if entry is None:
+            raise HTTPException(404, "entry not found")
+        if (entry.checked_at is not None) != body.checked:
+            entry.checked_at = models.utcnow() if body.checked else None
+            entry.checked_by = user.id if body.checked else None
+            session.execute(
+                update(models.List)
+                .where(models.List.id == lst.id)
+                .values(version=models.List.version + 1, updated_at=models.utcnow())
+            )
+            session.commit()
+            session.refresh(lst)
+        return CheckOut(version=lst.version, entry=_entry_out(entry))
+
+    @api.post("/lists/{list_id}/entries/uncheck-all", response_model=UncheckAllOut)
+    def uncheck_all(list_id: int, user: UserDep, session: SessionDep) -> UncheckAllOut:
+        """Uncheck every Checked Entry of the List (the «Снять все отметки» menu action)."""
+        lst = _member_list(session, user, list_id)
+        result = session.execute(
+            update(models.Entry)
+            .where(models.Entry.list_id == lst.id, models.Entry.checked_at.is_not(None))
+            .values(checked_at=None, checked_by=None)
+        )
+        count = result.rowcount
+        if count:
+            session.execute(
+                update(models.List)
+                .where(models.List.id == lst.id)
+                .values(version=models.List.version + 1, updated_at=models.utcnow())
+            )
+        session.commit()
+        session.refresh(lst)
+        return UncheckAllOut(version=lst.version, unchecked=count)
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
