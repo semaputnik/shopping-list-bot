@@ -7,6 +7,8 @@ export interface User {
   photo_url: string | null;
   language_code: string | null;
   language: "ru" | "es";
+  /** True when the user overrode Telegram's language in Settings. */
+  language_overridden: boolean;
 }
 
 /** A List in GLOSSARY.md terms (named ShoppingList to avoid clashing with the TS/DOM List names). */
@@ -40,6 +42,11 @@ export function authenticate(initData: string): Promise<AuthResult> {
     method: "POST",
     body: JSON.stringify({ init_data: initData }),
   });
+}
+
+/** Sets the interface language; null goes back to following Telegram's language. */
+export function updateLanguage(token: string, language: "ru" | "es" | null): Promise<User> {
+  return request<User>("/api/me", { method: "PATCH", body: JSON.stringify({ language }) }, token);
 }
 
 export function fetchLists(token: string): Promise<ShoppingList[]> {

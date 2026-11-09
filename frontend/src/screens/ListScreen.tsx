@@ -6,6 +6,7 @@ interface Props {
   user: User;
   list: ShoppingList | null;
   strings: Strings;
+  onOpenSettings: () => void;
 }
 
 function initials(user: User): string {
@@ -33,12 +34,15 @@ function Avatar({ user }: { user: User }) {
 }
 
 /** The List screen: header with the List name and Members, then the empty state. */
-export function ListScreen({ user, list, strings }: Props) {
+export function ListScreen({ user, list, strings, onOpenSettings }: Props) {
   if (!list) {
     return (
       <main className="screen">
         <section className="empty">
           <p className="empty__title">{strings.noList}</p>
+          <button type="button" className="text-button" onClick={onOpenSettings}>
+            {strings.settings}
+          </button>
         </section>
       </main>
     );
@@ -50,6 +54,14 @@ export function ListScreen({ user, list, strings }: Props) {
         <div className="avatars">
           <Avatar user={user} />
         </div>
+        <button
+          type="button"
+          className="icon-button"
+          aria-label={strings.settings}
+          onClick={onOpenSettings}
+        >
+          ⚙︎
+        </button>
       </header>
       <section className="empty" aria-live="polite">
         <span className="empty__emoji" aria-hidden="true">

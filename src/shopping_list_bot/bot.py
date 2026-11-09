@@ -12,9 +12,12 @@ from aiogram.types import (
     Message,
     WebAppInfo,
 )
+from sqlalchemy import select
 
+from . import models
 from .config import Settings
-from .i18n import pick_language
+from .db import make_engine, make_session_factory
+from .i18n import effective_language
 
 OPEN_BUTTON = {"ru": "Открыть список", "es": "Abrir lista"}
 START_TEXT = {
@@ -23,21 +26,33 @@ START_TEXT = {
 }
 
 
-def open_keyboard(webapp_url: str, language_code: str | None) -> InlineKeyboardMarkup:
-    lang = pick_language(language_code)
+def open_keyboard(webapp_url: str, lang: str) -> InlineKeyboardMarkup:
     button = InlineKeyboardButton(text=OPEN_BUTTON[lang], web_app=WebAppInfo(url=webapp_url))
     return InlineKeyboardMarkup(inline_keyboard=[[button]])
 
 
 def build_dispatcher(settings: Settings) -> Dispatcher:
     dp = Dispatcher()
+    session_factory = make_session_factory(make_engine(settings.database_url))
+
+    def language_for(telegram_id: int, language_code: str | None) -> str:
+        """The language chosen in Settings if the user set one, else Telegram's."""
+        with session_factory() as session:
+            chosen = session.scalar(
+                select(models.User.language).where(models.User.telegram_id == telegram_id)
+            )
+        return effective_language(chosen, language_code)
 
     @dp.message(CommandStart())
     async def start(message: Message) -> None:
-        code = message.from_user.language_code if message.from_user else None
+        sender = message.from_user
+        lang = (
+            language_for(sender.id, sender.language_code)
+            if sender
+            else effective_language(None, None)
+        )
         await message.answer(
-            START_TEXT[pick_language(code)],
-            reply_markup=open_keyboard(settings.webapp_url, code),
+            START_TEXT[lang], reply_markup=open_keyboard(settings.webapp_url, lang)
         )
 
     return dp

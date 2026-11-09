@@ -5,13 +5,13 @@ import hmac
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import inspect, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -25,7 +25,7 @@ from .auth import (
 )
 from .config import Settings
 from .db import Base, make_engine, make_session_factory
-from .i18n import FIRST_LIST_NAME, pick_language
+from .i18n import FIRST_LIST_NAME, SYSTEM_CATEGORY_NAMES, effective_language
 
 
 class UserOut(BaseModel):
@@ -36,8 +36,10 @@ class UserOut(BaseModel):
     username: str | None
     photo_url: str | None
     language_code: str | None
-    # Interface language picked from language_code: "ru" or "es".
+    # Effective interface language, "ru" or "es": the user's choice, else from language_code.
     language: str
+    # True when the user overrode Telegram's language in Settings.
+    language_overridden: bool
 
 
 class ListOut(BaseModel):
@@ -46,6 +48,15 @@ class ListOut(BaseModel):
     share_code: str
     version: int
     updated_at: datetime
+
+
+class MeUpdate(BaseModel):
+    # "ru" or "es" sets the language; null goes back to following Telegram.
+    language: Literal["ru", "es"] | None
+
+
+class CategoryOut(BaseModel):
+    name: str
 
 
 class AuthIn(BaseModel):
@@ -69,7 +80,8 @@ def user_out(user: models.User) -> UserOut:
         username=user.username,
         photo_url=user.photo_url,
         language_code=user.language_code,
-        language=pick_language(user.language_code),
+        language=effective_language(user.language, user.language_code),
+        language_overridden=user.language is not None,
     )
 
 
@@ -98,6 +110,14 @@ def _upsert_user(session: Session, tg: TelegramUser) -> tuple[models.User, bool]
     return user, created
 
 
+def _add_missing_columns(engine) -> None:
+    """create_all does not alter existing tables; add columns introduced later."""
+    columns = {c["name"] for c in inspect(engine).get_columns("user")}
+    if "language" not in columns:
+        with engine.begin() as conn:
+            conn.execute(text('ALTER TABLE "user" ADD COLUMN language VARCHAR(8)'))
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
     engine = make_engine(settings.database_url)
@@ -113,6 +133,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         Base.metadata.create_all(engine)
+        _add_missing_columns(engine)
         yield
         engine.dispose()
 
@@ -172,7 +193,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         if created and not arrived_by_share_link:
             lst = models.List(
-                name=FIRST_LIST_NAME[pick_language(user.language_code)], created_by=user.id
+                name=FIRST_LIST_NAME[effective_language(user.language, user.language_code)],
+                created_by=user.id,
             )
             lst.members.append(models.ListMember(user_id=user.id))
             session.add(lst)
@@ -189,6 +211,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @api.get("/me", response_model=UserOut)
     def me(user: UserDep) -> UserOut:
         return user_out(user)
+
+    @api.patch("/me", response_model=UserOut)
+    def update_me(body: MeUpdate, user: UserDep, session: SessionDep) -> UserOut:
+        user.language = body.language
+        session.commit()
+        return user_out(user)
+
+    @api.get("/categories", response_model=list[CategoryOut])
+    def categories(user: UserDep) -> list[CategoryOut]:
+        """System Categories named in the user's effective language."""
+        lang = effective_language(user.language, user.language_code)
+        return [CategoryOut(name=n) for n in SYSTEM_CATEGORY_NAMES[lang]]
 
     def _member_lists(user: models.User):
         return (

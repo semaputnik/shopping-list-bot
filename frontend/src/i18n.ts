@@ -9,7 +9,11 @@ type StringKey =
   | "retry"
   | "notTelegramTitle"
   | "notTelegramHint"
-  | "noList";
+  | "noList"
+  | "settings"
+  | "back"
+  | "languageSection"
+  | "languageSaveError";
 
 const strings: Record<Language, Record<StringKey, string>> = {
   ru: {
@@ -22,6 +26,10 @@ const strings: Record<Language, Record<StringKey, string>> = {
     notTelegramTitle: "Откройте в Telegram",
     notTelegramHint: "Shared Lists работает как мини-приложение внутри Telegram.",
     noList: "Нет доступных списков",
+    settings: "Настройки",
+    back: "Назад",
+    languageSection: "Язык",
+    languageSaveError: "Не удалось сохранить язык. Попробуйте ещё раз.",
   },
   es: {
     loading: "Cargando…",
@@ -33,8 +41,15 @@ const strings: Record<Language, Record<StringKey, string>> = {
     notTelegramTitle: "Abre en Telegram",
     notTelegramHint: "Shared Lists funciona como mini aplicación dentro de Telegram.",
     noList: "No hay listas disponibles",
+    settings: "Ajustes",
+    back: "Atrás",
+    languageSection: "Idioma",
+    languageSaveError: "No se pudo guardar el idioma. Inténtalo de nuevo.",
   },
 };
+
+/** Each language is always shown in its own name, whatever the interface language is. */
+export const LANGUAGE_NAMES: Record<Language, string> = { ru: "Русский", es: "Español" };
 
 export type Strings = Record<StringKey, string>;
 

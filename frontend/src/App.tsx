@@ -1,15 +1,22 @@
 import { useCallback, useEffect, useState } from "react";
-import { authenticate, fetchLists, type ShoppingList, type User } from "./api";
+import { authenticate, fetchLists, updateLanguage, type ShoppingList, type User } from "./api";
 import { pickLanguage, t, type Language } from "./i18n";
 import { ListScreen } from "./screens/ListScreen";
 import { Message } from "./screens/Message";
+import { SettingsScreen } from "./screens/SettingsScreen";
 import { startTelegram } from "./telegram";
 
 type State =
   | { kind: "loading" }
   | { kind: "not-telegram" }
   | { kind: "error" }
-  | { kind: "ready"; user: User; lists: ShoppingList[] };
+  | {
+      kind: "ready";
+      token: string;
+      user: User;
+      lists: ShoppingList[];
+      screen: "list" | "settings";
+    };
 
 export function App() {
   const [state, setState] = useState<State>({ kind: "loading" });
@@ -30,7 +37,13 @@ export function App() {
       const session = await authenticate(telegram.rawInitData);
       const lists = await fetchLists(session.token);
       setLanguage(session.user.language);
-      setState({ kind: "ready", user: session.user, lists });
+      setState({
+        kind: "ready",
+        token: session.token,
+        user: session.user,
+        lists,
+        screen: "list",
+      });
     } catch (error) {
       console.error(error);
       setState({ kind: "error" });
@@ -40,6 +53,12 @@ export function App() {
   useEffect(() => {
     void boot();
   }, [boot]);
+
+  const changeLanguage = useCallback(async (token: string, next: Language) => {
+    const user = await updateLanguage(token, next);
+    setLanguage(user.language);
+    setState((s) => (s.kind === "ready" ? { ...s, user } : s));
+  }, []);
 
   const strings = t(language);
   switch (state.kind) {
@@ -56,6 +75,23 @@ export function App() {
         />
       );
     case "ready":
-      return <ListScreen user={state.user} list={state.lists[0] ?? null} strings={strings} />;
+      if (state.screen === "settings") {
+        return (
+          <SettingsScreen
+            language={language}
+            strings={strings}
+            onBack={() => setState({ ...state, screen: "list" })}
+            onChangeLanguage={(next) => changeLanguage(state.token, next)}
+          />
+        );
+      }
+      return (
+        <ListScreen
+          user={state.user}
+          list={state.lists[0] ?? null}
+          strings={strings}
+          onOpenSettings={() => setState({ ...state, screen: "settings" })}
+        />
+      );
   }
 }
