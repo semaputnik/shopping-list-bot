@@ -581,7 +581,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         list_id: int, entry_id: int, body: CheckIn, user: UserDep, session: SessionDep
     ) -> CheckOut:
         """Check or uncheck one Entry. It stays in place; setting the state it has is a no-op."""
-        lst = _member_list_or_404(session, user, list_id)
+        lst = _member_list(session, user, list_id)
         entry = session.scalar(
             select(models.Entry)
             .where(models.Entry.id == entry_id, models.Entry.list_id == lst.id)
@@ -604,7 +604,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @api.post("/lists/{list_id}/entries/uncheck-all", response_model=UncheckAllOut)
     def uncheck_all(list_id: int, user: UserDep, session: SessionDep) -> UncheckAllOut:
         """Uncheck every Checked Entry of the List (the «Снять все отметки» menu action)."""
-        lst = _member_list_or_404(session, user, list_id)
+        lst = _member_list(session, user, list_id)
         result = session.execute(
             update(models.Entry)
             .where(models.Entry.list_id == lst.id, models.Entry.checked_at.is_not(None))
