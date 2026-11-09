@@ -88,19 +88,20 @@ async function doStartTelegram(): Promise<TelegramContext | null> {
   if (miniAppReady.isAvailable()) miniAppReady();
   if (expandViewport.isAvailable()) expandViewport();
 
-  // Both mounts are bounded and run in parallel, so a silent client costs at most
-  // MOUNT_TIMEOUT_MS instead of hanging.
-  const [miniAppMounted, viewportMounted] = await Promise.all([
+  // The mounts finish in the background: start-up (auth, the first List) never waits for them.
+  // Each is bounded, so a silent client (Telegram Desktop for macOS) only means no chrome colours.
+  void Promise.all([
     mountMiniApp.isAvailable() ? mountWithin(() => mountMiniApp(), "miniApp") : false,
     mountViewport.isAvailable() ? mountWithin(() => mountViewport(), "viewport") : false,
-  ]);
-  if (miniAppMounted) {
-    // The page ground is secondary_bg_color; match Telegram's own chrome to it (no seam).
-    if (setMiniAppHeaderColor.isAvailable()) setMiniAppHeaderColor("secondary_bg_color");
-    if (setMiniAppBackgroundColor.isAvailable()) setMiniAppBackgroundColor("secondary_bg_color");
-    if (setMiniAppBottomBarColor.isAvailable()) setMiniAppBottomBarColor("secondary_bg_color");
-  }
-  if (viewportMounted && bindViewportCssVars.isAvailable()) bindViewportCssVars();
+  ]).then(([miniAppMounted, viewportMounted]) => {
+    if (miniAppMounted) {
+      // The page ground is secondary_bg_color; match Telegram's own chrome to it (no seam).
+      if (setMiniAppHeaderColor.isAvailable()) setMiniAppHeaderColor("secondary_bg_color");
+      if (setMiniAppBackgroundColor.isAvailable()) setMiniAppBackgroundColor("secondary_bg_color");
+      if (setMiniAppBottomBarColor.isAvailable()) setMiniAppBottomBarColor("secondary_bg_color");
+    }
+    if (viewportMounted && bindViewportCssVars.isAvailable()) bindViewportCssVars();
+  });
 
   // Mounted once here: show/hide/onClick are only available on a mounted BackButton.
   if (mountBackButton.isAvailable() && !isBackButtonMounted()) mountBackButton();

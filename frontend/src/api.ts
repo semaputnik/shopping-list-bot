@@ -38,6 +38,8 @@ export interface AuthResult {
   expires_at: number;
   user: User;
   start_param: string | null;
+  /** The user's Lists, so start-up needs no separate GET /api/lists (absent on older servers). */
+  lists?: ShoppingList[];
 }
 
 export class ApiError extends Error {
