@@ -37,8 +37,10 @@ export function MembersScreen({ user, list, strings, onBack }: Props) {
           <li key={member.id} className="members__row">
             <Avatar member={member} size="lg" />
             <span className="members__name">
-              {memberName(member)}
-              {member.id === user.id && <span className="members__you"> · {strings.you}</span>}
+              <span className="members__line">
+                {memberName(member)}
+                {member.id === user.id && <span className="members__you"> · {strings.you}</span>}
+              </span>
               {member.username && <span className="members__username">@{member.username}</span>}
             </span>
           </li>

@@ -990,19 +990,28 @@ export function ListScreen({
                   .filter(Boolean)
                   .join(" ")}
               >
+                {/* The whole row is the tap target for the aisle action (check / uncheck);
+                    the trailing chevron is the separate, visible way into the Entry card. */}
                 <button
                   type="button"
                   role="checkbox"
                   aria-checked={entry.checked}
-                  aria-label={entry.name}
                   className="row__toggle"
                   onClick={() => toggle(entry.id, !entry.checked)}
                 >
                   <span className="row__check" aria-hidden="true" />
+                  <span className="row__text">
+                    <span className="row__name">{entry.name}</span>
+                    {entry.note && <span className="row__note">{entry.note}</span>}
+                  </span>
                 </button>
-                <button type="button" className="row__open" onClick={() => openCard(entry.id)}>
-                  <span className="row__name">{entry.name}</span>
-                  {entry.note && <span className="row__note">{entry.note}</span>}
+                <button
+                  type="button"
+                  className="row__open"
+                  aria-label={`${strings.entryDetails}: ${entry.name}`}
+                  onClick={() => openCard(entry.id)}
+                >
+                  <span aria-hidden="true">›</span>
                 </button>
               </li>
             ))}

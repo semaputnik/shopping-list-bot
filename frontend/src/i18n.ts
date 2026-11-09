@@ -48,6 +48,7 @@ type StringKey =
   | "languageAsTelegram"
   | "languageSaveError"
   | "entryNote"
+  | "entryDetails"
   | "entryNotePlaceholder"
   | "entryCategory"
   | "entryAddedBy"
@@ -133,6 +134,7 @@ const strings: Record<Language, Record<StringKey, string>> = {
     entryDeleted: "Удалено",
     undo: "Отменить",
     close: "Закрыть",
+    entryDetails: "Подробнее",
     entrySaveFailed: "Не удалось сохранить. Попробуйте ещё раз.",
     entryDeleteFailed: "Не удалось удалить. Попробуйте ещё раз.",
     undoFailed: "Не удалось вернуть позицию.",
@@ -210,6 +212,7 @@ const strings: Record<Language, Record<StringKey, string>> = {
     entryDeleted: "Eliminado",
     undo: "Deshacer",
     close: "Cerrar",
+    entryDetails: "Detalles",
     entrySaveFailed: "No se pudo guardar. Inténtalo de nuevo.",
     entryDeleteFailed: "No se pudo eliminar. Inténtalo de nuevo.",
     undoFailed: "No se pudo recuperar el producto.",
