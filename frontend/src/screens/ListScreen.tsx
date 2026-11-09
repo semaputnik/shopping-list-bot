@@ -153,7 +153,11 @@ export function ListScreen({
     const timer = window.setTimeout(() => {
       fetchSuggestions(token, listId, query).then(
         (found) => {
-          if (!cancelled) setSuggestions(found);
+          if (cancelled) return;
+          setSuggestions(found);
+          // Enter takes the first suggestion when it starts with what was typed (spec §4);
+          // a fuzzy-only match stays unselected, so Enter adds the text as typed.
+          setActive(found.length > 0 && fold(found[0].name).startsWith(fold(query)) ? 0 : -1);
         },
         (e) => console.error(e), // suggestions are optional: typing and adding still work
       );
@@ -595,8 +599,16 @@ export function ListScreen({
     void submit(raw);
   };
 
+  // «Убрать из подсказок» has no undo on the server, so it takes two taps: ✕ arms, «Убрать» removes.
+  const [armed, setArmed] = useState<number | null>(null);
+  useEffect(() => setArmed(null), [query]);
   const forget = async (suggestion: Suggestion) => {
     if (listId === undefined) return;
+    if (armed !== suggestion.product_id) {
+      setArmed(suggestion.product_id);
+      return;
+    }
+    setArmed(null);
     try {
       await hideProduct(token, listId, suggestion.product_id);
       setSuggestions((prev) => prev.filter((s) => s.product_id !== suggestion.product_id));
@@ -633,7 +645,8 @@ export function ListScreen({
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
-    send();
+    if (open && active >= 0) choose(active);
+    else send();
   };
 
   const leave = async () => {
@@ -701,8 +714,8 @@ export function ListScreen({
         <Sheet title={strings.listMenu} onClose={close} closeLabel={strings.cancel}>
           <ul className="sheet-list">
             <li>
-              <button type="button" className="sheet-row" onClick={() => openPanel("rename", "menu")}>
-                {strings.renameList}
+              <button type="button" className="sheet-row" disabled={!anyChecked} onClick={onUncheckAll}>
+                {strings.uncheckAll}
               </button>
             </li>
             <li>
@@ -717,9 +730,11 @@ export function ListScreen({
                 {strings.history}
               </button>
             </li>
+          </ul>
+          <ul className="sheet-list">
             <li>
-              <button type="button" className="sheet-row" disabled={!anyChecked} onClick={onUncheckAll}>
-                {strings.uncheckAll}
+              <button type="button" className="sheet-row" onClick={() => openPanel("rename", "menu")}>
+                {strings.renameList}
               </button>
             </li>
             <li>
@@ -734,6 +749,9 @@ export function ListScreen({
                 {strings.settings}
               </button>
             </li>
+          </ul>
+          {/* Destructive actions live in their own group, away from routine ones. */}
+          <ul className="sheet-list">
             <li>
               <button type="button" className="sheet-row sheet-row--destructive" onClick={() => void leave()}>
                 {strings.leaveList}
@@ -866,12 +884,14 @@ export function ListScreen({
                 </button>
                 <button
                   type="button"
-                  className="suggest__forget"
+                  className={
+                    armed === s.product_id ? "suggest__forget suggest__forget--armed" : "suggest__forget"
+                  }
                   aria-label={`${strings.forgetProduct}: ${s.name}`}
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => void forget(s)}
                 >
-                  ✕
+                  {armed === s.product_id ? strings.forgetConfirm : "✕"}
                 </button>
               </li>
             ))}

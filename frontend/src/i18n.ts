@@ -65,6 +65,7 @@ type StringKey =
   | "alreadyOnList"
   | "addNew"
   | "forgetProduct"
+  | "forgetConfirm"
   | "uncheckAll"
   | "checkFailed"
   | "bought"
@@ -112,7 +113,7 @@ const strings: Record<Language, Record<StringKey, string>> = {
     inputLabel: "Что нужно купить",
     addFailed: "Не удалось добавить. Попробуйте ещё раз.",
     loadFailed: "Не удалось обновить список.",
-    emptyInputHint: "Напишите название и нажмите Enter. Через запятую — заметка: молоко, 2 л.",
+    emptyInputHint: "Напишите название и отправьте. Через запятую — заметка: молоко, 2 л.",
     share: "Поделиться",
     linkCopied: "Ссылка скопирована",
     linkUnavailable: "Не удалось получить ссылку",
@@ -129,7 +130,7 @@ const strings: Record<Language, Record<StringKey, string>> = {
     entryNote: "Заметка",
     entryNotePlaceholder: "Количество или детали",
     entryCategory: "Отдел",
-    entryAddedBy: "Добавил(а)",
+    entryAddedBy: "Добавлено:",
     entryDelete: "Удалить",
     entryDeleted: "Удалено",
     undo: "Отменить",
@@ -144,6 +145,7 @@ const strings: Record<Language, Record<StringKey, string>> = {
     alreadyOnList: "уже в списке",
     addNew: "Добавить",
     forgetProduct: "Убрать из подсказок",
+    forgetConfirm: "Убрать",
     uncheckAll: "Снять все отметки",
     checkFailed: "Отметка не сохранилась. Проверьте связь.",
     bought: "Куплено",
@@ -190,7 +192,7 @@ const strings: Record<Language, Record<StringKey, string>> = {
     inputLabel: "Qué hay que comprar",
     addFailed: "No se pudo añadir. Inténtalo de nuevo.",
     loadFailed: "No se pudo actualizar la lista.",
-    emptyInputHint: "Escribe el nombre y pulsa Enter. Tras una coma va la nota: leche, 2 l.",
+    emptyInputHint: "Escribe el nombre y envíalo. Tras una coma va la nota: leche, 2 l.",
     share: "Compartir",
     linkCopied: "Enlace copiado",
     linkUnavailable: "No se pudo obtener el enlace",
@@ -207,7 +209,7 @@ const strings: Record<Language, Record<StringKey, string>> = {
     entryNote: "Nota",
     entryNotePlaceholder: "Cantidad o detalles",
     entryCategory: "Sección",
-    entryAddedBy: "Añadido por",
+    entryAddedBy: "Añadido por:",
     entryDelete: "Eliminar",
     entryDeleted: "Eliminado",
     undo: "Deshacer",
@@ -222,6 +224,7 @@ const strings: Record<Language, Record<StringKey, string>> = {
     alreadyOnList: "ya está en la lista",
     addNew: "Añadir",
     forgetProduct: "Quitar de las sugerencias",
+    forgetConfirm: "Quitar",
     uncheckAll: "Quitar todas las marcas",
     checkFailed: "La marca no se guardó. Revisa la conexión.",
     bought: "Comprado",
