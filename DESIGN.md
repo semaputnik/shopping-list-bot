@@ -1,11 +1,11 @@
 ---
-name: Shopping List (working title)
+name: Shared Lists
 description: Shared shopping lists that look and behave like a native part of Telegram.
 ---
 
 <!-- SEED: established with the user before implementation; re-run /impeccable document once there's code to capture the actual tokens and components. -->
 
-# Design System: Shopping List
+# Design System: Shared Lists
 
 ## Overview
 

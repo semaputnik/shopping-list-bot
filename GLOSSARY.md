@@ -1,4 +1,4 @@
-# Shopping List
+# Shared Lists
 
 Shared shopping lists in a Telegram Mini App. People make lists, share them by link, and edit them together.
 

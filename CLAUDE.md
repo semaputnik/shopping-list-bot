@@ -23,7 +23,7 @@ There is no test runner or linter configured yet. When one is added, document ho
 
 ## What is being built
 
-These are shared shopping lists, delivered as a **Telegram Mini App**. It opens from a Telegram bot through the menu button and inline buttons. The backend is **FastAPI**. There are no recipes, meal plans, pantry or expenses; keep the scope to the list. The UI is in RU and ES, with EN optional. The language defaults to the Telegram user's `language_code`.
+**Shared Lists** is an app for shared shopping lists, delivered as a **Telegram Mini App**. It opens from a Telegram bot through the menu button and inline buttons. The backend is **FastAPI**. There are no recipes, meal plans, pantry or expenses; keep the scope to the list. The UI is in RU and ES, with EN optional. The language defaults to the Telegram user's `language_code`.
 
 Planned pieces that interact:
 - **Bot**: a share link (a bot deep link whose start parameter identifies a list; opening it joins the user to that list), notifications sent as bot messages (a Mini App has no push or background sync), and later voice and text input in chat.

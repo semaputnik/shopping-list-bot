@@ -41,7 +41,7 @@ It lives inside Telegram: no install, no account, no signup. A list is shared by
 ## Brand Commitments
 
 - The visual direction is the category standard: a native Telegram look, chosen deliberately over expressive directions. The craft bar is Telegram's own screens and the Wallet Mini App.
-- The product and the bot have no name yet, so future work must not invent one as if it were settled.
+- The product is named **Shared Lists**. The name stays the same in every UI language. The bot's @username is not chosen yet.
 
 ## Evidence on Hand
 
