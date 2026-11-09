@@ -83,6 +83,44 @@ class TestCreateAndRename:
         assert seen["name"] == "Дача"
 
 
+class TestRenamingTheDefaultList:
+    """The auto-created first List shows a localized name until someone renames it."""
+
+    def default_list(self, client, session):
+        (lst,) = client.get("/api/lists", headers=session["headers"]).json()
+        return lst
+
+    def test_renamed_default_list_shows_the_new_name(self, client, anna):
+        h = anna["headers"]
+        lst = self.default_list(client, anna)
+        response = client.patch(f"/api/lists/{lst['id']}", json={"name": "Дача"}, headers=h)
+        assert response.json()["name"] == "Дача"
+        assert client.get(f"/api/lists/{lst['id']}", headers=h).json()["name"] == "Дача"
+        assert names(client, h) == ["Дача"]
+
+    def test_renamed_name_survives_a_language_change(self, client, anna):
+        h = anna["headers"]
+        lst = self.default_list(client, anna)
+        client.patch(f"/api/lists/{lst['id']}", json={"name": "Дача"}, headers=h)
+        client.patch("/api/me", json={"language": "es"}, headers=h)
+        assert names(client, h) == ["Дача"]
+
+    def test_unrenamed_default_list_still_follows_the_language(self, client, anna):
+        h = anna["headers"]
+        before = names(client, h)
+        client.patch("/api/me", json={"language": "es"}, headers=h)
+        assert names(client, h) != before
+
+    def test_member_in_the_other_language_sees_the_renamed_name(
+        self, client, anna, sign_in, add_member
+    ):
+        carlos = sign_in({"id": 2002, "first_name": "Carlos", "language_code": "es"})
+        lst = self.default_list(client, anna)
+        add_member(lst, carlos)
+        client.patch(f"/api/lists/{lst['id']}", json={"name": "Дача"}, headers=anna["headers"])
+        assert "Дача" in names(client, carlos["headers"])
+
+
 class TestOrdering:
     def test_a_joined_list_moves_to_the_top(self, client, anna, boris, add_member):
         h = anna["headers"]

@@ -8,6 +8,7 @@ import {
   joinList,
   leaveList,
   renameList,
+  updateLanguage,
   type ShoppingList,
   type User,
 } from "./api";
@@ -15,6 +16,7 @@ import { pickLanguage, t, type Language } from "./i18n";
 import { ListScreen } from "./screens/ListScreen";
 import { MembersScreen } from "./screens/MembersScreen";
 import { Message } from "./screens/Message";
+import { SettingsScreen } from "./screens/SettingsScreen";
 import { haptic, startTelegram } from "./telegram";
 
 type State =
@@ -31,7 +33,7 @@ type State =
       screen: Screen;
     };
 
-type Screen = "list" | "members";
+type Screen = "list" | "members" | "settings";
 
 export function App() {
   const [state, setState] = useState<State>({ kind: "loading" });
@@ -122,6 +124,20 @@ export function App() {
     [state],
   );
 
+  const changeLanguage = useCallback(async (token: string, next: Language | null) => {
+    const user = await updateLanguage(token, next);
+    // An auto-created List name is rendered in the user's language, so refetch the Lists.
+    // The choice is saved by now: apply it even if the refetch below fails.
+    setLanguage(user.language);
+    setState((s) => (s.kind === "ready" ? { ...s, user } : s));
+    try {
+      const lists = await fetchLists(token);
+      setState((s) => (s.kind === "ready" ? { ...s, lists } : s));
+    } catch {
+      // Keep the stale List name; it refreshes on the next load.
+    }
+  }, []);
+
   const strings = t(language);
   switch (state.kind) {
     case "loading":
@@ -168,6 +184,17 @@ export function App() {
           <MembersScreen user={state.user} list={current} strings={strings} onBack={backToList} />
         );
       }
+      if (state.screen === "settings") {
+        return (
+          <SettingsScreen
+            language={language}
+            overridden={state.user.language_overridden}
+            strings={strings}
+            onBack={backToList}
+            onChangeLanguage={(next) => changeLanguage(state.token, next)}
+          />
+        );
+      }
       return (
         <ListScreen
           lists={state.lists}
@@ -176,6 +203,7 @@ export function App() {
           failed={failed}
           onSelect={(id) => setState({ ...state, currentId: id })}
           onOpenMembers={() => setState({ ...state, screen: "members" })}
+          onOpenSettings={() => setState({ ...state, screen: "settings" })}
           onCreate={(name) => mutate(async (token) => (await createList(token, name)).id)}
           onRename={(id, name) =>
             mutate(async (token) => {

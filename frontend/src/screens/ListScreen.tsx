@@ -14,6 +14,7 @@ interface Props {
   failed: boolean;
   onSelect: (id: number) => void;
   onOpenMembers: () => void;
+  onOpenSettings: () => void;
   /** Mutations resolve true on success, false when the request failed. */
   onCreate: (name: string) => Promise<boolean>;
   onRename: (id: number, name: string) => Promise<boolean>;
@@ -31,6 +32,7 @@ export function ListScreen({
   failed,
   onSelect,
   onOpenMembers,
+  onOpenSettings,
   onCreate,
   onRename,
   onLeave,
@@ -123,6 +125,18 @@ export function ListScreen({
               </button>
             </li>
             <li>
+              <button
+                type="button"
+                className="row"
+                onClick={() => {
+                  close();
+                  onOpenSettings();
+                }}
+              >
+                {strings.settings}
+              </button>
+            </li>
+            <li>
               <button type="button" className="row row--destructive" onClick={() => void leave()}>
                 {strings.leaveList}
               </button>
@@ -171,6 +185,9 @@ export function ListScreen({
           <p className="empty__title">{strings.noList}</p>
           <button type="button" className="empty__action" onClick={() => open("create")}>
             {strings.newList}
+          </button>
+          <button type="button" className="text-button" onClick={onOpenSettings}>
+            {strings.settings}
           </button>
         </section>
         {sheets}

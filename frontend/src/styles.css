@@ -7,13 +7,13 @@
   --ground: var(--tg-theme-secondary-bg-color, #efeff4);
   --section: var(--tg-theme-section-bg-color, var(--bg));
   --text: var(--tg-theme-text-color, #000000);
-  --separator: var(--tg-theme-section-separator-color, rgba(60, 60, 67, 0.2));
   --hint: var(--tg-theme-hint-color, #8e8e93);
   --accent: var(--tg-theme-button-color, #3390ec);
   --separator: var(
     --tg-theme-section-separator-color,
     color-mix(in srgb, var(--hint) 25%, transparent)
   );
+  --destructive: var(--tg-theme-destructive-text-color, #e53935);
   --accent-text: var(--tg-theme-button-text-color, #ffffff);
   --safe-top: var(--tg-viewport-content-safe-area-inset-top, 0px);
   --safe-bottom: var(--tg-viewport-safe-area-inset-bottom, 0px);
@@ -391,7 +391,7 @@ body {
 }
 
 .row--destructive {
-  color: var(--tg-theme-destructive-text-color, #e53935);
+  color: var(--destructive);
 }
 
 .sheet__cancel,
@@ -455,4 +455,70 @@ body {
   color: var(--bg);
   font-size: 15px;
   text-align: center;
+}
+
+.text-button {
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  min-height: 44px;
+  padding: 0 4px;
+}
+
+.settings__section-title {
+  margin: 20px 16px 6px;
+  font-size: 13px;
+  font-weight: 400;
+  text-transform: uppercase;
+  color: var(--tg-theme-section-header-text-color, var(--hint));
+}
+
+.settings__group {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-radius: 12px;
+  background: var(--section);
+  overflow: hidden;
+}
+
+.settings__option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 48px;
+  padding: 0 16px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+}
+
+/* Hairline separator, inset from the leading edge. */
+.settings__group li + li {
+  position: relative;
+}
+
+.settings__group li + li::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 16px;
+  border-top: 1px solid var(--separator);
+}
+
+.settings__option[aria-checked="true"]::after {
+  content: "✓";
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.settings__error {
+  margin: 8px 16px 0;
+  font-size: 13px;
+  color: var(--destructive);
 }
