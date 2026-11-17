@@ -35,6 +35,16 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
+/*
+ * tgui paints Sections, Cells and fields with bg_color, but Telegram's colour for grouped sections
+ * is section_bg_color: only that one is meant to stand out from the secondary_bg_color ground. In
+ * themes where bg_color equals the ground (e.g. pure-black night themes) fields would vanish.
+ */
+.screen,
+.sheet {
+  --tgui--bg_color: var(--section);
+}
+
 .screen {
   min-height: 100vh;
   padding: calc(var(--safe-top) + 12px) 16px calc(var(--safe-bottom) + 24px);
