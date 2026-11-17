@@ -18,9 +18,14 @@ def _config(database_url: str) -> Config:
     return config
 
 
-def upgrade(database_url: str) -> None:
-    """Apply every migration the database has not seen yet."""
-    command.upgrade(_config(database_url), "head")
+def upgrade(database_url: str, revision: str = "head") -> None:
+    """Apply the migrations the database has not seen yet, up to ``revision`` (default: all)."""
+    command.upgrade(_config(database_url), revision)
+
+
+def downgrade(database_url: str, revision: str) -> None:
+    """Undo migrations back to ``revision``."""
+    command.downgrade(_config(database_url), revision)
 
 
 def is_current(engine: Engine) -> bool:

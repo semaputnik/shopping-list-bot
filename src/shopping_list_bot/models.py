@@ -4,21 +4,53 @@ from datetime import UTC, datetime
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
+    Identity,
     Index,
     String,
     Text,
     UniqueConstraint,
     false,
+    text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from .categories import CATEGORIES
 from .db import Base
 
 
 def utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+def _pk() -> Mapped[int]:
+    return mapped_column(BigInteger, Identity(always=False), primary_key=True)
+
+
+def _in(column: str, values: tuple[str, ...]) -> str:
+    return f"{column} IN ({', '.join(repr(v) for v in values)})"
+
+
+# What `_touch` in app.py logs; the CHECK on list_change.kind and migration 0002 list the same.
+LIST_CHANGE_KINDS = (
+    "member.joined",
+    "list.renamed",
+    "member.left",
+    "entries.added",
+    "entry.updated",
+    "entry.deleted",
+    "entry.restored",
+    "product.hidden",
+    "product.renamed",
+    "entries.unchecked",
+    "purchase.created",
+    "purchase.undone",
+)
+NOTIFICATION_KINDS = ("added", "bought")
+LANGUAGES = ("ru", "es", "en")
 
 
 def new_share_code() -> str:
@@ -28,8 +60,9 @@ def new_share_code() -> str:
 
 class User(Base):
     __tablename__ = "user"
+    __table_args__ = (CheckConstraint(_in("language", LANGUAGES), name="ck_user_language"),)
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = _pk()
     telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True)
     first_name: Mapped[str] = mapped_column(String(256))
     last_name: Mapped[str | None] = mapped_column(String(256))
@@ -44,7 +77,7 @@ class User(Base):
 class List(Base):
     __tablename__ = "list"
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = _pk()
     name: Mapped[str] = mapped_column(String(200))
     # True while the List still has its auto-created name; it is then shown in each
     # viewer's language. Whatever renames a List must set this to False.
@@ -64,9 +97,12 @@ class List(Base):
 
 class ListMember(Base):
     __tablename__ = "list_member"
-    __table_args__ = (UniqueConstraint("list_id", "user_id"),)
+    __table_args__ = (
+        UniqueConstraint("list_id", "user_id"),
+        Index("ix_list_member_user_id", "user_id"),
+    )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = _pk()
     list_id: Mapped[int] = mapped_column(ForeignKey("list.id", ondelete="CASCADE"))
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"))
     joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -79,9 +115,15 @@ class Product(Base):
     """Something entered into a List at least once: the List's memory. One List only."""
 
     __tablename__ = "product"
-    __table_args__ = (UniqueConstraint("list_id", "name_norm"),)
+    __table_args__ = (
+        UniqueConstraint("list_id", "name_norm"),
+        Index("ix_product_list_id", "list_id"),
+        CheckConstraint(
+            _in("category_key", tuple(c.key for c in CATEGORIES)), name="ck_product_category_key"
+        ),
+    )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = _pk()
     list_id: Mapped[int] = mapped_column(ForeignKey("list.id", ondelete="CASCADE"))
     # Display name as first typed; name_norm is the normalised key (see normalize.py).
     name: Mapped[str] = mapped_column(String(200))
@@ -101,9 +143,13 @@ class Entry(Base):
     """A Product currently on a List. Several Entries may share a Product (ADR 0002)."""
 
     __tablename__ = "entry"
-    __table_args__ = (UniqueConstraint("list_id", "client_id"),)
+    __table_args__ = (
+        UniqueConstraint("list_id", "client_id"),
+        Index("ix_entry_list_id_live", "list_id", postgresql_where=text("deleted_at IS NULL")),
+        Index("ix_entry_product_id", "product_id"),
+    )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = _pk()
     list_id: Mapped[int] = mapped_column(ForeignKey("list.id", ondelete="CASCADE"))
     product_id: Mapped[int] = mapped_column(ForeignKey("product.id", ondelete="CASCADE"))
     name: Mapped[str] = mapped_column(String(200))
@@ -133,7 +179,7 @@ class Purchase(Base):
     # History pages a List's Purchases newest first.
     __table_args__ = (Index("ix_purchase_list_id_purchased_at", "list_id", "purchased_at"),)
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = _pk()
     list_id: Mapped[int] = mapped_column(ForeignKey("list.id", ondelete="CASCADE"))
     purchased_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     purchased_by: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"))
@@ -148,7 +194,7 @@ class PurchaseEntry(Base):
 
     __tablename__ = "purchase_entry"
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = _pk()
     purchase_id: Mapped[int] = mapped_column(
         ForeignKey("purchase.id", ondelete="CASCADE"), index=True
     )
@@ -171,14 +217,17 @@ class ListChange(Base):
     """
 
     __tablename__ = "list_change"
-    __table_args__ = (UniqueConstraint("list_id", "version"),)
+    __table_args__ = (
+        UniqueConstraint("list_id", "version"),
+        CheckConstraint(_in("kind", LIST_CHANGE_KINDS), name="ck_list_change_kind"),
+    )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    list_id: Mapped[int] = mapped_column()
+    id: Mapped[int] = _pk()
+    list_id: Mapped[int] = mapped_column(BigInteger)
     version: Mapped[int] = mapped_column()
     # e.g. "entry.updated", "member.joined"; see app._touch callers.
     kind: Mapped[str] = mapped_column(String(32))
-    entry_id: Mapped[int | None] = mapped_column()
+    entry_id: Mapped[int | None] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -188,7 +237,7 @@ class IdempotencyRecord(Base):
     __tablename__ = "idempotency_record"
     __table_args__ = (UniqueConstraint("user_id", "key"),)
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = _pk()
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"))
     key: Mapped[str] = mapped_column(String(80))
     method: Mapped[str] = mapped_column(String(8))
@@ -210,17 +259,21 @@ class Notification(Base):
     """
 
     __tablename__ = "notification"
-    __table_args__ = (Index("ix_notification_due", "due_at"),)
+    __table_args__ = (
+        Index("ix_notification_due", "due_at"),
+        Index("ix_notification_list_id_actor_id_kind", "list_id", "actor_id", "kind"),
+        CheckConstraint(_in("kind", NOTIFICATION_KINDS), name="ck_notification_kind"),
+    )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = _pk()
     list_id: Mapped[int] = mapped_column(ForeignKey("list.id", ondelete="CASCADE"))
     actor_id: Mapped[int] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"))
     kind: Mapped[str] = mapped_column(String(16))
     purchase_id: Mapped[int | None] = mapped_column(
         ForeignKey("purchase.id", ondelete="CASCADE"), index=True
     )
-    # JSON: [[entry_id, name], ...] for "added" (an Entry removed before sending is dropped),
+    # [[entry_id, name], ...] for "added" (an Entry removed before sending is dropped),
     # [name, ...] for "bought".
-    items: Mapped[str] = mapped_column(Text, default="[]")
+    items: Mapped[list] = mapped_column(JSONB, default=list)
     first_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

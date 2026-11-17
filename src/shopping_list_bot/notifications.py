@@ -7,7 +7,6 @@ on a timer (see ``create_app``), and tests call it directly with a fake ``send``
 
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -89,13 +88,13 @@ def queue_added(
                 list_id=lst.id,
                 actor_id=actor.id,
                 kind="added",
-                items=json.dumps(new_items, ensure_ascii=False),
+                items=new_items,
                 first_at=now,
                 due_at=now + timedelta(seconds=settings.notify_added_quiet_seconds),
             )
         )
         return
-    pending.items = json.dumps(json.loads(pending.items) + new_items, ensure_ascii=False)
+    pending.items = pending.items + new_items
     cap = pending.first_at + timedelta(seconds=settings.notify_added_max_seconds)
     pending.due_at = min(now + timedelta(seconds=settings.notify_added_quiet_seconds), cap)
 
@@ -119,7 +118,7 @@ def queue_bought(
             actor_id=actor.id,
             kind="bought",
             purchase_id=purchase.id,
-            items=json.dumps(names, ensure_ascii=False),
+            items=names,
             first_at=now,
             due_at=now + timedelta(seconds=settings.notify_bought_delay_seconds),
         )
@@ -151,7 +150,7 @@ class Notifier:
         actor = session.get(models.User, note.actor_id)
         if lst is None or actor is None:
             return []
-        raw = json.loads(note.items)
+        raw = note.items
         if note.kind == "added":
             # Entries that were deleted (Undo-able removal) before the message went are left
             # out; Entries already bought are still news, so they stay.
