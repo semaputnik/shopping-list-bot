@@ -1155,3 +1155,10 @@ body {
 .row__by .avatar {
   border-color: var(--section);
 }
+
+.field__hint {
+  display: block;
+  margin: 6px 4px 0;
+  color: var(--hint);
+  font-size: 13px;
+}

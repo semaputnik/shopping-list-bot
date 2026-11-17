@@ -16,6 +16,7 @@ import {
   fetchContents,
   fetchSuggestions,
   hideProduct,
+  renameProduct,
   restoreEntry,
   updateEntry,
   uncheckAll,
@@ -348,6 +349,20 @@ export function ListScreen({
       return editEntry(openId, { category });
     },
     [openId, editEntry],
+  );
+
+  /** Renames the open Entry's Product everywhere in the List, then shows the result. */
+  const renameOpenProduct = useCallback(
+    async (name: string) => {
+      const entry = contentsRef.current?.categories
+        .flatMap((g) => g.entries)
+        .find((e) => e.id === openId);
+      if (listId === undefined || !entry) return;
+      markOwn(entry.id);
+      await renameProduct(token, listId, entry.product_id, name);
+      await refresh();
+    },
+    [token, listId, openId, markOwn, refresh],
   );
 
   const removeEntry = async (id: number, name: string) => {
@@ -1144,6 +1159,7 @@ export function ListScreen({
           strings={strings}
           onSaveNote={saveNote}
           onChangeCategory={changeCategory}
+          onRename={renameOpenProduct}
           onDelete={() => void removeEntry(openEntry.id, openEntry.name)}
           onSaveFailed={() => setError("save")}
           onClose={closeCard}

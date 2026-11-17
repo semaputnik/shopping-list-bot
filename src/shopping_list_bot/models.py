@@ -198,3 +198,29 @@ class IdempotencyRecord(Base):
     body: Mapped[str] = mapped_column(Text)
     content_type: Mapped[str | None] = mapped_column(String(100))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Notification(Base):
+    """A bot message waiting to go to a List's other Members.
+
+    "added": one row per (List, Member) while that Member keeps adding; each add pushes
+    ``due_at`` out by the quiet period, capped from the first add, so a burst of adds becomes
+    one message. "bought": one row per Purchase, due a little after «Куплено»; Undo deletes the
+    Purchase and, by cascade, this row, so an undone purchase is never announced.
+    """
+
+    __tablename__ = "notification"
+    __table_args__ = (Index("ix_notification_due", "due_at"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    list_id: Mapped[int] = mapped_column(ForeignKey("list.id", ondelete="CASCADE"))
+    actor_id: Mapped[int] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"))
+    kind: Mapped[str] = mapped_column(String(16))
+    purchase_id: Mapped[int | None] = mapped_column(
+        ForeignKey("purchase.id", ondelete="CASCADE"), index=True
+    )
+    # JSON: [[entry_id, name], ...] for "added" (an Entry removed before sending is dropped),
+    # [name, ...] for "bought".
+    items: Mapped[str] = mapped_column(Text, default="[]")
+    first_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

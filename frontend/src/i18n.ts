@@ -48,6 +48,8 @@ type StringKey =
   | "languageAsTelegram"
   | "languageSaveError"
   | "entryNote"
+  | "entryName"
+  | "entryNameHint"
   | "entryDetails"
   | "entryNotePlaceholder"
   | "entryCategory"
@@ -137,6 +139,8 @@ const strings: Record<Language, Record<StringKey, string>> = {
     languageAsTelegram: "Как в Telegram",
     languageSaveError: "Не удалось сохранить язык. Попробуйте ещё раз.",
     entryNote: "Заметка",
+    entryName: "Название",
+    entryNameHint: "Меняется у товара целиком: во всех его строках и подсказках.",
     entryNotePlaceholder: "Количество или детали",
     entryCategory: "Отдел",
     entryAddedBy: "Добавлено:",
@@ -225,6 +229,8 @@ const strings: Record<Language, Record<StringKey, string>> = {
     languageAsTelegram: "Como en Telegram",
     languageSaveError: "No se pudo guardar el idioma. Inténtalo de nuevo.",
     entryNote: "Nota",
+    entryName: "Nombre",
+    entryNameHint: "Cambia en todo el producto: en todas sus filas y sugerencias.",
     entryNotePlaceholder: "Cantidad o detalles",
     entryCategory: "Sección",
     entryAddedBy: "Añadido por:",

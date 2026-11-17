@@ -210,6 +210,20 @@ export function hideProduct(token: string, listId: number, productId: number): P
   return request<{ version: number }>(`/api/lists/${listId}/products/${productId}`, { method: "DELETE" }, token);
 }
 
+/** Renames a Product in this List everywhere (merging into a Product that already has the name). */
+export function renameProduct(
+  token: string,
+  listId: number,
+  productId: number,
+  name: string,
+): Promise<{ version: number; product_id: number; name: string; merged: boolean }> {
+  return request(
+    `/api/lists/${listId}/products/${productId}`,
+    { method: "PATCH", body: JSON.stringify({ name }) },
+    token,
+  );
+}
+
 export function renameList(token: string, id: number, name: string): Promise<ShoppingList> {
   return request<ShoppingList>(
     `/api/lists/${id}`,

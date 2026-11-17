@@ -35,6 +35,7 @@ from .config import Settings
 from .db import Base, make_engine, make_session_factory
 from .i18n import FIRST_LIST_NAME, effective_language
 from .normalize import normalize
+from .notifications import Notifier, Send, TelegramSender, queue_added, queue_bought
 from .parsing import parse_input
 from .suggest import MAX_SUGGESTIONS, rank
 from .sync import Hub
@@ -71,6 +72,18 @@ ListName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1,
 
 class ListIn(BaseModel):
     name: ListName
+
+
+class ProductRenameIn(BaseModel):
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+
+
+class ProductRenameOut(BaseModel):
+    version: int
+    # The Product the name now belongs to: a different id when the rename merged two Products.
+    product_id: int
+    name: str
+    merged: bool
 
 
 class ImmutableStaticFiles(StaticFiles):
@@ -367,10 +380,18 @@ def _add_missing_columns(engine) -> None:
                 conn.execute(text(f'ALTER TABLE "{table}" ADD COLUMN {column} {ddl}'))
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, notify_send: Send | None = None) -> FastAPI:
+    """Build the app. ``notify_send`` replaces the Telegram sender for bot notifications
+    (tests pass a fake); without it, notifications go through the Bot API when a token is set."""
     settings = settings or Settings()
     engine = make_engine(settings.database_url)
     session_factory = make_session_factory(engine)
+    telegram = (
+        TelegramSender(settings.bot_token)
+        if notify_send is None and settings.bot_token and settings.notify_poll_seconds > 0
+        else None
+    )
+    notifier = Notifier(settings, session_factory, notify_send or telegram)
     # Fail closed: with neither SL_SESSION_SECRET nor a bot token there is no secret, and
     # no session is issued (sign-in needs the bot token anyway) or accepted.
     secret = settings.session_secret or (
@@ -385,10 +406,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             logger.warning("SL_BOT_USERNAME is not set: Share links cannot be built")
         Base.metadata.create_all(engine)
         _add_missing_columns(engine)
+        loop = (
+            asyncio.create_task(_deliver_forever())
+            if notifier.send is not None and settings.notify_poll_seconds > 0
+            else None
+        )
         yield
+        if loop is not None:
+            loop.cancel()
+        if telegram is not None:
+            await telegram.aclose()
         engine.dispose()
 
+    async def _deliver_forever() -> None:
+        while True:
+            await asyncio.sleep(settings.notify_poll_seconds)
+            try:
+                await notifier.deliver_due()
+            except Exception:  # a bad round must not stop the loop
+                logger.exception("Delivering notifications failed")
+
     app = FastAPI(title="Shared Lists", lifespan=lifespan)
+    app.state.notifier = notifier
 
     hub = Hub()
 
@@ -805,6 +844,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     created.append(entry)
                 session.flush()
                 _touch(session, lst, "entries.added")
+                queue_added(session, settings, lst, user, created)
                 session.commit()
                 break
             except IntegrityError:
@@ -947,6 +987,73 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             session.commit()
         return ProductHiddenOut(version=lst.version)
 
+    @api.patch("/lists/{list_id}/products/{product_id}", response_model=ProductRenameOut)
+    def rename_product(
+        list_id: int, product_id: int, body: ProductRenameIn, user: UserDep, session: SessionDep
+    ) -> ProductRenameOut:
+        """Rename a Product everywhere in this List: its memory entry and every current Entry.
+
+        If the new name is another Product's (say «малоко» renamed to «молоко» that already
+        exists), the two are merged: Entries and History move to that Product, the stats add up,
+        and the renamed Product is gone. Past Purchases keep the names they were bought under.
+        """
+        lst = _member_list(session, user, list_id)
+        product = session.scalar(
+            select(models.Product).where(
+                models.Product.id == product_id, models.Product.list_id == lst.id
+            )
+        )
+        if product is None:
+            raise HTTPException(404, "product not found")
+        name = body.name.strip()
+        norm = normalize(name)
+        if not norm:
+            raise HTTPException(422, "name must not be empty")
+        target = product
+        if norm != product.name_norm:
+            other = session.scalar(
+                select(models.Product).where(
+                    models.Product.list_id == lst.id, models.Product.name_norm == norm
+                )
+            )
+            if other is not None:
+                session.execute(
+                    update(models.Entry)
+                    .where(models.Entry.product_id == product.id)
+                    .values(product_id=other.id)
+                )
+                session.execute(
+                    update(models.PurchaseEntry)
+                    .where(models.PurchaseEntry.product_id == product.id)
+                    .values(product_id=other.id)
+                )
+                other.purchase_count += product.purchase_count
+                if product.last_purchased_at is not None and (
+                    other.last_purchased_at is None
+                    or _aware(product.last_purchased_at) > _aware(other.last_purchased_at)
+                ):
+                    other.last_purchased_at = product.last_purchased_at
+                other.hidden = False
+                session.flush()
+                session.delete(product)
+                target = other
+        target.name = name
+        target.name_norm = norm
+        session.execute(
+            update(models.Entry)
+            .where(models.Entry.product_id == target.id, models.Entry.deleted_at.is_(None))
+            .values(name=name)
+        )
+        _touch(session, lst, "product.renamed")
+        session.commit()
+        session.refresh(target)
+        return ProductRenameOut(
+            version=lst.version,
+            product_id=target.id,
+            name=target.name,
+            merged=target is not product,
+        )
+
     @api.post("/lists/{list_id}/entries/uncheck-all", response_model=UncheckAllOut)
     def uncheck_all(list_id: int, user: UserDep, session: SessionDep) -> UncheckAllOut:
         """Uncheck every Checked Entry of the List (the «Снять все отметки» menu action)."""
@@ -1040,6 +1147,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             session.rollback()
             raise HTTPException(409, "the List changed, try again")
         _touch(session, lst, "purchase.created")
+        queue_bought(session, settings, lst, user, purchase, [e.name for e in checked])
         session.commit()
         return PurchaseOut(
             id=purchase.id,
@@ -1378,7 +1486,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         session.add(entry)
         try:
+            session.flush()
             _touch(session, lst, "entries.added")
+            queue_added(session, settings, lst, user, [entry])
             session.commit()
         except IntegrityError:  # concurrent replay of the same client_id
             session.rollback()

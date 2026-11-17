@@ -55,6 +55,8 @@ GitHub Actions has two workflows:
 git tag v0.1.0 && git push origin v0.1.0
 ```
 
+**Bot notifications** (`notifications.py`): adding Entries and «Куплено» queue a row in `notification` inside the same transaction. The backend's lifespan runs a loop every `NOTIFY_POLL_SECONDS` (5) that sends what is due through the Bot API to every other Member (in their language, with a button that opens the Mini App at `?list=<id>`). A burst of adds by one Member is one message: due `NOTIFY_ADDED_QUIET_SECONDS` (180) after their last add, capped at `NOTIFY_ADDED_MAX_SECONDS` (900) from the first. A Purchase is announced `NOTIFY_BOUGHT_DELAY_SECONDS` (30) after it; Undo deletes the Purchase and the queued row with it (FK cascade). Only the backend sends; the bot process never does. Tests build the app with `create_app(settings, notify_send=fake)` and call `app.state.notifier.deliver_due(now)`; `tests/conftest.py` sets `SL_NOTIFY_POLL_SECONDS=0` so no test ever reaches Telegram.
+
 **Sync tuning** (all optional, `SL_` prefix): `CHECK_WINS_WINDOW_SECONDS` (2.0; another Member's uncheck within this long after a check is dropped), `CHANGES_MAX_GAP` (100), `CHANGES_RETENTION` (500 versions of log per List), `SSE_HEARTBEAT_SECONDS` (15), `IDEMPOTENCY_TTL_SECONDS` (24 h).
 
 **Configuration** is read from `SL_*` environment variables or a `.env` file: `SL_BOT_TOKEN`, `SL_BOT_USERNAME` (the bot's @username without `@`; builds Share links `https://t.me/<bot>?startapp=<code>`, `share_url` is null without it), `SL_WEBAPP_URL` (public https URL of the Mini App), `SL_DATABASE_URL` (default `sqlite:///./shared_lists.db`), `SL_SESSION_SECRET` (optional; derived from the bot token if empty; with neither set, no session is issued or accepted). The bot also reads `SL_DATABASE_URL` (to look up a user's chosen language for `/start`), so it must point at the same database as the backend; the backend owns the schema, and if the database is unreachable or not yet migrated the bot falls back to Telegram's language. No real bot token is needed to run tests or build.
@@ -88,7 +90,7 @@ Planned pieces that interact:
 
 ## Staging
 
-The MVP covers Telegram login, multiple lists shared by link, delete with confirmation, input with suggestions, dictionary categories, check/uncheck, the «Куплено» button that moves checked entries into the list's purchase history, member avatars in the header, realtime, Telegram themes, and RU/ES. Stores and their ordering, in-store mode, the offline queue and bot notifications come next (see spec §9). Don't build later-stage features unless asked.
+The MVP covers Telegram login, multiple lists shared by link, delete with confirmation, input with suggestions, dictionary categories, check/uncheck, the «Куплено» button that moves checked entries into the list's purchase history, member avatars in the header, realtime, Telegram themes, and RU/ES. Bot notifications for adds and «Куплено» and renaming a Product (`PATCH /api/lists/{id}/products/{product_id}`, merging into an existing Product with that name) are built too. Stores and their ordering, in-store mode and the offline queue come next (see spec §9). Don't build later-stage features unless asked.
 
 ## Agent skills
 

@@ -47,3 +47,9 @@ _Avoid_: Checkout, trip, order
 **History**:
 A List's record of its past Purchases.
 _Avoid_: Log, archive, recently bought
+
+## Notifying
+
+**Notification**:
+A bot message to a List's other Members about one Member's activity: Entries they added (one message per burst of adding) or a Purchase they made (sent only if it was not undone).
+_Avoid_: Alert, push, digest
