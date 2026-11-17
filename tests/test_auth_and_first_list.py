@@ -155,6 +155,39 @@ class TestUserUpsert:
         assert me["language_code"] == "es"
         assert me["language"] == "es"
 
+    def test_telegram_flags_are_stored_from_init_data(self, sign_in):
+        flagged = {**ANNA, "is_premium": True, "allows_write_to_pm": True}
+        user = sign_in({**flagged, "added_to_attachment_menu": True})["response"]["user"]
+        assert user["is_premium"] is True
+        assert user["allows_write_to_pm"] is True
+        assert user["added_to_attachment_menu"] is True
+
+    def test_flags_absent_from_init_data_are_false(self, sign_in):
+        user = sign_in(ANNA)["response"]["user"]
+        assert user["is_premium"] is False
+        assert user["allows_write_to_pm"] is False
+        assert user["added_to_attachment_menu"] is False
+
+    def test_second_sign_in_refreshes_every_field_and_drops_absent_ones(self, client, sign_in):
+        full = {
+            **ANNA,
+            "is_premium": True,
+            "allows_write_to_pm": True,
+            "added_to_attachment_menu": True,
+        }
+        first = sign_in(full)["response"]["user"]
+        second = sign_in({"id": 1001, "first_name": "Аня"})
+        me = client.get("/api/me", headers=second["headers"]).json()
+        assert me["id"] == first["id"]
+        assert me["first_name"] == "Аня"
+        assert me["last_name"] is None
+        assert me["username"] is None
+        assert me["photo_url"] is None
+        assert me["language_code"] is None
+        assert me["is_premium"] is False
+        assert me["allows_write_to_pm"] is False
+        assert me["added_to_attachment_menu"] is False
+
     @pytest.mark.parametrize(
         ("language_code", "expected"),
         [

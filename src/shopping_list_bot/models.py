@@ -69,6 +69,11 @@ class User(Base):
     username: Mapped[str | None] = mapped_column(String(64))
     photo_url: Mapped[str | None] = mapped_column(String(1024))
     language_code: Mapped[str | None] = mapped_column(String(16))
+    is_premium: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    allows_write_to_pm: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    added_to_attachment_menu: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false()
+    )
     # Interface language the user picked in Settings; None follows Telegram's language_code.
     language: Mapped[str | None] = mapped_column(String(8))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

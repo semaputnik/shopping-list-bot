@@ -54,6 +54,9 @@ class UserOut(BaseModel):
     username: str | None
     photo_url: str | None
     language_code: str | None
+    is_premium: bool
+    allows_write_to_pm: bool
+    added_to_attachment_menu: bool
     # Effective interface language, "ru", "es" or "en": the user's choice, else from language_code.
     language: str
     # True when the user overrode Telegram's language in Settings.
@@ -305,6 +308,9 @@ def user_out(user: models.User) -> UserOut:
         username=user.username,
         photo_url=user.photo_url,
         language_code=user.language_code,
+        is_premium=user.is_premium,
+        allows_write_to_pm=user.allows_write_to_pm,
+        added_to_attachment_menu=user.added_to_attachment_menu,
         language=effective_language(user.language, user.language_code),
         language_overridden=user.language is not None,
     )
@@ -351,6 +357,9 @@ def _upsert_user(session: Session, tg: TelegramUser) -> tuple[models.User, bool]
     user.username = tg.username
     user.photo_url = tg.photo_url
     user.language_code = tg.language_code
+    user.is_premium = tg.is_premium
+    user.allows_write_to_pm = tg.allows_write_to_pm
+    user.added_to_attachment_menu = tg.added_to_attachment_menu
     return user, created
 
 

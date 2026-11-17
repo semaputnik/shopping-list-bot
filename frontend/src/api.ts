@@ -6,6 +6,9 @@ export interface User {
   username: string | null;
   photo_url: string | null;
   language_code: string | null;
+  is_premium: boolean;
+  allows_write_to_pm: boolean;
+  added_to_attachment_menu: boolean;
   language: "ru" | "es" | "en";
   /** True when the user overrode Telegram's language in Settings. */
   language_overridden: boolean;
