@@ -773,6 +773,14 @@ body {
   color: var(--tgui--hint_color, var(--hint));
 }
 
+/* The drawer follows the visible part of the screen while the keyboard is open (see Sheet.tsx):
+   these win over the inline bottom/height vaul sets, which ignore the iOS page pan. */
+.sheet-drawer.sheet-drawer {
+  bottom: var(--sheet-bottom, 0px) !important;
+  height: auto !important;
+  max-height: calc(var(--sheet-visible-height, 100vh) * 0.96) !important;
+}
+
 /* The tgui Modal drawer body: Telegram's grouped ground, with room for the home indicator. */
 .sheet {
   padding: 0 16px calc(var(--safe-bottom) + 16px);
