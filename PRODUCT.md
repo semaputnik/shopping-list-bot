@@ -40,7 +40,7 @@ It lives inside Telegram: no install, no account, no signup. A list is shared by
 
 ## Brand Commitments
 
-- The visual direction is the category standard: a native Telegram look, chosen deliberately over expressive directions. The craft bar is Telegram's own screens and the Wallet Mini App.
+- The visual direction is the category standard: a native Telegram look, chosen deliberately over expressive directions. It is built on Telegram's official Mini App kit, `@telegram-apps/telegram-ui`. The craft bar is Telegram's own screens and the best kit-built Mini Apps (Wallet, Wishapp; see `docs/references/wishapp.md`).
 - The product is named **Shared Lists**. The name stays the same in every UI language. The bot's @username is not chosen yet.
 
 ## Evidence on Hand

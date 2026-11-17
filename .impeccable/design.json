@@ -1,0 +1,347 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-17T19:00:06+00:00",
+  "title": "Design System: Shared Lists",
+  "extensions": {
+    "colorMeta": {
+      "accent": {
+        "role": "primary",
+        "displayName": "Telegram Accent",
+        "canonical": "var(--tgui--button_color)",
+        "tonalRamp": [
+          "#002a5c",
+          "#00418a",
+          "#0059b8",
+          "#007aff",
+          "#3395ff",
+          "#66b0ff",
+          "#99caff",
+          "#cce4ff"
+        ]
+      },
+      "accent-text": {
+        "role": "primary",
+        "displayName": "Accent Text",
+        "canonical": "var(--tgui--button_text_color)",
+        "tonalRamp": [
+          "#ffffff"
+        ]
+      },
+      "link": {
+        "role": "primary",
+        "displayName": "Link Accent",
+        "canonical": "var(--tgui--link_color)",
+        "tonalRamp": [
+          "#002a5c",
+          "#00418a",
+          "#0059b8",
+          "#007aff",
+          "#3395ff",
+          "#66b0ff",
+          "#99caff",
+          "#cce4ff"
+        ]
+      },
+      "ground": {
+        "role": "neutral",
+        "displayName": "Screen Ground",
+        "canonical": "var(--tgui--secondary_bg_color)",
+        "tonalRamp": [
+          "#1c1c21",
+          "#3a3a42",
+          "#5a5a64",
+          "#7c7c86",
+          "#a0a0a8",
+          "#c4c4cb",
+          "#e0e0e6",
+          "#efeff4"
+        ]
+      },
+      "section": {
+        "role": "neutral",
+        "displayName": "Section Surface",
+        "canonical": "var(--tgui--section_bg_color)",
+        "tonalRamp": [
+          "#212121",
+          "#3d3d3d",
+          "#5c5c5c",
+          "#7d7d7d",
+          "#a0a0a0",
+          "#c4c4c4",
+          "#e6e6e6",
+          "#ffffff"
+        ]
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "Primary Text",
+        "canonical": "var(--tgui--text_color)"
+      },
+      "hint": {
+        "role": "neutral",
+        "displayName": "Hint",
+        "canonical": "var(--tgui--hint_color)"
+      },
+      "subtitle": {
+        "role": "neutral",
+        "displayName": "Subtitle",
+        "canonical": "var(--tgui--subtitle_text_color)"
+      },
+      "section-header": {
+        "role": "neutral",
+        "displayName": "Section Header",
+        "canonical": "var(--tgui--section_header_text_color)"
+      },
+      "destructive": {
+        "role": "neutral",
+        "displayName": "Destructive",
+        "canonical": "var(--tgui--destructive_text_color)"
+      },
+      "divider": {
+        "role": "neutral",
+        "displayName": "Divider",
+        "canonical": "var(--tgui--divider)"
+      },
+      "plain-fill": {
+        "role": "neutral",
+        "displayName": "Plain Fill",
+        "canonical": "var(--tgui--plain_background)"
+      },
+      "accent-fill": {
+        "role": "neutral",
+        "displayName": "Accent Fill",
+        "canonical": "var(--tgui--secondary_fill)"
+      },
+      "surface-dark": {
+        "role": "neutral",
+        "displayName": "Dark Surface",
+        "canonical": "var(--tgui--surface_dark)"
+      }
+    },
+    "typographyMeta": {
+      "large-title": {
+        "displayName": "Large Title",
+        "purpose": "Reserved; not used on current screens."
+      },
+      "title1": {
+        "displayName": "Title 1",
+        "purpose": "List name and screen titles."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Placeholder headers."
+      },
+      "text": {
+        "displayName": "Text",
+        "purpose": "Product names, inputs, rows."
+      },
+      "subheadline": {
+        "displayName": "Subheadline",
+        "purpose": "Notes, meta, snackbar and alert text."
+      },
+      "caption": {
+        "displayName": "Caption",
+        "purpose": "Caps Category headers, field labels and hints."
+      }
+    },
+    "shadows": [
+      {
+        "name": "float-alert",
+        "value": "0 4px 20px rgba(0,0,0,.16)",
+        "purpose": "Top alerts that float above the list."
+      },
+      {
+        "name": "suggest-ring",
+        "value": "0 0 0 .5px var(--tg-theme-section-separator-color)",
+        "purpose": "Suggestion panel edge over rows."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-signature",
+        "value": "cubic-bezier(.22,1,.36,1)",
+        "purpose": "Our details: check pop, pen stroke, tile done, progress."
+      },
+      {
+        "name": "ease-kit",
+        "value": "cubic-bezier(.3,.3,.5,1)",
+        "purpose": "tgui surfaces: snackbar slide, ripple."
+      },
+      {
+        "name": "check-pop",
+        "value": ".24s scale .82→1.08→1",
+        "purpose": "Check fills."
+      },
+      {
+        "name": "pen-stroke",
+        "value": ".22s background-size 0→100%",
+        "purpose": "Cross-out drawn across the name."
+      },
+      {
+        "name": "row-new",
+        "value": "1.6s ease-out accent 22%→transparent",
+        "purpose": "Just-added Entry."
+      },
+      {
+        "name": "tile-done",
+        "value": ".32s scale 1→1.12→1",
+        "purpose": "Category complete."
+      },
+      {
+        "name": "progress",
+        "value": ".35s scaleX",
+        "purpose": "Trip progress fill."
+      },
+      {
+        "name": "popover-in",
+        "value": ".12s ease-out opacity 0→1, scale .96→1, translateY -4px→0",
+        "purpose": "Menus (to implement)."
+      },
+      {
+        "name": "popover-out",
+        "value": ".12s ease-in forwards, reverse",
+        "purpose": "Menus closing (to implement)."
+      },
+      {
+        "name": "snackbar-in",
+        "value": ".34s translateY 140%→0",
+        "purpose": "Undo snackbar."
+      },
+      {
+        "name": "reduced-motion",
+        "value": ".01s",
+        "purpose": "All durations under prefers-reduced-motion."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "min-phone",
+        "value": "360px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Filled Button",
+      "kind": "button",
+      "refersTo": "button-filled",
+      "description": "In-page primary (Save in a sheet, empty-state action). The checkout action is the native MainButton instead.",
+      "html": "<button class=\"ds-btn-filled\">Сохранить</button>",
+      "css": ".ds-btn-filled{font-family:system-ui, -apple-system, BlinkMacSystemFont, Roboto, 'Apple Color Emoji', 'Helvetica Neue', sans-serif;width:100%;min-height:48px;padding:0 24px;border:0;border-radius:12px;background:var(--tg-theme-button-color,#007aff);color:var(--tg-theme-button-text-color,#fff);font-size:17px;font-weight:600;transition:opacity .15s ease-out}.ds-btn-filled:active{opacity:.65}.ds-btn-filled:focus-visible{outline:2px solid var(--tg-theme-button-color,#007aff);outline-offset:2px}.ds-btn-filled:disabled{opacity:.5}"
+    },
+    {
+      "name": "Bezeled Button",
+      "kind": "button",
+      "refersTo": "button-bezeled",
+      "description": "Secondary action next to a primary (Share link, Cancel).",
+      "html": "<button class=\"ds-btn-bezeled\">Пригласить по ссылке</button>",
+      "css": ".ds-btn-bezeled{font-family:system-ui, -apple-system, BlinkMacSystemFont, Roboto, 'Apple Color Emoji', 'Helvetica Neue', sans-serif;width:100%;min-height:48px;padding:0 24px;border:0;border-radius:12px;background:color-mix(in srgb,var(--tg-theme-link-color,#007aff) 10%,transparent);color:var(--tg-theme-link-color,#007aff);font-size:17px;font-weight:600;transition:opacity .15s ease-out}.ds-btn-bezeled:active{opacity:.65}.ds-btn-bezeled:focus-visible{outline:2px solid var(--tg-theme-button-color,#007aff);outline-offset:2px}"
+    },
+    {
+      "name": "Composer Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Sticky add field; focus shows only the caret.",
+      "html": "<div class=\"ds-ground\"><input class=\"ds-composer\" placeholder=\"Добавить: молоко, 2 л; хлеб\"></div>",
+      "css": ".ds-ground{background:var(--tg-theme-secondary-bg-color,#efeff4);padding:8px 16px}.ds-composer{font-family:system-ui, -apple-system, BlinkMacSystemFont, Roboto, 'Apple Color Emoji', 'Helvetica Neue', sans-serif;display:block;width:100%;box-sizing:border-box;min-height:44px;padding:11px 14px;border:0;border-radius:12px;background:var(--tg-theme-section-bg-color,#fff);color:var(--tg-theme-text-color,#000);font-size:17px;outline:none}.ds-composer::placeholder{color:var(--tg-theme-hint-color,#707579)}.ds-composer:focus-visible{outline:2px solid var(--tg-theme-button-color,#007aff);outline-offset:-2px}"
+    },
+    {
+      "name": "Category Section with Entry Rows",
+      "kind": "card",
+      "refersTo": "section",
+      "description": "Signature: caps header with the emoji tile, inset rows with a round check and pen-stroke cross-out.",
+      "html": "<div class=\"ds-ground\"><div class=\"ds-group-h\"><span class=\"ds-tile\">🥛</span><span class=\"ds-gname\">Молочное</span><span>2</span><button class=\"ds-hadd\">Add ⊕</button></div><ul class=\"ds-rows\"><li class=\"ds-row\"><button class=\"ds-toggle\"><span class=\"ds-check\"></span><span class=\"ds-txt\"><span class=\"ds-name\"><span class=\"ds-label\">Молоко</span></span><span class=\"ds-note\">2 л</span></span></button><span class=\"ds-open\">›</span></li><li class=\"ds-row ds-row--checked\"><button class=\"ds-toggle\"><span class=\"ds-check\"></span><span class=\"ds-txt\"><span class=\"ds-name\"><span class=\"ds-label\">Творог</span></span></span></button><span class=\"ds-open\">›</span></li></ul></div>",
+      "css": ".ds-ground{background:var(--tg-theme-secondary-bg-color,#efeff4);padding:12px 16px;font-family:system-ui, -apple-system, BlinkMacSystemFont, Roboto, 'Apple Color Emoji', 'Helvetica Neue', sans-serif}.ds-group-h{display:flex;align-items:center;gap:10px;padding:0 4px 8px 0;font-size:13px;text-transform:uppercase;letter-spacing:.02em;color:var(--tg-theme-section-header-text-color,#707579)}.ds-gname{flex:1}.ds-tile{display:grid;place-items:center;width:30px;height:30px;border-radius:9px;background:var(--tg-theme-section-bg-color,#fff);font-size:18px;text-transform:none}.ds-hadd{border:0;background:none;color:var(--tg-theme-link-color,#007aff);font:inherit;font-size:15px;text-transform:none;letter-spacing:0;min-height:44px}.ds-rows{list-style:none;margin:0;padding:0;border-radius:12px;background:var(--tg-theme-section-bg-color,#fff);overflow:hidden}.ds-row{position:relative;display:flex}.ds-row+.ds-row::before{content:'';position:absolute;top:0;left:50px;right:0;height:.5px;background:rgba(0,0,0,.15)}.ds-toggle{display:flex;flex:1;align-items:center;gap:12px;min-height:52px;padding:10px 4px 10px 16px;border:0;background:none;color:var(--tg-theme-text-color,#000);font:inherit;font-size:17px;text-align:left}.ds-toggle:focus-visible{outline:2px solid var(--tg-theme-button-color,#007aff);outline-offset:-2px;border-radius:10px}.ds-check{position:relative;flex-shrink:0;width:22px;height:22px;box-sizing:border-box;border:2px solid var(--tg-theme-hint-color,#707579);border-radius:50%}.ds-row--checked .ds-check{border-color:var(--tg-theme-button-color,#007aff);background:var(--tg-theme-button-color,#007aff);animation:ds-pop .24s cubic-bezier(.22,1,.36,1)}.ds-row--checked .ds-check::after{content:'';position:absolute;left:6px;top:2px;width:5px;height:10px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}.ds-txt{display:flex;flex-direction:column;gap:2px}.ds-note{font-size:15px;color:var(--tg-theme-hint-color,#707579)}.ds-label{background:linear-gradient(currentColor,currentColor) no-repeat 0 58%/0% 1.5px;transition:background-size .22s cubic-bezier(.22,1,.36,1),color .22s ease-out}.ds-row--checked .ds-name{color:var(--tg-theme-hint-color,#707579)}.ds-row--checked .ds-label{background-size:100% 1.5px}.ds-open{display:grid;place-items:center;width:44px;color:var(--tg-theme-hint-color,#707579);font-size:22px}@keyframes ds-pop{0%{transform:scale(.82)}60%{transform:scale(1.08)}to{transform:scale(1)}}"
+    },
+    {
+      "name": "Quick-add Chip",
+      "kind": "chip",
+      "refersTo": "chip-quick-add",
+      "description": "Pills under the empty state; one tap adds the Product.",
+      "html": "<div class=\"ds-quick\"><button class=\"ds-chip\">Молоко</button><button class=\"ds-chip\">Хлеб</button><button class=\"ds-chip\">Яйца</button></div>",
+      "css": ".ds-quick{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;font-family:system-ui, -apple-system, BlinkMacSystemFont, Roboto, 'Apple Color Emoji', 'Helvetica Neue', sans-serif}.ds-chip{min-height:44px;padding:0 16px;border:0;border-radius:22px;background:var(--tg-theme-secondary-bg-color,#efeff4);color:var(--tg-theme-link-color,#007aff);font:inherit;font-size:15px;transition:opacity .15s ease-out}.ds-chip:active{opacity:.65}.ds-chip:focus-visible{outline:2px solid var(--tg-theme-button-color,#007aff);outline-offset:-2px}"
+    },
+    {
+      "name": "Header with Members",
+      "kind": "nav",
+      "refersTo": "",
+      "description": "List name as switcher, meta line, AvatarStack, menu button.",
+      "html": "<div class=\"ds-head\"><div class=\"ds-hl\"><button class=\"ds-switch\">Покупки <span class=\"ds-chev\">⌄</span></button><p class=\"ds-meta\">3 участника · 5 из 12 в корзине</p></div><span class=\"ds-stack\"><span class=\"ds-av\">А</span><span class=\"ds-av\">Б</span><span class=\"ds-av ds-av--more\">+2</span></span><button class=\"ds-menu\">⋯</button></div>",
+      "css": ".ds-head{display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--tg-theme-secondary-bg-color,#efeff4);font-family:system-ui, -apple-system, BlinkMacSystemFont, Roboto, 'Apple Color Emoji', 'Helvetica Neue', sans-serif;color:var(--tg-theme-text-color,#000)}.ds-hl{flex:1;min-width:0}.ds-switch{border:0;background:none;padding:0;color:inherit;font:inherit;font-size:28px;font-weight:700;letter-spacing:-.01em;min-height:44px}.ds-chev{font-size:16px;color:var(--tg-theme-hint-color,#707579)}.ds-meta{margin:0;font-size:15px;color:var(--tg-theme-hint-color,#707579)}.ds-stack{display:flex}.ds-av{display:inline-grid;place-items:center;width:36px;height:36px;border-radius:50%;border:2px solid var(--tg-theme-secondary-bg-color,#efeff4);background:var(--tg-theme-button-color,#007aff);color:#fff;font-size:13px;font-weight:600}.ds-av+.ds-av{margin-left:-8px}.ds-av--more{background:var(--tg-theme-section-bg-color,#fff);color:var(--tg-theme-hint-color,#707579)}.ds-menu{width:44px;height:44px;border:0;border-radius:50%;background:var(--tg-theme-section-bg-color,#fff);color:var(--tg-theme-link-color,#007aff);font-size:24px}.ds-switch:focus-visible,.ds-menu:focus-visible{outline:2px solid var(--tg-theme-button-color,#007aff);outline-offset:-2px;border-radius:10px}"
+    },
+    {
+      "name": "Undo Snackbar",
+      "kind": "custom",
+      "refersTo": "snackbar",
+      "description": "Dark blurred surface, slides up, at least 5 s, two-line clamp.",
+      "html": "<div class=\"ds-snack\"><span class=\"ds-snack__t\">«Молоко» удалено</span><button class=\"ds-snack__a\">Вернуть</button></div>",
+      "css": ".ds-snack{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:48px;padding:4px 8px 4px 16px;border-radius:12px;background:rgba(56,56,56,.85);backdrop-filter:blur(28px);-webkit-backdrop-filter:blur(28px);color:#fff;font-family:system-ui, -apple-system, BlinkMacSystemFont, Roboto, 'Apple Color Emoji', 'Helvetica Neue', sans-serif;font-size:15px;animation:ds-up .34s cubic-bezier(.3,.3,.5,1)}.ds-snack__a{min-height:44px;padding:0 12px;border:0;background:none;color:#55a6ff;font:inherit;font-weight:600}.ds-snack__a:focus-visible{outline:2px solid #55a6ff;outline-offset:-2px;border-radius:10px}@keyframes ds-up{0%{transform:translateY(140%)}to{transform:none}}"
+    },
+    {
+      "name": "Settings Option Cell",
+      "kind": "custom",
+      "refersTo": "cell",
+      "description": "Two-line option: title plus its consequence, radio on the right.",
+      "html": "<ul class=\"ds-set\"><li><button class=\"ds-opt\" aria-checked=\"true\"><span><span class=\"ds-ot\">Как в Telegram</span><span class=\"ds-od\">Язык меняется вместе с Telegram</span></span></button></li><li><button class=\"ds-opt\"><span><span class=\"ds-ot\">Español</span><span class=\"ds-od\">Всегда испанский</span></span></button></li></ul>",
+      "css": ".ds-set{list-style:none;margin:0;padding:0;border-radius:12px;background:var(--tg-theme-section-bg-color,#fff);font-family:system-ui, -apple-system, BlinkMacSystemFont, Roboto, 'Apple Color Emoji', 'Helvetica Neue', sans-serif}.ds-set li+li{border-top:.5px solid rgba(0,0,0,.15);margin-left:16px}.ds-opt{display:flex;align-items:center;justify-content:space-between;width:100%;min-height:52px;padding:10px 16px;border:0;background:none;color:var(--tg-theme-text-color,#000);font:inherit;text-align:left}.ds-opt>span{display:flex;flex-direction:column;gap:2px}.ds-ot{font-size:17px}.ds-od{font-size:15px;color:var(--tg-theme-hint-color,#707579)}.ds-opt[aria-checked=true]::after{content:'✓';color:var(--tg-theme-button-color,#007aff);font-weight:600}.ds-opt:active{background:rgba(0,0,0,.04)}.ds-opt:focus-visible{outline:2px solid var(--tg-theme-button-color,#007aff);outline-offset:-2px;border-radius:10px}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Telegram's own parts, our own hand",
+    "overview": "The interface is assembled from Telegram's official Mini App kit, `@telegram-apps/telegram-ui` (tgui): its Sections, Cells, Buttons, Placeholders, Modal, Snackbar, Skeletons and typography scale. The craft bar is the strongest kit-built Mini Apps (Wishapp, Wallet). A Telegram user should feel at home instantly, because the parts are literally the ones they already know. The kit also switches between iOS and Android grammar for us (`AppRoot platform`).\n\nOur own hand shows in a few precise, tactile details layered on top of the kit, never in a palette or decoration. Those details are: the category emoji tile, the pen stroke that crosses an item out, the small pop of the check, the accent wash on a just-added row, and the trip progress hairline. The motion is calm and tactile. Each action gets one short physical response, and nothing moves under the finger. Density is comfortable, readable at a glance in a store aisle.\n\nThese outcomes are rejected: looking foreign inside Telegram, looking as dull as a notes app, looking toy-like, and looking cramped.",
+    "keyCharacteristics": [
+      "Built on tgui components and tokens. Custom CSS exists only for our signature details and gaps in the kit.",
+      "Every color comes from Telegram `themeParams`, through tgui's `--tgui--*` tokens, so light, dark and custom themes follow the client.",
+      "Native chrome stays native: `MainButton` for «Куплено (N)», `BackButton` for depth, `showConfirm` for destructive confirmations, `HapticFeedback` on every state change.",
+      "Grouped inset sections, one per Category, with the emoji tile as the only color we own.",
+      "One short, tactile response per action. The Still Row rule is absolute."
+    ],
+    "rules": [
+      {
+        "name": "The Borrowed Palette Rule",
+        "body": "No color literal appears in UI code except as a fallback inside `var()`. If a color is not a Telegram theme value or a tgui token, it does not belong on the screen.",
+        "section": "colors"
+      },
+      {
+        "name": "The Emoji Is the Brand Rule",
+        "body": "Category emoji are the only color we supply. No gradients, covers, illustrations or brand hue.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Family Rule",
+        "body": "Only the platform system font. Emphasis is weight, not a new typeface or size outside the tgui scale.",
+        "section": "typography"
+      },
+      {
+        "name": "The Still Row Rule",
+        "body": "Checking, unchecking, syncing and failing never move, reorder or resize a row. Feedback floats (snackbar, alert) or happens inside the row.",
+        "section": "layout"
+      },
+      {
+        "name": "The Aisle Reach Rule",
+        "body": "Primary actions sit at the bottom (MainButton, snackbar Undo) or in the row itself. No primary action lives only in the top bar.",
+        "section": "layout"
+      },
+      {
+        "name": "The Float-Only Shadow Rule",
+        "body": "A shadow means \"this is above the list and will go away\". Nothing that stays put casts one.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** build screens from tgui (`AppRoot`, `List`, `Section`, `Cell`, `Button`, `IconButton`, `Placeholder`, `Modal`, `Snackbar`, `Skeleton`, `AvatarStack`, `Switch`, `Radio`, `Input`) before writing custom CSS.",
+      "**Do** wrap the app in `AppRoot` with `platform` and `appearance` from the Telegram launch params, so iOS and Android each get their own grammar.",
+      "**Do** keep MainButton, BackButton, `showConfirm` and HapticFeedback native, even where tgui offers an HTML alternative.",
+      "**Do** keep every motion at or under `.35s` (the 1.6 s new-row wash is the one exception), on `cubic-bezier(.22,1,.36,1)` for our details and tgui's `cubic-bezier(.3,.3,.5,1)` for kit surfaces. Honour `prefers-reduced-motion` by cutting durations to `.01s`.",
+      "**Do** give every Section header action and every setting a visible label. No gesture is the only way to do something.",
+      "**Do** check every screen in light and dark themes, on iOS and Android, at 360 px."
+    ],
+    "donts": [
+      "**Don't** add gradient covers, 3D illustrations, shine sweeps or any custom brand color, even though Wishapp uses them.",
+      "**Don't** replace the MainButton with a sticky HTML button.",
+      "**Don't** add page-transition animations. Screens swap instantly, and BackButton carries the depth.",
+      "**Don't** scale an element on press, or move, reorder or resize a row in response to a state change.",
+      "**Don't** add breadcrumbs. Two levels of depth do not need them."
+    ]
+  }
+}
