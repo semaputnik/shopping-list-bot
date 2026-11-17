@@ -47,6 +47,10 @@ export function App() {
     pickLanguage(navigator.language),
   );
   const [failed, setFailed] = useState(false);
+  // Screen readers, hyphenation and spell-check follow the interface language, not the static HTML.
+  useEffect(() => {
+    document.documentElement.lang = language;
+  }, [language]);
   // Told to the Member when the List they were viewing disappears under them.
   const [notice, setNotice] = useState<string | null>(null);
   const [remote, setRemote] = useState<Remote>({ seq: 0, kind: "catchup", listId: null, version: 0 });

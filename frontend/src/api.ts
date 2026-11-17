@@ -6,7 +6,7 @@ export interface User {
   username: string | null;
   photo_url: string | null;
   language_code: string | null;
-  language: "ru" | "es";
+  language: "ru" | "es" | "en";
   /** True when the user overrode Telegram's language in Settings. */
   language_overridden: boolean;
 }
@@ -83,7 +83,7 @@ export function authenticate(initData: string): Promise<AuthResult> {
 }
 
 /** Sets the interface language; null goes back to following Telegram's language. */
-export function updateLanguage(token: string, language: "ru" | "es" | null): Promise<User> {
+export function updateLanguage(token: string, language: "ru" | "es" | "en" | null): Promise<User> {
   return request<User>("/api/me", { method: "PATCH", body: JSON.stringify({ language }) }, token);
 }
 

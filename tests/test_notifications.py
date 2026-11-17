@@ -96,8 +96,8 @@ class TestAddedNotification:
         sent = h.deliver(after_seconds=200)
         by_chat = {m.chat_id: m for m in sent}
         assert set(by_chat) == {BORIS["id"], CARLOS["id"]}  # never the one who added
-        assert by_chat[BORIS["id"]].text == "«Покупки» · Анна\nДобавлено: молоко, хлеб, яйца"
-        assert by_chat[CARLOS["id"]].text.endswith("Añadido: молоко, хлеб, яйца")
+        assert by_chat[BORIS["id"]].text == "«Покупки» · Анна\nДобавлено: 3 позиции"
+        assert by_chat[CARLOS["id"]].text.endswith("Añadido: 3 productos")
         assert by_chat[BORIS["id"]].button_url == f"https://lists.example/?list={list_id}"
         assert h.deliver(after_seconds=400) == []  # sent once
 
@@ -107,7 +107,7 @@ class TestAddedNotification:
         h.add(shared["boris"], list_id, "хлеб")
         sent = h.deliver(after_seconds=200)
         to_anna = [m for m in sent if m.chat_id == ANNA["id"]]
-        assert [m.text for m in to_anna] == ["«Покупки» · Борис\nДобавлено: хлеб"]
+        assert [m.text for m in to_anna] == ["«Покупки» · Борис\nДобавлено: 1 позиция"]
 
     def test_an_entry_removed_before_sending_is_left_out(self, h, shared):
         list_id = shared["list"]["id"]
@@ -118,16 +118,25 @@ class TestAddedNotification:
         assert r.status_code == 200, r.text
         sent = h.deliver(after_seconds=200)
         assert {m.text for m in sent} == {
-            "«Покупки» · Анна\nДобавлено: хлеб",
-            "«Покупки» · Анна\nAñadido: хлеб",
+            "«Покупки» · Анна\nДобавлено: 1 позиция",
+            "«Покупки» · Анна\nAñadido: 1 producto",
         }
 
-    def test_long_lists_are_summarised(self, h, shared):
+    def test_only_the_count_is_sent_with_the_right_plural(self, h, shared):
         list_id = shared["list"]["id"]
-        h.add(shared["anna"], list_id, "a1; a2; a3; a4; a5; a6; a7")
+        h.add(shared["anna"], list_id, "a1; a2; a3; a4; a5; a6; a7; a8; a9; a10; a11")
         sent = h.deliver(after_seconds=200)
         text = next(m.text for m in sent if m.chat_id == BORIS["id"])
-        assert text.endswith("a1, a2, a3, a4, a5 и ещё 2")
+        assert text == "«Покупки» · Анна\nДобавлено: 11 позиций"
+
+    def test_english_speakers_get_english(self, h, shared):
+        dave = h.sign_in({"id": 1004, "first_name": "Dave", "language_code": "en-GB"})
+        h.join(shared["list"], dave)
+        h.add(shared["anna"], shared["list"]["id"], "milk")
+        sent = h.deliver(after_seconds=200)
+        to_dave = next(m for m in sent if m.chat_id == 1004)
+        assert to_dave.text == "“Покупки” · Анна\nAdded: 1 item"
+        assert to_dave.button_text == "Open list"
 
     def test_a_list_nobody_shares_sends_nothing(self, h):
         anna = h.sign_in(ANNA)
@@ -156,8 +165,8 @@ class TestBoughtNotification:
         assert h.deliver(after_seconds=10) == []
         sent = h.deliver(after_seconds=31)
         assert {(m.chat_id, m.text) for m in sent} == {
-            (BORIS["id"], "«Покупки» · Анна\nКуплено: молоко, хлеб"),
-            (CARLOS["id"], "«Покупки» · Анна\nComprado: молоко, хлеб"),
+            (BORIS["id"], "«Покупки» · Анна\nКуплено: 2 позиции"),
+            (CARLOS["id"], "«Покупки» · Анна\nComprado: 2 productos"),
         }
 
     def test_an_undone_purchase_is_never_announced(self, h, shared):

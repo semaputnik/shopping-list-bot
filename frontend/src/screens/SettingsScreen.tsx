@@ -12,7 +12,7 @@ interface Props {
   onChangeLanguage: (language: Language | null) => Promise<void>;
 }
 
-const LANGUAGES: Language[] = ["ru", "es"];
+const LANGUAGES: Language[] = ["ru", "es", "en"];
 
 /** Settings: for now the interface language choice (RU/ES, or as in Telegram). */
 export function SettingsScreen({

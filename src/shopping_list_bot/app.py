@@ -53,7 +53,7 @@ class UserOut(BaseModel):
     username: str | None
     photo_url: str | None
     language_code: str | None
-    # Effective interface language, "ru" or "es": the user's choice, else from language_code.
+    # Effective interface language, "ru", "es" or "en": the user's choice, else from language_code.
     language: str
     # True when the user overrode Telegram's language in Settings.
     language_overridden: bool
@@ -267,8 +267,8 @@ class UndoPurchaseOut(BaseModel):
 
 
 class MeUpdate(BaseModel):
-    # "ru" or "es" sets the language; null goes back to following Telegram.
-    language: Literal["ru", "es"] | None
+    # "ru", "es" or "en" sets the language; null goes back to following Telegram.
+    language: Literal["ru", "es", "en"] | None
 
 
 class CategoryOut(BaseModel):

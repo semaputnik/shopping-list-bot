@@ -157,7 +157,16 @@ class TestUserUpsert:
 
     @pytest.mark.parametrize(
         ("language_code", "expected"),
-        [("ru", "ru"), ("es", "es"), ("es-MX", "es"), ("ES", "es"), ("en", "ru"), (None, "ru")],
+        [
+            ("ru", "ru"),
+            ("es", "es"),
+            ("es-MX", "es"),
+            ("ES", "es"),
+            ("en", "en"),
+            ("en-GB", "en"),
+            ("de", "en"),  # a language we do not speak falls back to English
+            (None, "en"),
+        ],
     )
     def test_interface_language_is_picked_from_language_code(
         self, sign_in, language_code, expected

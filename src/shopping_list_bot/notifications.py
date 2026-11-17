@@ -22,18 +22,27 @@ from .i18n import effective_language
 
 logger = logging.getLogger(__name__)
 
-# Names listed in one message before the rest is summarised as "и ещё N".
-MAX_NAMES = 5
-
 TEXT = {
-    "ru": {
-        "added": "Добавлено",
-        "bought": "Куплено",
-        "more": "и ещё {n}",
-        "open": "Открыть список",
-    },
-    "es": {"added": "Añadido", "bought": "Comprado", "more": "y {n} más", "open": "Abrir la lista"},
+    "ru": {"added": "Добавлено", "bought": "Куплено", "open": "Открыть список"},
+    "es": {"added": "Añadido", "bought": "Comprado", "open": "Abrir la lista"},
+    "en": {"added": "Added", "bought": "Bought", "open": "Open list"},
 }
+
+
+def items_phrase(n: int, lang: str) -> str:
+    """«3 позиции» / «3 productos» / «3 items», with the right plural form."""
+    if lang == "ru":
+        if n % 10 == 1 and n % 100 != 11:
+            word = "позиция"
+        elif 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
+            word = "позиции"
+        else:
+            word = "позиций"
+    elif lang == "es":
+        word = "producto" if n == 1 else "productos"
+    else:
+        word = "item" if n == 1 else "items"
+    return f"{n} {word}"
 
 
 @dataclass(frozen=True)
@@ -121,15 +130,10 @@ def queue_bought(
     )
 
 
-def _names_line(names: list[str], lang: str) -> str:
-    shown = ", ".join(names[:MAX_NAMES])
-    rest = len(names) - MAX_NAMES
-    return f"{shown} {TEXT[lang]['more'].format(n=rest)}" if rest > 0 else shown
-
-
-def compose(kind: str, list_name: str, actor_name: str, names: list[str], lang: str) -> str:
-    """«Покупки» · Анна / Добавлено: молоко, хлеб — no verb agreement with the actor needed."""
-    return f"«{list_name}» · {actor_name}\n{TEXT[lang][kind]}: {_names_line(names, lang)}"
+def compose(kind: str, list_name: str, actor_name: str, count: int, lang: str) -> str:
+    """«Покупки» · Анна / Добавлено: 3 позиции. Only the count: the List has the details."""
+    quoted = f"“{list_name}”" if lang == "en" else f"«{list_name}»"
+    return f"{quoted} · {actor_name}\n{TEXT[lang][kind]}: {items_phrase(count, lang)}"
 
 
 class Notifier:
@@ -178,7 +182,7 @@ class Notifier:
             out.append(
                 OutgoingMessage(
                     chat_id=user.telegram_id,
-                    text=compose(note.kind, lst.name, actor.first_name, names, lang),
+                    text=compose(note.kind, lst.name, actor.first_name, len(names), lang),
                     button_text=button_text,
                     button_url=button_url,
                 )
