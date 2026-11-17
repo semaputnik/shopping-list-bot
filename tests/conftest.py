@@ -7,6 +7,7 @@ Each test gets its own app on a fresh SQLite database file, and authenticates wi
 import hashlib
 import hmac
 import json
+import os
 import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -17,6 +18,10 @@ from fastapi.testclient import TestClient
 
 from shopping_list_bot.app import create_app
 from shopping_list_bot.config import Settings
+
+# No test ever talks to Telegram: the background notification sender stays off unless a test
+# builds its own app with a fake sender (see tests/test_notifications.py).
+os.environ.setdefault("SL_NOTIFY_POLL_SECONDS", "0")
 
 TEST_BOT_TOKEN = "123456:TEST-bot-token-not-real"
 

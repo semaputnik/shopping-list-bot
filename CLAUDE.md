@@ -55,6 +55,8 @@ GitHub Actions has two workflows:
 git tag v0.1.0 && git push origin v0.1.0
 ```
 
+**Bot notifications** (`notifications.py`): adding Entries and «Куплено» queue a row in `notification` inside the same transaction. The backend's lifespan runs a loop every `NOTIFY_POLL_SECONDS` (5) that sends what is due through the Bot API to every other Member (in their language, with a button that opens the Mini App at `?list=<id>`). A burst of adds by one Member is one message: due `NOTIFY_ADDED_QUIET_SECONDS` (180) after their last add, capped at `NOTIFY_ADDED_MAX_SECONDS` (900) from the first. A Purchase is announced `NOTIFY_BOUGHT_DELAY_SECONDS` (30) after it; Undo deletes the Purchase and the queued row with it (FK cascade). Only the backend sends; the bot process never does. Tests build the app with `create_app(settings, notify_send=fake)` and call `app.state.notifier.deliver_due(now)`; `tests/conftest.py` sets `SL_NOTIFY_POLL_SECONDS=0` so no test ever reaches Telegram.
+
 **Sync tuning** (all optional, `SL_` prefix): `CHECK_WINS_WINDOW_SECONDS` (2.0; another Member's uncheck within this long after a check is dropped), `CHANGES_MAX_GAP` (100), `CHANGES_RETENTION` (500 versions of log per List), `SSE_HEARTBEAT_SECONDS` (15), `IDEMPOTENCY_TTL_SECONDS` (24 h).
 
 **Configuration** is read from `SL_*` environment variables or a `.env` file: `SL_BOT_TOKEN`, `SL_BOT_USERNAME` (the bot's @username without `@`; builds Share links `https://t.me/<bot>?startapp=<code>`, `share_url` is null without it), `SL_WEBAPP_URL` (public https URL of the Mini App), `SL_DATABASE_URL` (default `sqlite:///./shared_lists.db`), `SL_SESSION_SECRET` (optional; derived from the bot token if empty; with neither set, no session is issued or accepted). The bot also reads `SL_DATABASE_URL` (to look up a user's chosen language for `/start`), so it must point at the same database as the backend; the backend owns the schema, and if the database is unreachable or not yet migrated the bot falls back to Telegram's language. No real bot token is needed to run tests or build.
@@ -65,7 +67,7 @@ git tag v0.1.0 && git push origin v0.1.0
 
 ## What is being built
 
-**Shared Lists** is an app for shared shopping lists, delivered as a **Telegram Mini App**. It opens from a Telegram bot through the menu button and inline buttons. The backend is **FastAPI**. There are no recipes, meal plans, pantry or expenses; keep the scope to the list. The UI is in RU and ES, with EN optional. The language defaults to the Telegram user's `language_code`.
+**Shared Lists** is an app for shared shopping lists, delivered as a **Telegram Mini App**. It opens from a Telegram bot through the menu button and inline buttons. The backend is **FastAPI**. There are no recipes, meal plans, pantry or expenses; keep the scope to the list. The UI is in RU, ES and EN. The language defaults to the Telegram user's `language_code`; a language we do not speak falls back to English.
 
 Planned pieces that interact:
 - **Bot**: a share link (a bot deep link whose start parameter identifies a list; opening it joins the user to that list), notifications sent as bot messages (a Mini App has no push or background sync), and later voice and text input in chat.
@@ -81,14 +83,14 @@ Planned pieces that interact:
 - **Conflict rules are per operation type, not last-write-wins:** a check beats an uncheck that happens at nearly the same time; delete beats edit; concurrent adds of the same item both stay, as two rows.
 - **Catalog vs list:** `item` is the list's memory of entered products (normalized name, category, purchase stats). It is scoped to one list, and suggestions never draw on other lists. `list_entry` is an item placed on a list, with a free-text note. Adding an item that is already on the list creates another row: duplicates are allowed on purpose and never merged (see `docs/adr/0002-duplicate-entries-allowed.md`). Removing an item from memory only hides it from suggestions.
 - **Checking is a toggle; «Куплено» removes:** a tap crosses an entry out in place, and a second tap restores it. Checked entries stay on the list until «Куплено» (the Telegram `MainButton`, shown only while something is checked). It removes all of them at once and records them as one purchase in the list's history. It has a 5 s Undo, and the item purchase stats update on «Куплено», not on check. History is loaded in pages with a cursor, never all at once.
-- **Never block adding:** category, unit and store are never required. Unknown items go to "Без категории". Category is guessed from an RU/ES dictionary, with an LLM considered later.
+- **Never block adding:** category, unit and store are never required. Unknown items go to "Без категории". Category is guessed from an RU/ES/EN dictionary (`categories.py`; English words live in `EN_WORDS`), with an LLM considered later.
 - **Input parsing:** one line can hold several items, split by `;` or a newline. A comma splits name from note (`молоко, 2 л`). Pasting multiline text adds every line. Search ignores case and diacritics (`platano` = `plátano`) and tolerates one typo.
 - **Store ordering:** `store_category_order.is_manual = true` freezes the order, and the learned order from `checkout_log` must not override it.
 - **Telegram client:** call `ready()`, `expand()` and `disableVerticalSwipes()` at startup, because swipes on list rows must not close the app. Use only `--tg-theme-*` colors; a custom palette is allowed only for category icons. Turn on `enableClosingConfirmation()` only while offline ops are pending. Every destructive action needs Undo (at least 5 s) or a `showConfirm`.
 
 ## Staging
 
-The MVP covers Telegram login, multiple lists shared by link, delete with confirmation, input with suggestions, dictionary categories, check/uncheck, the «Куплено» button that moves checked entries into the list's purchase history, member avatars in the header, realtime, Telegram themes, and RU/ES. Stores and their ordering, in-store mode, the offline queue and bot notifications come next (see spec §9). Don't build later-stage features unless asked.
+The MVP covers Telegram login, multiple lists shared by link, delete with confirmation, input with suggestions, dictionary categories, check/uncheck, the «Куплено» button that moves checked entries into the list's purchase history, member avatars in the header, realtime, Telegram themes, and RU/ES/EN. Bot notifications for adds and «Куплено» and renaming a Product (`PATCH /api/lists/{id}/products/{product_id}`, merging into an existing Product with that name) are built too. Stores and their ordering, in-store mode and the offline queue come next (see spec §9). Don't build later-stage features unless asked.
 
 ## Agent skills
 

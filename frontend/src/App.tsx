@@ -47,6 +47,10 @@ export function App() {
     pickLanguage(navigator.language),
   );
   const [failed, setFailed] = useState(false);
+  // Screen readers, hyphenation and spell-check follow the interface language, not the static HTML.
+  useEffect(() => {
+    document.documentElement.lang = language;
+  }, [language]);
   // Told to the Member when the List they were viewing disappears under them.
   const [notice, setNotice] = useState<string | null>(null);
   const [remote, setRemote] = useState<Remote>({ seq: 0, kind: "catchup", listId: null, version: 0 });
@@ -88,7 +92,9 @@ export function App() {
       const session = await authenticate(telegram.rawInitData);
       let lists = session.lists ?? (await fetchLists(session.token));
       setLanguage(session.user.language);
-      let currentId = lists[0]?.id ?? null;
+      // A bot notification opens the Mini App at ?list=<id>: start on that List if it is ours.
+      const fromLink = Number(new URLSearchParams(window.location.search).get("list"));
+      let currentId = lists.find((l) => l.id === fromLink)?.id ?? lists[0]?.id ?? null;
       if (session.start_param) {
         // Opening a Share link joins the List (a no-op for a Member) and opens it.
         try {

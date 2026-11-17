@@ -32,5 +32,13 @@ class Settings(BaseSettings):
     sse_heartbeat_seconds: float = 15.0
     # Stored answers to Idempotency-Key requests are kept this long.
     idempotency_ttl_seconds: int = 24 * 3600
+    # Bot notifications to the other Members of a List. A burst of adds becomes one message,
+    # sent once the adder has been quiet this long, but never later than the cap after the first.
+    notify_added_quiet_seconds: int = 180
+    notify_added_max_seconds: int = 900
+    # «Куплено» is announced this long after the Purchase, so an Undo cancels it.
+    notify_bought_delay_seconds: int = 30
+    # How often the backend looks for notifications that are due.
+    notify_poll_seconds: float = 5.0
     # Built frontend served by the backend when the directory exists.
     frontend_dist: Path = Path("frontend/dist")

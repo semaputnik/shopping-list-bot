@@ -1,9 +1,10 @@
 """Server-side strings and language selection. The UI strings live in the frontend."""
 
-SUPPORTED_LANGUAGES = ("ru", "es")
-DEFAULT_LANGUAGE = "ru"
+SUPPORTED_LANGUAGES = ("ru", "es", "en")
+# For a Telegram language we do not speak, English is the most widely understood fallback.
+DEFAULT_LANGUAGE = "en"
 
-FIRST_LIST_NAME = {"ru": "Покупки", "es": "Compras"}
+FIRST_LIST_NAME = {"ru": "Покупки", "es": "Compras", "en": "Groceries"}
 
 
 def pick_language(language_code: str | None) -> str:

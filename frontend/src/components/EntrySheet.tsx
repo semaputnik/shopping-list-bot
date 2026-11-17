@@ -13,6 +13,8 @@ interface Props {
   /** Saves the Note; rejects on failure. Called one at a time, in order. */
   onSaveNote: (note: string) => Promise<void>;
   onChangeCategory: (category: string) => Promise<void>;
+  /** Renames the whole Product (every Entry of it in this List); rejects on failure. */
+  onRename: (name: string) => Promise<void>;
   onDelete: () => void;
   /** A Note save failed after the sheet had already closed. */
   onSaveFailed: () => void;
@@ -35,12 +37,15 @@ export function EntrySheet({
   strings,
   onSaveNote,
   onChangeCategory,
+  onRename,
   onDelete,
   onSaveFailed,
   onClose,
 }: Props) {
   const [note, setNote] = useState(entry.note ?? "");
   const [category, setCategory] = useState(entry.category);
+  const [name, setName] = useState(entry.name);
+  const renaming = useRef(false);
   const [failed, setFailed] = useState(false);
   const saved = useRef(entry.note ?? "");
   const latest = useRef(note);
@@ -116,6 +121,28 @@ export function EntrySheet({
     }
   };
 
+  // The name is saved on blur or Enter, not while typing: a rename can merge two Products,
+  // so a half-typed name must never reach the server.
+  const commitName = async () => {
+    const value = name.trim();
+    if (!value) {
+      setName(entry.name);
+      return;
+    }
+    if (value === entry.name || renaming.current) return;
+    renaming.current = true;
+    try {
+      await onRename(value);
+      setFailed(false);
+    } catch (e) {
+      console.error(e);
+      setName(entry.name);
+      setFailed(true);
+    } finally {
+      renaming.current = false;
+    }
+  };
+
   const when = parseTime(entry.created_at).toLocaleString(language, {
     day: "numeric",
     month: "short",
@@ -125,6 +152,26 @@ export function EntrySheet({
 
   return (
     <Sheet title={entry.name} closeLabel={strings.close} onClose={close}>
+      <label className="field">
+        <span className="field__label">{strings.entryName}</span>
+        <input
+          className="field__input"
+          type="text"
+          maxLength={200}
+          enterKeyHint="done"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onBlur={() => void commitName()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              e.currentTarget.blur();
+            }
+          }}
+        />
+        <span className="field__hint">{strings.entryNameHint}</span>
+      </label>
+
       <label className="field">
         <span className="field__label">{strings.entryNote}</span>
         <textarea

@@ -24,6 +24,7 @@ import {
   onMainButtonClick,
   openPopup,
   openTelegramLink,
+  requestWriteAccess,
   retrieveLaunchParams,
   retrieveRawInitData,
   setMainButtonParams,
@@ -116,6 +117,7 @@ async function doStartTelegram(): Promise<TelegramContext | null> {
   const rawInitData = retrieveRawInitData();
   if (!rawInitData) return null;
   const user = retrieveLaunchParams().tgWebAppData?.user;
+  askForBotMessages(user?.allows_write_to_pm === true);
   return { rawInitData, languageCode: user?.language_code ?? null };
 }
 
@@ -223,4 +225,21 @@ export function shareToChat(url: string, text: string): boolean {
     `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`,
   );
   return true;
+}
+
+const WRITE_ACCESS_ASKED = "shared-lists:write-access-asked";
+
+/**
+ * Bot notifications only reach people who let the bot write to them. Someone who opened the Mini
+ * App without ever pressing /start has not, so ask once (Telegram's own prompt); never nag again.
+ */
+function askForBotMessages(alreadyAllowed: boolean): void {
+  if (alreadyAllowed || !requestWriteAccess.isAvailable()) return;
+  try {
+    if (localStorage.getItem(WRITE_ACCESS_ASKED)) return;
+    localStorage.setItem(WRITE_ACCESS_ASKED, "1");
+  } catch {
+    return; // no storage: better never to ask than to ask on every open
+  }
+  requestWriteAccess().catch((e: unknown) => console.warn("Write access request failed", e));
 }

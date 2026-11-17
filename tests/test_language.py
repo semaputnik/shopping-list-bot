@@ -16,7 +16,13 @@ def test_language_defaults_to_telegram_language_code(sign_in):
     carlos = sign_in(CARLOS)["response"]["user"]
     assert carlos["language"] == "es"
     assert carlos["language_overridden"] is False
-    assert sign_in(JOHN)["response"]["user"]["language"] == "ru"
+    assert sign_in(JOHN)["response"]["user"]["language"] == "en"
+
+
+def test_english_names_categories_and_the_first_list(client, sign_in):
+    john = sign_in(JOHN)
+    assert names(client, john["headers"])[0] == "Fruit & vegetables"
+    assert list_names(client, john["headers"]) == ["Groceries"]
 
 
 def test_user_can_override_language(client, sign_in):
@@ -163,3 +169,21 @@ def test_categories_require_authentication(client):
 def test_empty_language_update_is_rejected(client, sign_in):
     session = sign_in(ANNA)
     assert client.patch("/api/me", json={}, headers=session["headers"]).status_code == 422
+
+
+def test_english_names_are_guessed_into_categories(client, sign_in):
+    john = sign_in(JOHN)
+    list_id = client.get("/api/lists", headers=john["headers"]).json()[0]["id"]
+    client.post(
+        f"/api/lists/{list_id}/entries",
+        json={"text": "milk; toilet paper; chicken breast; bananas"},
+        headers=john["headers"],
+    )
+    contents = client.get(f"/api/lists/{list_id}/entries", headers=john["headers"]).json()
+    by_name = {e["name"]: g["key"] for g in contents["categories"] for e in g["entries"]}
+    assert by_name == {
+        "milk": "dairy",
+        "toilet paper": "hygiene",
+        "chicken breast": "meat_fish",
+        "bananas": "produce",
+    }

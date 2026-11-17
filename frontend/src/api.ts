@@ -6,7 +6,7 @@ export interface User {
   username: string | null;
   photo_url: string | null;
   language_code: string | null;
-  language: "ru" | "es";
+  language: "ru" | "es" | "en";
   /** True when the user overrode Telegram's language in Settings. */
   language_overridden: boolean;
 }
@@ -83,7 +83,7 @@ export function authenticate(initData: string): Promise<AuthResult> {
 }
 
 /** Sets the interface language; null goes back to following Telegram's language. */
-export function updateLanguage(token: string, language: "ru" | "es" | null): Promise<User> {
+export function updateLanguage(token: string, language: "ru" | "es" | "en" | null): Promise<User> {
   return request<User>("/api/me", { method: "PATCH", body: JSON.stringify({ language }) }, token);
 }
 
@@ -208,6 +208,20 @@ export function fetchSuggestions(token: string, listId: number, q: string): Prom
 /** Removes a Product from the List's memory; it is only hidden from suggestions. */
 export function hideProduct(token: string, listId: number, productId: number): Promise<{ version: number }> {
   return request<{ version: number }>(`/api/lists/${listId}/products/${productId}`, { method: "DELETE" }, token);
+}
+
+/** Renames a Product in this List everywhere (merging into a Product that already has the name). */
+export function renameProduct(
+  token: string,
+  listId: number,
+  productId: number,
+  name: string,
+): Promise<{ version: number; product_id: number; name: string; merged: boolean }> {
+  return request(
+    `/api/lists/${listId}/products/${productId}`,
+    { method: "PATCH", body: JSON.stringify({ name }) },
+    token,
+  );
 }
 
 export function renameList(token: string, id: number, name: string): Promise<ShoppingList> {

@@ -20,10 +20,11 @@ from .config import Settings
 from .db import make_engine, make_session_factory
 from .i18n import effective_language
 
-OPEN_BUTTON = {"ru": "Открыть список", "es": "Abrir lista"}
+OPEN_BUTTON = {"ru": "Открыть список", "es": "Abrir lista", "en": "Open list"}
 START_TEXT = {
     "ru": "Общие списки покупок. Откройте приложение, чтобы начать.",
     "es": "Listas de compras compartidas. Abre la aplicación para empezar.",
+    "en": "Shared shopping lists. Open the app to get started.",
 }
 
 
