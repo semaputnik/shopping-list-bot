@@ -83,11 +83,20 @@ type StringKey =
   | "buyFailed"
   | "undoBuyFailed"
   | "history"
+  | "historyEmptyTitle"
   | "historyEmpty"
+  | "historyToList"
   | "historyAdded"
   | "historyAddFailed"
   | "historyAddBack"
-  | "historyLoadFailed";
+  | "historyLoadFailed"
+  | "languageAsTelegramHint"
+  | "tipMultiAddTitle"
+  | "tipMultiAddText"
+  | "tipInviteTitle"
+  | "tipInviteText"
+  | "tipBoughtTitle"
+  | "tipBoughtText";
 
 const strings: Record<Language, Record<StringKey, string>> = {
   ru: {
@@ -174,11 +183,20 @@ const strings: Record<Language, Record<StringKey, string>> = {
     buyFailed: "Покупка не сохранилась. Проверьте связь.",
     undoBuyFailed: "Не удалось отменить покупку. Проверьте связь.",
     history: "История покупок",
+    historyEmptyTitle: "Покупок пока нет",
+    historyToList: "К списку",
     historyEmpty: "Пока пусто. Здесь появятся покупки после нажатия «Куплено».",
     historyAdded: "Добавлено в список",
     historyAddFailed: "Не удалось добавить. Попробуйте ещё раз.",
     historyAddBack: "Добавить в список снова",
     historyLoadFailed: "Не удалось загрузить историю.",
+    languageAsTelegramHint: "Сейчас: {language}",
+    tipMultiAddTitle: "Несколько товаров сразу",
+    tipMultiAddText: "Разделяйте их точкой с запятой или вставьте список по строкам: молоко; хлеб; яйца.",
+    tipInviteTitle: "Покупаете вместе?",
+    tipInviteText: "Отправьте ссылку, и другие смогут добавлять товары и отмечать купленное.",
+    tipBoughtTitle: "Закончили покупки?",
+    tipBoughtText: "Нажмите «Куплено» внизу: отмеченные товары уйдут в историю.",
   },
   es: {
     loading: "Cargando…",
@@ -264,11 +282,20 @@ const strings: Record<Language, Record<StringKey, string>> = {
     buyFailed: "La compra no se guardó. Revisa la conexión.",
     undoBuyFailed: "No se pudo deshacer la compra. Revisa la conexión.",
     history: "Historial de compras",
+    historyEmptyTitle: "Aún no hay compras",
+    historyToList: "A la lista",
     historyEmpty: "Aún no hay nada. Las compras aparecerán aquí al pulsar «Comprado».",
     historyAdded: "Añadido a la lista",
     historyAddFailed: "No se pudo añadir. Inténtalo de nuevo.",
     historyAddBack: "Volver a añadir a la lista",
     historyLoadFailed: "No se pudo cargar el historial.",
+    languageAsTelegramHint: "Ahora: {language}",
+    tipMultiAddTitle: "Varios productos a la vez",
+    tipMultiAddText: "Sepáralos con punto y coma o pega una lista por líneas: leche; pan; huevos.",
+    tipInviteTitle: "¿Compráis juntos?",
+    tipInviteText: "Envía el enlace y los demás podrán añadir productos y marcar lo comprado.",
+    tipBoughtTitle: "¿Has terminado?",
+    tipBoughtText: "Pulsa «Comprado» abajo: lo marcado pasa al historial.",
   },
   en: {
     loading: "Loading…",
@@ -354,11 +381,20 @@ const strings: Record<Language, Record<StringKey, string>> = {
     buyFailed: "The purchase wasn't saved. Check your connection.",
     undoBuyFailed: "Couldn't undo the purchase. Check your connection.",
     history: "Purchase history",
+    historyEmptyTitle: "No purchases yet",
+    historyToList: "Back to the list",
     historyEmpty: "Nothing yet. Purchases show up here when you tap “Bought”.",
     historyAdded: "Added to the list",
     historyAddFailed: "Couldn't add. Try again.",
     historyAddBack: "Add back to the list",
     historyLoadFailed: "Couldn't load the history.",
+    languageAsTelegramHint: "Now: {language}",
+    tipMultiAddTitle: "Add several at once",
+    tipMultiAddText: "Separate items with a semicolon or paste a list line by line: milk; bread; eggs.",
+    tipInviteTitle: "Shopping together?",
+    tipInviteText: "Send the link and others can add items and check off what they buy.",
+    tipBoughtTitle: "Done shopping?",
+    tipBoughtText: "Tap “Bought” below: the checked items move to history.",
   },
 };
 
@@ -371,6 +407,13 @@ export const QUICK_ADD: Record<Language, string[]> = {
 
 /** Each language is always shown in its own name, whatever the interface language is. */
 export const LANGUAGE_NAMES: Record<Language, string> = { ru: "Русский", es: "Español", en: "English" };
+
+/** The one-line consequence shown under each language option, also in that language. */
+export const LANGUAGE_HINTS: Record<Language, string> = {
+  ru: "Интерфейс на русском",
+  es: "Interfaz en español",
+  en: "Interface in English",
+};
 
 export type Strings = Record<StringKey, string>;
 

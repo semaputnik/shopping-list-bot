@@ -187,7 +187,7 @@ A single column at phone width (360 px minimum). From top to bottom:
 
 The page gutter is 16 px. Sections are 20 px apart. A Cell is at least 52 px tall, and every control is at least 44 px. The top and bottom padding add Telegram's content and safe-area insets (`--tg-viewport-*`). Spacing steps are 4 / 8 / 12 / 16 / 20 / 24 px.
 
-Navigation is at most two levels deep: the List, then Members, History or Settings. Depth is shown by the native BackButton, and there are no breadcrumbs. Sheets (switcher, List menu, Entry card, forms) are tgui `Modal` drawers (to implement; today a custom sheet).
+Navigation is at most two levels deep: the List, then Members, History or Settings. Depth is shown by the native BackButton, and there are no breadcrumbs. Sheets (switcher, List menu, Entry card, forms) are tgui `Modal` drawers, except the List menu, which is a popover.
 
 ### Named Rules
 **The Still Row Rule.** Checking, unchecking, syncing and failing never move, reorder or resize a row. Feedback floats (snackbar, alert) or happens inside the row.
@@ -234,7 +234,7 @@ Every component is a tgui component unless marked custom. Character: **calm and 
 ### Cards / Containers
 - **Section** (`Section` with a `header`): one per Category. The header is caps Caption text with the emoji tile in front, the unchecked count, and optionally an «Add ⊕» plain button on the right (to implement). The footer is used for explanatory notes in Settings.
 - **Placeholder** (`Placeholder`): empty List, empty History, errors and bad links. A large emoji or illustration slot, a Headline, a Subheadline description, and one action. An empty state always says what to do next. When behaviour depends on a setting, it adds an inline link to that setting.
-- **Skeleton** (`Skeleton`): first load of a List (shipped) and each History page (to implement). It replaces the text-only "Loading…".
+- **Skeleton** (`Skeleton`): first load of a List (shipped) and each History page. It replaces the text-only "Loading…".
 
 ### Inputs / Fields
 - **Composer** (custom, sticky): a borderless 44 px field on Section Surface with 12 px corners, growing to 120 px. Like Telegram's own fields, focus shows only the caret and no ring. Pasting multiline text adds every line.
@@ -245,7 +245,7 @@ Every component is a tgui component unless marked custom. Character: **calm and 
 ### Navigation
 - **Header** (custom): the List name in Title 1 is the switcher button (chevron after it). On the right, an `AvatarStack` of up to three Members (+N) opens Members, and the "⋯" IconButton opens the List menu. Under the name sits a Subheadline meta line ("3 участника · 5 из 12 в корзине").
 - **BackButton** (native) for every nested screen and every open Modal.
-- **List menu** (to implement): a popover from "⋯" or a Modal. A popover enters in `.12s ease-out` (opacity 0→1, scale .96→1, 4 px rise) and leaves in `.12s ease-in` with pointer events off.
+- **List menu**: a popover from "⋯". It enters in `.12s ease-out` (opacity 0→1, scale .96→1, 4 px rise) and leaves in `.12s ease-in` with pointer events off.
 
 ### Entry Row (signature, custom Cell)
 The heart of the product. A full-width toggle with a 22 px round check, the Product name in Text, and an optional Note in Subheadline/Hint below. On the right are the adder's 24 px avatar (shared Lists only) and a 44 px "›" that opens the Entry card.
@@ -260,8 +260,11 @@ A 30 px tile with 9 px corners on Section Surface, holding the Category emoji at
 ### Trip Progress (signature, custom)
 A Subheadline line ("5 из 12") above a 3 px hairline track (Hint at 22%) whose accent fill scales from the left over `.35s cubic-bezier(.22,1,.36,1)`. When full, the text turns Telegram Accent at 600 weight.
 
+### Tips
+- **Tip** (`Banner`, with our own close button): a one-time onboarding card pinned to the bottom, so showing it never moves a row. There is one at a time: multi-add in an empty List, invite after the first adds, «Куплено» on the first check. Each closes for good through `POST /api/me/tips/{key}/dismiss`, and also once the user does what it teaches. The screen reserves room for the Tip's measured height (`--tip-height`, written by `Tip.tsx`), so the last row is never hidden.
+
 ### Snackbar and Alerts
-- **Undo snackbar** (`Snackbar` with `Snackbar.Button`, to implement; today custom): Dark Surface with blur, 10 px from the edges, at most 460 px wide. It slides up from `translateY(140%)` over `.34s cubic-bezier(.3,.3,.5,1)` and lasts at least 5 s. The text clamps at two lines so the removed item's name fits. Every destructive action has one.
+- **Undo snackbar** (`Snackbar` with `Snackbar.Button`): Dark Surface with blur, 10 px from the edges, at most 460 px wide. It slides up from `translateY(140%)` over `.34s cubic-bezier(.3,.3,.5,1)` and lasts at least 5 s. The text clamps at two lines so the removed item's name fits. Every destructive action has one.
 - **Alert** (custom): failures and offline status, pinned to the top on Section Surface with the float shadow. It has a plain Retry and a close button, and never pushes rows.
 
 ## Do's and Don'ts

@@ -53,6 +53,8 @@ LIST_CHANGE_KINDS = (
 )
 NOTIFICATION_KINDS = ("added", "bought")
 LANGUAGES = ("ru", "es", "en")
+# The one-time onboarding tips of the Mini App; the client shows each until it is dismissed.
+TIPS = ("multi_add", "invite", "bought")
 
 
 def new_invite_code() -> str:
@@ -78,6 +80,10 @@ class User(Base):
     )
     # Interface language the user picked in Settings; None follows Telegram's language_code.
     language: Mapped[str | None] = mapped_column(String(8))
+    # [tip key, ...]: the onboarding tips (TIPS) this user has closed.
+    dismissed_tips: Mapped[list[str]] = mapped_column(
+        JSONB, default=list, server_default=text("'[]'::jsonb")
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

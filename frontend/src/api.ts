@@ -12,7 +12,11 @@ export interface User {
   language: "ru" | "es" | "en";
   /** True when the user overrode Telegram's language in Settings. */
   language_overridden: boolean;
+  /** Onboarding tips the user has closed. */
+  dismissed_tips: TipKey[];
 }
+
+export type TipKey = "multi_add" | "invite" | "bought";
 
 /** A Member of a List, as the backend exposes it (no Telegram id). */
 export interface Member {
@@ -87,6 +91,11 @@ export function authenticate(initData: string): Promise<AuthResult> {
 /** Sets the interface language; null goes back to following Telegram's language. */
 export function updateLanguage(token: string, language: "ru" | "es" | "en" | null): Promise<User> {
   return request<User>("/api/me", { method: "PATCH", body: JSON.stringify({ language }) }, token);
+}
+
+/** Records that the user closed an onboarding tip, for good and on every device. */
+export function dismissTip(token: string, key: TipKey): Promise<User> {
+  return request<User>(`/api/me/tips/${key}/dismiss`, { method: "POST" }, token);
 }
 
 /** The user's Lists, most recently changed first. */

@@ -2,6 +2,7 @@
  * Colors come only from Telegram themeParams (--tg-theme-* variables, bound at startup).
  * Hex values appear only as fallbacks for a missing key, so light and dark follow Telegram.
  */
+
 :root {
   --bg: var(--tg-theme-bg-color, #ffffff);
   --ground: var(--tg-theme-secondary-bg-color, #efeff4);
@@ -130,107 +131,6 @@ body {
   letter-spacing: -0.01em;
 }
 
-.members {
-  margin: 0;
-  padding: 0 16px;
-  list-style: none;
-  border-radius: 12px;
-  background: var(--section);
-}
-
-.members__row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-height: 60px;
-}
-
-.members__row + .members__row {
-  border-top: 0.5px solid var(--separator);
-}
-
-.members__name {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.members__line {
-  overflow-wrap: anywhere;
-}
-
-.members__you,
-.members__username {
-  color: var(--hint);
-  font-size: 15px;
-}
-
-.members__you {
-  display: inline;
-}
-
-.share-button {
-  display: block;
-  width: 100%;
-  margin-top: 16px;
-}
-
-.members__hint {
-  margin: 12px 4px 0;
-  font-size: 15px;
-  color: var(--hint);
-}
-
-.toast {
-  position: fixed;
-  left: 50%;
-  bottom: calc(var(--safe-bottom) + 24px);
-  transform: translateX(-50%);
-  max-width: calc(100vw - 32px);
-  padding: 10px 16px;
-  border-radius: 12px;
-  background: var(--text);
-  color: var(--bg);
-  font-size: 15px;
-}
-
-/* The App-level notice sits at the top so it never covers the List screen's own toast. */
-.toast--top {
-  bottom: auto;
-  top: calc(var(--safe-top, 0px) + 16px);
-}
-
-/* Inset grouped section, as in Telegram settings. */
-.empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  margin-top: 8px;
-  padding: 40px 24px;
-  border-radius: 12px;
-  background: var(--section);
-  text-align: center;
-}
-
-.empty__emoji {
-  font-size: 48px;
-  line-height: 1;
-  margin-bottom: 12px;
-}
-
-.empty__title {
-  margin: 0;
-  font-size: 19px;
-  font-weight: 600;
-}
-
-.empty__hint {
-  margin: 6px 0 0;
-  max-width: 28ch;
-  font-size: 15px;
-  color: var(--hint);
-}
-
 .message {
   display: flex;
   min-height: 100vh;
@@ -241,32 +141,8 @@ body {
   text-align: center;
 }
 
-.message__title {
-  margin: 0;
-  font-size: 19px;
-  font-weight: 600;
-}
-
-.message__hint {
-  margin: 8px 0 0;
-  max-width: 32ch;
-  font-size: 15px;
-  color: var(--hint);
-}
-
-.message__action {
-  margin-top: 20px;
-  min-height: 48px;
-  padding: 0 24px;
-  border: 0;
-  border-radius: 12px;
-  background: var(--accent);
-  color: var(--accent-text);
-  font: inherit;
-  font-weight: 600;
-}
-
 /* The pinned, search-style input line. */
+
 .composer {
   position: sticky;
   top: var(--safe-top);
@@ -362,38 +238,25 @@ body {
 }
 
 /* Typing focus reads like Telegram's own fields: no ring, only the caret. */
+
 .composer__input:focus {
   outline: none;
 }
 
 /* Keyboard focus (never pointer focus) is visible on every control, in the accent colour. */
+
 .row__toggle:focus-visible,
 .row__open:focus-visible,
-.sheet-row:focus-visible,
 .header__switch:focus-visible,
-.header__menu:focus-visible,
 .avatars-button:focus-visible,
 .suggest__option:focus-visible,
 .suggest__forget:focus-visible,
 .alert__action:focus-visible,
 .alert__close:focus-visible,
-.snackbar__action:focus-visible,
-.quick__button:focus-visible,
-.empty__action:focus-visible {
+.quick__button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
   border-radius: 10px;
-}
-
-.notice {
-  margin: 0 0 12px;
-  padding: 0 4px;
-  font-size: 15px;
-  color: var(--hint);
-}
-
-.empty__hint + .empty__hint {
-  margin-top: 14px;
 }
 
 .quick {
@@ -404,18 +267,8 @@ body {
   margin-top: 14px;
 }
 
-.quick__button {
-  min-height: 44px;
-  padding: 0 16px;
-  border: 0;
-  border-radius: 22px;
-  background: var(--ground);
-  color: var(--accent);
-  font: inherit;
-  font-size: 15px;
-}
-
 /* A Category section: caps-style header, then an inset grouped list of rows. */
+
 .groups.groups {
   padding: 0;
 }
@@ -425,6 +278,7 @@ body {
 }
 
 /* Hairlines start where the label starts: Cell padding + check (22px) + gap, as in Telegram's own lists. */
+
 .groups[data-platform="ios"] hr {
   margin-inline-start: 54px;
 }
@@ -434,17 +288,20 @@ body {
 }
 
 /* tgui's Divider uses a fixed outline colour; follow Telegram's section separator instead. */
+
 .groups hr {
   border: 0;
   border-bottom: 0.5px solid var(--separator);
 }
 
 /* Android grammar: tgui gives the section card a shadow; DESIGN.md Elevation has none. */
+
 .groups[data-platform="base"] .group > div:first-child {
   box-shadow: none;
 }
 
 /* Android grammar: tgui draws the header inside the section card, so align it with the Cells and keep the tile visible. */
+
 .groups[data-platform="base"] .group__header {
   padding: 16px 24px 4px;
 }
@@ -458,6 +315,7 @@ body {
 }
 
 /* Category header: the emoji tile carries the only colour the product owns. */
+
 .group__header {
   display: flex;
   align-items: center;
@@ -493,6 +351,7 @@ body {
 }
 
 /* Header controls: the List name opens the switcher, "⋯" opens the List menu. */
+
 .header__heading {
   display: flex;
   flex: 1;
@@ -522,201 +381,14 @@ body {
   font-size: 16px;
 }
 
-.header__menu {
-  flex-shrink: 0;
-  width: 44px;
-  height: 44px;
-  border: 0;
-  border-radius: 50%;
-  background: none;
-  color: var(--accent);
-  font: inherit;
-  font-size: 24px;
-  line-height: 1;
-}
-
-.empty__action {
-  margin-top: 16px;
-  min-height: 48px;
-  padding: 0 24px;
-  border: 0;
-  border-radius: 12px;
-  background: var(--accent);
-  color: var(--accent-text);
-  font: inherit;
-  font-weight: 600;
-}
-
-/* Bottom sheets (List switcher, List menu, name form). */
-.sheet-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 10;
-  display: flex;
-  align-items: flex-end;
-  background: color-mix(in srgb, var(--text) 40%, transparent);
-}
-
-.sheet {
-  width: 100%;
-  max-height: 85vh;
-  overflow-y: auto;
-  padding: 16px 16px calc(var(--safe-bottom) + 16px);
-  border-radius: 16px 16px 0 0;
-  background: var(--ground);
-}
-
-.sheet__title {
-  margin: 0 0 12px;
-  font-size: 17px;
-  font-weight: 600;
-  text-align: center;
-}
-
-.sheet-list {
-  list-style: none;
-  margin: 0 0 12px;
-  padding: 0;
-  overflow: hidden;
-  border-radius: 12px;
-  background: var(--section);
-}
-
-.sheet-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  width: 100%;
-  min-height: 48px;
-  padding: 0 16px;
-  border: 0;
-  background: none;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-}
-
-.sheet-list li {
-  position: relative;
-}
-
-.sheet-list li + li::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 16px;
-  right: 0;
-  height: 0.5px;
-  background: var(--separator);
-}
-
-.sheet-row[aria-current="true"] .sheet-row__name {
-  font-weight: 600;
-}
-
-.sheet-row__name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sheet-row__meta {
-  flex-shrink: 0;
-  color: var(--hint);
-  font-size: 15px;
-}
-
-.sheet-row--accent {
-  color: var(--accent);
-}
-
-.sheet-row--destructive {
-  color: var(--destructive);
-}
-
-.sheet__cancel,
-.sheet__submit {
-  width: 100%;
-  min-height: 48px;
-  border: 0;
-  border-radius: 12px;
-  font: inherit;
-  font-weight: 600;
-}
-
-.sheet__cancel {
-  background: var(--section);
-  color: var(--accent);
-}
-
-.sheet__submit {
-  margin-bottom: 12px;
-  background: var(--accent);
-  color: var(--accent-text);
-}
-
-.sheet__submit:disabled {
-  opacity: 0.5;
-}
-
-.field {
-  display: block;
-  margin-bottom: 12px;
-}
-
-.field__label {
-  display: block;
-  margin: 0 4px 6px;
-  color: var(--hint);
-  font-size: 13px;
-}
-
-.field__input {
-  width: 100%;
-  min-height: 48px;
-  padding: 0 16px;
-  border: 0;
-  border-radius: 12px;
-  background: var(--section);
-  color: var(--text);
-  font: inherit;
-}
-
-
-.text-button {
-  border: 0;
-  background: none;
-  color: var(--accent);
-  font: inherit;
-  min-height: 44px;
-  padding: 0 4px;
-}
-
-.settings__section-title {
-  margin: 20px 16px 6px;
-  font-size: 13px;
-  font-weight: 400;
-  text-transform: uppercase;
-  color: var(--tg-theme-section-header-text-color, var(--hint));
-}
-
-.settings__group {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  border-radius: 12px;
-  background: var(--section);
-  overflow: hidden;
-}
-
 /* The whole row toggles; the trailing chevron opens the Entry card. Checking only restyles the row. */
+
 .row {
   position: relative;
 }
 
 /* Room on the right for the chevron, which sits over the Cell as its own button. */
+
 .row__toggle {
   width: 100%;
   min-height: 52px;
@@ -780,6 +452,7 @@ body {
 }
 
 /* Crossing off is a pen stroke drawn across the name, left to right, and undrawn on uncheck. */
+
 .row__label {
   overflow-wrap: anywhere;
   background: linear-gradient(currentColor, currentColor) no-repeat 0 58% / 0% 1.5px;
@@ -810,71 +483,12 @@ body {
   }
 }
 
-/* The Entry card (inside the shared Sheet). */
-.entry-card__note {
-  display: block;
-  width: 100%;
-  padding: 12px 16px;
-  border: 0;
-  border-radius: 12px;
-  background: var(--section);
-  color: var(--text);
-  font: inherit;
-  resize: none;
-}
-
-.entry-card__meta {
-  margin: 0 4px 12px;
-}
-
-.entry-card__error {
-  margin: 0 4px 12px;
-  color: var(--destructive);
-}
-
-.snackbar {
-  position: fixed;
-  right: 16px;
-  bottom: calc(var(--safe-bottom) + 16px);
-  left: 16px;
-  z-index: 20;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 48px;
-  padding: 4px 8px 4px 16px;
-  border-radius: 12px;
-  background: var(--text);
-  color: var(--bg);
-}
-
-/* Two lines before clamping: the snackbar confirms *what* was removed, so the name must fit. */
-.snackbar__text {
-  display: -webkit-box;
-  min-width: 0;
-  overflow: hidden;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow-wrap: anywhere;
-}
-
-.snackbar__action {
-  flex-shrink: 0;
-  min-height: 44px;
-  padding: 0 12px;
-  border: 0;
-  background: none;
-  color: var(--accent);
-  font: inherit;
-  font-weight: 600;
-}
-
 .row__note {
   overflow-wrap: anywhere;
 }
 
 /* A just-added Entry fades from an accent wash to nothing. */
+
 .row--new {
   animation: row-new 1.6s ease-out;
 }
@@ -891,7 +505,8 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .row--new,
   .row--checked .row__check,
-  .group--done .group__emoji {
+  .group--done .group__emoji,
+  .popover {
     animation-duration: 0.01s;
   }
 
@@ -899,94 +514,6 @@ body {
   .progress__fill {
     transition-duration: 0.01s;
   }
-}
-
-.settings__option {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  min-height: 48px;
-  padding: 0 16px;
-  border: 0;
-  background: none;
-  color: var(--text);
-  font: inherit;
-  text-align: left;
-}
-
-/* Hairline separator, inset from the leading edge. */
-.settings__group li + li {
-  position: relative;
-}
-
-.settings__group li + li::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  right: 0;
-  left: 16px;
-  border-top: 1px solid
-    var(--tg-theme-section-separator-color, color-mix(in srgb, var(--hint) 30%, transparent));
-}
-
-.settings__option[aria-checked="true"]::after {
-  content: "✓";
-  color: var(--accent);
-  font-weight: 600;
-}
-
-.settings__error {
-  margin: 8px 16px 0;
-  font-size: 13px;
-  color: var(--destructive);
-}
-
-/* History */
-.history,
-.history__items {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.history__purchase {
-  margin-bottom: 16px;
-}
-
-.history__when {
-  margin: 0 4px 6px;
-  color: var(--hint);
-  font-size: 15px;
-}
-
-.history__items {
-  border-radius: 12px;
-  background: var(--section);
-  padding: 0 16px;
-}
-
-.history__items li + li {
-  border-top: 0.5px solid var(--separator);
-}
-
-.history__item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  width: 100%;
-  min-height: 48px;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--text);
-  font: inherit;
-  text-align: left;
-}
-
-.history__note {
-  color: var(--hint);
 }
 
 .history__add {
@@ -999,14 +526,8 @@ body {
   height: 1px;
 }
 
-.history__status,
-.history__empty {
-  margin: 16px 4px;
-  color: var(--hint);
-  text-align: center;
-}
-
 /* Failures and connectivity float over the screen: rows never move under the finger (Still Row). */
+
 .alert {
   position: fixed;
   top: calc(var(--safe-top) + 8px);
@@ -1060,10 +581,6 @@ body {
   color: var(--hint);
 }
 
-.sheet-row:disabled {
-  color: var(--hint);
-}
-
 .suggest__forget--armed {
   width: auto;
   padding: 0 12px;
@@ -1073,6 +590,7 @@ body {
 }
 
 /* Trip progress under the List name: a line of text and a hairline that fills as items go in. */
+
 .progress {
   margin: -4px 4px 6px;
 }
@@ -1106,6 +624,7 @@ body {
 }
 
 /* A Category with everything in the basket: its tile earns a small check. */
+
 .group--done .group__emoji {
   position: relative;
   animation: tile-done 0.32s cubic-bezier(0.22, 1, 0.36, 1);
@@ -1137,32 +656,21 @@ body {
   }
 }
 
-.empty__summary {
-  max-width: 30ch;
-  margin: 0 auto 8px;
-  color: var(--text);
-  font-size: 17px;
-}
-
 /* Who added the Entry, when the List is shared. */
+
 .row__by {
   display: flex;
   flex-shrink: 0;
 }
 
 /* On a row the avatar sits on the section surface, so its ring matches that, not the page ground. */
+
 .row__by .avatar {
   border-color: var(--section);
 }
 
-.field__hint {
-  display: block;
-  margin: 6px 4px 0;
-  color: var(--hint);
-  font-size: 13px;
-}
-
 /* First load: grey placeholders in the shape of rows. */
+
 .skeleton__check {
   width: 22px;
   height: 22px;
@@ -1176,9 +684,200 @@ body {
 }
 
 /* tgui paints the shimmer on pseudo-elements with no radius; make them take the placeholder's shape. */
+
 .skeleton__check::before,
 .skeleton__check::after,
 .skeleton__line::before,
 .skeleton__line::after {
   border-radius: inherit;
+}
+
+.quick__button {
+  min-height: 44px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 22px;
+  background: var(--ground);
+  color: var(--accent);
+  font: inherit;
+  font-size: 15px;
+}
+
+/* Screens made of tgui Sections: our 16px gutter replaces the List's own padding. */
+.plain-list.plain-list {
+  padding: 0;
+}
+
+.plain-list.plain-list > :not(:last-child) {
+  margin-bottom: 20px;
+}
+
+.hint {
+  color: var(--tgui--hint_color, var(--hint));
+}
+
+.screen__error {
+  margin: 8px 16px 0;
+  font-size: 13px;
+  color: var(--tgui--destructive_text_color, var(--destructive));
+}
+
+/* A Cell that is a button: drop the browser's button look, keep tgui's row. */
+.cell-button {
+  width: 100%;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+}
+
+/* tgui Cells coloured by role: the label (a tgui Text) sets its own colour, so reach into it. */
+.cell--destructive,
+.cell--destructive * {
+  color: var(--tgui--destructive_text_color, var(--destructive));
+}
+
+.cell--accent,
+.cell--accent * {
+  color: var(--tgui--link_color, var(--accent));
+}
+
+.cell--current {
+  font-weight: 600;
+}
+
+/* Placeholders: a big emoji in the picture slot, and a column of actions. */
+.placeholder__emoji {
+  font-size: 48px;
+  line-height: 1;
+}
+
+.placeholder__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.quick-add__lead {
+  margin: 0 0 12px;
+  font-size: 15px;
+  color: var(--tgui--hint_color, var(--hint));
+}
+
+/* The tgui Modal drawer body: Telegram's grouped ground, with room for the home indicator. */
+.sheet {
+  padding: 0 16px calc(var(--safe-bottom) + 16px);
+  background: var(--tgui--secondary_bg_color, var(--ground));
+}
+
+.sheet > form > :not(:last-child),
+.sheet > :not(:last-child) {
+  margin-bottom: 12px;
+}
+
+.sheet__error {
+  margin: 0 16px;
+  color: var(--tgui--destructive_text_color, var(--destructive));
+  font-size: 13px;
+}
+
+/* tgui's Snackbar sits 10px from the bottom; keep it above the home indicator too. */
+.snackbar.snackbar {
+  bottom: calc(var(--safe-bottom) + 10px);
+}
+
+/* One-time tips float above the list (the Still Row Rule), under the snackbar. */
+.tip {
+  position: fixed;
+  right: 10px;
+  bottom: calc(var(--safe-bottom) + 10px);
+  left: 10px;
+  z-index: 15;
+  max-width: 460px;
+  margin: 0 auto;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.16);
+}
+
+.tip__close {
+  position: absolute;
+  top: 0;
+  right: 0;
+  min-width: 44px;
+  min-height: 44px;
+}
+
+/* Keep the header and text clear of the close button. */
+.tip .tip__banner {
+  padding-right: 44px;
+}
+
+/* Room under the list so a floating tip never hides the last rows. */
+.screen--with-tip {
+  padding-bottom: calc(var(--safe-bottom) + var(--tip-height, 0px) + 20px);
+}
+
+/* The List menu: a popover from the "⋯" button. */
+.header__menu-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.header__menu {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.popover__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+}
+
+.popover {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 31;
+  width: max-content;
+  min-width: 240px;
+  max-width: calc(100vw - 32px);
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--tgui--bg_color, var(--section));
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.16);
+  transform-origin: top right;
+  animation: popover-in 0.12s ease-out;
+}
+
+.popover--leaving {
+  pointer-events: none;
+  animation: popover-out 0.12s ease-in forwards;
+}
+
+.popover > section + section {
+  border-top: 8px solid var(--tgui--secondary_bg_color, var(--ground));
+}
+
+@keyframes popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes popover-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(4px) scale(0.96);
+  }
 }

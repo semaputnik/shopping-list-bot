@@ -61,6 +61,8 @@ class UserOut(BaseModel):
     language: str
     # True when the user overrode Telegram's language in Settings.
     language_overridden: bool
+    # Onboarding tips the user has closed (keys from models.TIPS).
+    dismissed_tips: list[str]
 
 
 class UserRefOut(BaseModel):
@@ -343,6 +345,7 @@ def user_out(user: models.User) -> UserOut:
         added_to_attachment_menu=user.added_to_attachment_menu,
         language=effective_language(user.language, user.language_code),
         language_overridden=user.language is not None,
+        dismissed_tips=user.dismissed_tips,
     )
 
 
@@ -560,6 +563,16 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
     def update_me(body: MeUpdate, user: UserDep, session: SessionDep) -> UserOut:
         user.language = body.language
         session.commit()
+        return user_out(user)
+
+    @api.post("/me/tips/{key}/dismiss", response_model=UserOut)
+    def dismiss_tip(key: str, user: UserDep, session: SessionDep) -> UserOut:
+        if key not in models.TIPS:
+            raise HTTPException(404, "unknown tip")
+        session.refresh(user, with_for_update=True)  # no lost update between two dismissals
+        if key not in user.dismissed_tips:
+            user.dismissed_tips = [*user.dismissed_tips, key]
+            session.commit()
         return user_out(user)
 
     @api.get("/categories", response_model=list[CategoryOut])

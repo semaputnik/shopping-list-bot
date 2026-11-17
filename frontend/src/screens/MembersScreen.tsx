@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { Button, Cell, List, Section, Snackbar, Title } from "@telegram-apps/telegram-ui";
 import { fetchInvite, type ShoppingList, type User } from "../api";
 import { Avatar, memberName } from "../components/Avatar";
 import type { Strings } from "../i18n";
@@ -15,9 +16,7 @@ interface Props {
 
 /** The Members screen: everyone with access to the List, and the Share button. */
 export function MembersScreen({ token, user, list, strings, onBack }: Props) {
-  const [toast, setToast] = useState<string | null>(null);
-  const timer = useRef<number | undefined>(undefined);
-  useEffect(() => () => window.clearTimeout(timer.current), []);
+  const [info, setInfo] = useState<string | null>(null);
   // Leaving a nested screen is Telegram's native BackButton (also the Android back press).
   useEffect(() => bindBackButton(onBack), [onBack]);
 
@@ -29,36 +28,36 @@ export function MembersScreen({ token, user, list, strings, onBack }: Props) {
     if (result === "unavailable") haptic.error();
     else haptic.success();
     if (result === "shared") return; // Telegram's own picker is the feedback
-    setToast(result === "copied" ? strings.linkCopied : strings.linkUnavailable);
-    window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => setToast(null), 2500);
+    setInfo(result === "copied" ? strings.linkCopied : strings.linkUnavailable);
   };
 
   return (
     <main className="screen">
-      <h1 className="screen__title">{strings.members}</h1>
-      <ul className="members">
-        {list.members.map((member) => (
-          <li key={member.id} className="members__row">
-            <Avatar member={member} size="lg" />
-            <span className="members__name">
-              <span className="members__line">
-                {memberName(member)}
-                {member.id === user.id && <span className="members__you"> · {strings.you}</span>}
-              </span>
-              {member.username && <span className="members__username">@{member.username}</span>}
-            </span>
-          </li>
-        ))}
-      </ul>
-      <button type="button" className="message__action share-button" onClick={() => void share()}>
-        {strings.share}
-      </button>
-      <p className="members__hint">{strings.membersHint}</p>
-      {toast && (
-        <div className="toast" role="status">
-          {toast}
-        </div>
+      <Title level="1" weight="1" className="screen__title">
+        {strings.members}
+      </Title>
+      <List className="plain-list">
+        <Section footer={strings.membersHint}>
+          {list.members.map((member) => (
+            <Cell
+              key={member.id}
+              before={<Avatar member={member} size="lg" />}
+              subtitle={member.username ? `@${member.username}` : undefined}
+              multiline
+            >
+              {memberName(member)}
+              {member.id === user.id && <span className="hint"> · {strings.you}</span>}
+            </Cell>
+          ))}
+        </Section>
+        <Button size="l" mode="filled" stretched onClick={() => void share()}>
+          {strings.share}
+        </Button>
+      </List>
+      {info && (
+        <Snackbar key={info} className="snackbar" duration={2500} onClose={() => setInfo(null)}>
+          {info}
+        </Snackbar>
       )}
     </main>
   );
