@@ -19,8 +19,11 @@ export function Sheet({ title, closeLabel, onClose, children }: SheetProps) {
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   useEffect(() => bindBackButton(() => onCloseRef.current()), []);
+  const drawerRef = useKeyboardAwareDrawer();
   return (
     <Modal
+      ref={drawerRef}
+      className="sheet-drawer"
       open
       onOpenChange={(open) => {
         if (!open) onClose();
@@ -36,6 +39,40 @@ export function Sheet({ title, closeLabel, onClose, children }: SheetProps) {
       </div>
     </Modal>
   );
+}
+
+/**
+ * Keeps the drawer inside the part of the screen the keyboard leaves visible. tgui's drawer
+ * (a vaul fork) lifts itself by the keyboard height but ignores `visualViewport.offsetTop`: when
+ * iOS pans the page to show a focused field, the drawer ends up above the visible area, and a tall
+ * one (the Entry card) is cut off at the top. The drawer's `bottom` and `max-height` are therefore
+ * driven from the visual viewport here (applied with `!important` in styles.css over vaul's inline
+ * values), and the focused field is scrolled into view inside the drawer.
+ */
+function useKeyboardAwareDrawer() {
+  // A callback ref: tgui mounts the drawer into its portal a render later than the Sheet.
+  const [drawer, setDrawer] = useState<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport || !drawer) return;
+    const update = () => {
+      const hidden = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
+      drawer.style.setProperty("--sheet-bottom", `${hidden}px`);
+      drawer.style.setProperty("--sheet-visible-height", `${viewport.height}px`);
+      const focused = document.activeElement;
+      if (focused instanceof HTMLElement && drawer.contains(focused)) {
+        requestAnimationFrame(() => focused.scrollIntoView({ block: "nearest" }));
+      }
+    };
+    update();
+    viewport.addEventListener("resize", update);
+    viewport.addEventListener("scroll", update);
+    return () => {
+      viewport.removeEventListener("resize", update);
+      viewport.removeEventListener("scroll", update);
+    };
+  }, [drawer]);
+  return setDrawer;
 }
 
 interface NameSheetProps {
