@@ -63,12 +63,18 @@ class UserOut(BaseModel):
     language_overridden: bool
 
 
-class MemberOut(BaseModel):
+class UserRefOut(BaseModel):
     id: int
     first_name: str
     last_name: str | None
     username: str | None
     photo_url: str | None
+
+
+class MemberOut(UserRefOut):
+    # Whose Invite they joined through; null for a List's creator and for Members from before
+    # Invites, or when the inviter's account is gone.
+    invited_by: UserRefOut | None
 
 
 ListName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
@@ -102,9 +108,6 @@ class ImmutableStaticFiles(StaticFiles):
 class ListOut(BaseModel):
     id: int
     name: str
-    share_code: str
-    # The Share link, `https://t.me/<bot>?startapp=<code>`; null while SL_BOT_USERNAME is unset.
-    share_url: str | None
     # Members in the order they joined (the creator first).
     members: list[MemberOut]
     version: int
@@ -302,6 +305,12 @@ class CategoryOut(BaseModel):
     emoji: str
 
 
+class InviteOut(BaseModel):
+    code: str
+    # `https://t.me/<bot>?startapp=join_<code>`; null while SL_BOT_USERNAME is unset.
+    url: str | None
+
+
 class JoinIn(BaseModel):
     code: str = Field(max_length=64)
 
@@ -337,8 +346,8 @@ def user_out(user: models.User) -> UserOut:
     )
 
 
-def member_out(user: models.User) -> MemberOut:
-    return MemberOut(
+def user_ref_out(user: models.User) -> UserRefOut:
+    return UserRefOut(
         id=user.id,
         first_name=user.first_name,
         last_name=user.last_name,
@@ -347,20 +356,40 @@ def member_out(user: models.User) -> MemberOut:
     )
 
 
-def share_url(bot_username: str, share_code: str) -> str | None:
+def member_out(member: models.ListMember) -> MemberOut:
+    inviter = member.invite.creator if member.invite else None
+    return MemberOut(
+        **user_ref_out(member.user).model_dump(),
+        invited_by=user_ref_out(inviter) if inviter else None,
+    )
+
+
+JOIN_PREFIX = "join_"
+
+
+def invite_code(start_param: str) -> str:
+    """The Invite code in a link payload: `join_<code>`, or a legacy bare code."""
+    return start_param.removeprefix(JOIN_PREFIX)
+
+
+def invite_url(bot_username: str, code: str) -> str | None:
     username = bot_username.lstrip("@")
-    return f"https://t.me/{username}?startapp={share_code}" if username else None
+    return f"https://t.me/{username}?startapp={JOIN_PREFIX}{code}" if username else None
 
 
-def list_out(lst: models.List, lang: str, bot_username: str = "") -> ListOut:
+def _active_invite_by_code(code: str):
+    return select(models.Invite).where(
+        models.Invite.code == code, models.Invite.revoked_at.is_(None)
+    )
+
+
+def list_out(lst: models.List, lang: str) -> ListOut:
     members = sorted(lst.members, key=lambda m: m.id)
     return ListOut(
         id=lst.id,
         # An auto-created name is rendered in the viewer's language until a Member renames it.
         name=FIRST_LIST_NAME[lang] if lst.name_is_default else lst.name,
-        share_code=lst.share_code,
-        share_url=share_url(bot_username, lst.share_code),
-        members=[member_out(m.user) for m in members],
+        members=[member_out(m) for m in members],
         version=lst.version,
         updated_at=lst.updated_at,
     )
@@ -498,8 +527,7 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
         # link of an existing List (the client then joins that one through POST /api/lists/join). An unknown
         # or stale code does not count: they would be left with no List at all.
         arrived_by_share_link = bool(data.start_param) and (
-            session.scalar(select(models.List.id).where(models.List.share_code == data.start_param))
-            is not None
+            session.scalar(_active_invite_by_code(invite_code(data.start_param))) is not None
         )
         if created and not arrived_by_share_link:
             lst = models.List(
@@ -521,7 +549,7 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
             expires_at=expires_at,
             user=user_out(user),
             start_param=data.start_param,
-            lists=[list_out(lst, lang, settings.bot_username) for lst in session.scalars(stmt)],
+            lists=[list_out(lst, lang) for lst in session.scalars(stmt)],
         )
 
     @api.get("/me", response_model=UserOut)
@@ -548,21 +576,26 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
             select(models.List)
             .join(models.ListMember)
             .where(models.ListMember.user_id == user.id)
-            .options(selectinload(models.List.members).selectinload(models.ListMember.user))
+            .options(
+                selectinload(models.List.members).selectinload(models.ListMember.user),
+                selectinload(models.List.members)
+                .selectinload(models.ListMember.invite)
+                .selectinload(models.Invite.creator),
+            )
         )
 
     @api.get("/lists", response_model=list[ListOut])
     def my_lists(user: UserDep, session: SessionDep) -> list[ListOut]:
         stmt = _member_lists(user).order_by(models.List.updated_at.desc(), models.List.id.desc())
         lang = _lang(user)
-        return [list_out(lst, lang, settings.bot_username) for lst in session.scalars(stmt)]
+        return [list_out(lst, lang) for lst in session.scalars(stmt)]
 
     @api.get("/lists/{list_id}", response_model=ListOut)
     def get_list(list_id: int, user: UserDep, session: SessionDep) -> ListOut:
         lst = session.scalar(_member_lists(user).where(models.List.id == list_id))
         if lst is None:  # also hides the existence of Lists the user is not a Member of
             raise HTTPException(404, "list not found")
-        return list_out(lst, _lang(user), settings.bot_username)
+        return list_out(lst, _lang(user))
 
     def _emit(session: Session, recipients: set[int], payload: dict) -> None:
         session.info.setdefault("pending_events", []).append((frozenset(recipients), payload))
@@ -628,13 +661,14 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
     @api.post("/lists/join", response_model=ListOut)
     def join_list(body: JoinIn, user: UserDep, session: SessionDep) -> ListOut:
         """Open a Share link: make the user a Member of the List (idempotent for Members)."""
-        lst = session.scalar(
-            select(models.List).where(models.List.share_code == body.code).with_for_update()
-        )
-        if lst is None:
+        invite = session.scalar(_active_invite_by_code(invite_code(body.code)))
+        if invite is None:
             raise HTTPException(404, "share link is not valid")
+        lst = session.scalar(
+            select(models.List).where(models.List.id == invite.list_id).with_for_update()
+        )
         if all(m.user_id != user.id for m in lst.members):
-            lst.members.append(models.ListMember(user_id=user.id))
+            lst.members.append(models.ListMember(user_id=user.id, invite_id=invite.id))
             try:
                 session.flush()
             except IntegrityError:  # concurrent join by the same user: already a Member
@@ -642,7 +676,45 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
             else:
                 _touch(session, lst, "member.joined")
                 session.commit()
-        return list_out(_member_list(session, user, lst.id), _lang(user), settings.bot_username)
+        return list_out(_member_list(session, user, lst.id), _lang(user))
+
+    def _my_active_invite(list_id: int, user: models.User):
+        return select(models.Invite).where(
+            models.Invite.list_id == list_id,
+            models.Invite.created_by == user.id,
+            models.Invite.revoked_at.is_(None),
+        )
+
+    def _invite_out(invite: models.Invite) -> InviteOut:
+        return InviteOut(code=invite.code, url=invite_url(settings.bot_username, invite.code))
+
+    @api.get("/lists/{list_id}/invite", response_model=InviteOut)
+    def get_invite(list_id: int, user: UserDep, session: SessionDep) -> InviteOut:
+        """The Member's own link into the List, created on first request."""
+        _member_list(session, user, list_id)
+        invite = session.scalar(_my_active_invite(list_id, user))
+        if invite is None:
+            # Under the List lock a concurrent first request or reset has finished: look again.
+            _member_list(session, user, list_id, lock=True)
+            invite = session.scalar(_my_active_invite(list_id, user))
+            if invite is None:
+                invite = models.Invite(list_id=list_id, created_by=user.id)
+                session.add(invite)
+                session.commit()
+        return _invite_out(invite)
+
+    @api.post("/lists/{list_id}/invite/reset", response_model=InviteOut)
+    def reset_invite(list_id: int, user: UserDep, session: SessionDep) -> InviteOut:
+        """Revoke the Member's link and issue a new one; the old link stops working."""
+        _member_list(session, user, list_id, lock=True)
+        old = session.scalar(_my_active_invite(list_id, user))
+        if old is not None:
+            old.revoked_at = models.utcnow()
+            session.flush()  # the partial unique index allows one active Invite at a time
+        invite = models.Invite(list_id=list_id, created_by=user.id)
+        session.add(invite)
+        session.commit()
+        return _invite_out(invite)
 
     @api.post("/lists", response_model=ListOut, status_code=201)
     def create_list(body: ListIn, user: UserDep, session: SessionDep) -> ListOut:
@@ -657,7 +729,7 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
             {"list_id": lst.id, "version": lst.version, "kind": "list.created", "entry_id": None},
         )
         session.commit()
-        return list_out(_member_list(session, user, lst.id), _lang(user), settings.bot_username)
+        return list_out(_member_list(session, user, lst.id), _lang(user))
 
     @api.patch("/lists/{list_id}", response_model=ListOut)
     def rename_list(list_id: int, body: ListIn, user: UserDep, session: SessionDep) -> ListOut:
@@ -666,7 +738,7 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
         lst.name_is_default = False  # an explicit name replaces the localized default
         _touch(session, lst, "list.renamed")
         session.commit()
-        return list_out(_member_list(session, user, lst.id), _lang(user), settings.bot_username)
+        return list_out(_member_list(session, user, lst.id), _lang(user))
 
     def _forget_list(session: Session, lst: models.List, recipients: set[int]) -> None:
         """Announce the List's deletion to `recipients` and drop its change log."""
@@ -755,9 +827,7 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
                         entries=members,
                     )
                 )
-        return ListContentsOut(
-            list=list_out(lst, language, settings.bot_username), categories=groups
-        )
+        return ListContentsOut(list=list_out(lst, language), categories=groups)
 
     @api.get("/lists/{list_id}/entries", response_model=ListContentsOut)
     def list_entries(list_id: int, user: UserDep, session: SessionDep) -> ListContentsOut:

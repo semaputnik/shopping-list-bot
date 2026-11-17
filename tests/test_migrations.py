@@ -16,6 +16,7 @@ from shopping_list_bot.config import Settings
 from shopping_list_bot.migrate import downgrade, upgrade
 
 ANNA = {"id": 1001, "first_name": "Анна", "language_code": "ru"}
+CARLOS = {"id": 1003, "first_name": "Карлос", "language_code": "es"}
 
 
 def settings_for(url: str, tmp_path) -> Settings:
@@ -126,6 +127,26 @@ def test_hardening_migration_keeps_the_data_and_the_app_working(
         contents = client.get(f"/api/lists/{lists[0]['id']}/entries", headers=headers).json()
         names = {e["name"] for group in contents["categories"] for e in group["entries"]}
         assert names == {"молоко", "хлеб"}
+
+
+def test_a_legacy_share_code_becomes_the_creators_invite_and_still_joins(
+    old_schema, blank_database_url, tmp_path
+):
+    upgrade(blank_database_url)
+
+    with TestClient(create_app(settings_for(blank_database_url, tmp_path))) as client:
+        auth = client.post("/api/auth", json={"init_data": sign_init_data(ANNA)}).json()
+        headers = {"Authorization": f"Bearer {auth['token']}"}
+        (lst,) = client.get("/api/lists", headers=headers).json()
+        invite = client.get(f"/api/lists/{lst['id']}/invite", headers=headers).json()
+        assert invite["code"] == "code"
+
+        carlos = client.post("/api/auth", json={"init_data": sign_init_data(CARLOS)}).json()
+        carlos_headers = {"Authorization": f"Bearer {carlos['token']}"}
+        joined = client.post("/api/lists/join", json={"code": "code"}, headers=carlos_headers)
+        assert joined.status_code == 200, joined.text
+        members = {m["first_name"]: m["invited_by"] for m in joined.json()["members"]}
+        assert members["Карлос"]["first_name"] == "Анна"
 
 
 def test_hardening_migration_downgrades_and_upgrades_again(old_schema, blank_database_url):

@@ -19,7 +19,7 @@ def anna(sign_in, client):
 @pytest.fixture
 def carlos(sign_in, anna, add_member):
     session = sign_in(CARLOS)
-    add_member(anna["list"], session)
+    add_member(anna["list"], session, anna)
     return {"headers": session["headers"], "id": anna["id"]}
 
 
@@ -133,7 +133,7 @@ class TestVersioning:
         assert undone["version"] == before + 2
 
         carlos = sign_in(CARLOS)
-        add_member(anna["list"], carlos)
+        add_member(anna["list"], carlos, anna)
         assert version(client, anna) == before + 3
 
         client.post(f"/api/lists/{lid}/leave", headers=carlos["headers"])
@@ -170,7 +170,7 @@ class TestChangesSince:
 
     def test_membership_and_rename_are_changes_too(self, client, anna, sign_in, add_member):
         v0 = version(client, anna)
-        add_member(anna["list"], sign_in(CARLOS))
+        add_member(anna["list"], sign_in(CARLOS), anna)
         client.patch(f"/api/lists/{anna['id']}", json={"name": "Дом"}, headers=anna["headers"])
         kinds = [c["kind"] for c in changes(client, anna, v0).json()["changes"]]
         assert kinds == ["member.joined", "list.renamed"]

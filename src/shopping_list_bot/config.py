@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     bot_token: str = ""
     # Public https URL of the Mini App (where the backend serves the frontend).
     webapp_url: str = "https://localhost:5173"
-    # The bot's @username (without @); Share links are `https://t.me/<bot>?startapp=<code>`.
+    # The bot's @username (without @); Share links are `https://t.me/<bot>?startapp=join_<code>`.
     bot_username: str = ""
     database_url: str = (
         "postgresql+psycopg://shopping_list:shopping_list@localhost:5432/shopping_list"

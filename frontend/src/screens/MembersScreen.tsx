@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import type { ShoppingList, User } from "../api";
+import { fetchInvite, type ShoppingList, type User } from "../api";
 import { Avatar, memberName } from "../components/Avatar";
 import type { Strings } from "../i18n";
 import { shareList } from "../share";
 import { bindBackButton, haptic } from "../telegram";
 
 interface Props {
+  token: string;
   user: User;
   list: ShoppingList;
   strings: Strings;
@@ -13,7 +14,7 @@ interface Props {
 }
 
 /** The Members screen: everyone with access to the List, and the Share button. */
-export function MembersScreen({ user, list, strings, onBack }: Props) {
+export function MembersScreen({ token, user, list, strings, onBack }: Props) {
   const [toast, setToast] = useState<string | null>(null);
   const timer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(timer.current), []);
@@ -21,7 +22,10 @@ export function MembersScreen({ user, list, strings, onBack }: Props) {
   useEffect(() => bindBackButton(onBack), [onBack]);
 
   const share = async () => {
-    const result = await shareList(list.share_url, strings.shareText.replace("{name}", list.name));
+    const result = await shareList(
+      async () => (await fetchInvite(token, list.id)).url,
+      strings.shareText.replace("{name}", list.name),
+    );
     if (result === "unavailable") haptic.error();
     else haptic.success();
     if (result === "shared") return; // Telegram's own picker is the feedback

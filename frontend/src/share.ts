@@ -25,9 +25,10 @@ export async function copyText(text: string): Promise<boolean> {
 
 /** Shares a List's link: Telegram's chat picker when available, otherwise the clipboard. */
 export async function shareList(
-  url: string | null,
+  getUrl: () => Promise<string | null>,
   text: string,
 ): Promise<"shared" | "copied" | "unavailable"> {
+  const url = await getUrl().catch(() => null);
   if (!url) return "unavailable";
   if (shareToChat(url, text)) return "shared";
   return (await copyText(url)) ? "copied" : "unavailable";

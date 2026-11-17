@@ -14,6 +14,7 @@ import {
   fetchCategories,
   fetchChanges,
   fetchContents,
+  fetchInvite,
   fetchSuggestions,
   hideProduct,
   renameProduct,
@@ -713,7 +714,10 @@ export function ListScreen({
   const onShare = async () => {
     close();
     if (!list) return;
-    const result = await shareList(list.share_url, strings.shareText.replace("{name}", list.name));
+    const result = await shareList(
+      async () => (await fetchInvite(token, list.id)).url,
+      strings.shareText.replace("{name}", list.name),
+    );
     if (result === "unavailable") haptic.error();
     else haptic.success();
     if (result === "shared") return; // Telegram's own picker is the feedback

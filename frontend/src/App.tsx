@@ -318,7 +318,7 @@ export function App() {
       const current = state.lists.find((l) => l.id === state.currentId) ?? null;
       if (current && state.screen === "members") {
         return (
-          <MembersScreen user={state.user} list={current} strings={strings} onBack={backToList} />
+          <MembersScreen token={state.token} user={state.user} list={current} strings={strings} onBack={backToList} />
         );
       }
       if (current && state.screen === "history") {

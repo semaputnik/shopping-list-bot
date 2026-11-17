@@ -21,6 +21,8 @@ export interface Member {
   last_name: string | null;
   username: string | null;
   photo_url: string | null;
+  /** Whose Invite link they joined through; null for the creator and for older Members. */
+  invited_by: Omit<Member, "invited_by"> | null;
 }
 
 /** A List in GLOSSARY.md terms (named ShoppingList to avoid clashing with the TS/DOM List names). */
@@ -28,9 +30,6 @@ export interface ShoppingList {
   id: number;
   name: string;
   member_count: number;
-  share_code: string;
-  /** The Share link; null while the backend has no SL_BOT_USERNAME. */
-  share_url: string | null;
   members: Member[];
   version: number;
   updated_at: string;
@@ -256,6 +255,11 @@ export function leaveList(token: string, id: number): Promise<void> {
 /** Deletes the List for all its Members. Always ask for confirmation first. */
 export function deleteList(token: string, id: number): Promise<void> {
   return request<void>(`/api/lists/${id}`, { method: "DELETE" }, token);
+}
+
+/** The Member's own Invite link into a List; `url` is null while the backend has no SL_BOT_USERNAME. */
+export function fetchInvite(token: string, listId: number): Promise<{ code: string; url: string | null }> {
+  return request(`/api/lists/${listId}/invite`, {}, token);
 }
 
 /** Opens a Share link: joins the List (a no-op for a Member). Rejects with ApiError 404 for an invalid code. */

@@ -1,3 +1,5 @@
+from conftest import invite_code
+
 ANNA = {"id": 1001, "first_name": "Анна", "language_code": "ru"}
 CARLOS = {"id": 2002, "first_name": "Carlos", "language_code": "es-MX"}
 JOHN = {"id": 3003, "first_name": "John", "language_code": "en"}
@@ -109,7 +111,9 @@ def test_each_member_sees_the_default_name_in_their_own_language(client, sign_in
     anna, carlos = sign_in(ANNA), sign_in(CARLOS)
     anna_list = client.get("/api/lists", headers=anna["headers"]).json()[0]
     joined = client.post(
-        "/api/lists/join", json={"code": anna_list["share_code"]}, headers=carlos["headers"]
+        "/api/lists/join",
+        json={"code": invite_code(client, anna, anna_list["id"])},
+        headers=carlos["headers"],
     )
     assert joined.status_code == 200
     url = f"/api/lists/{anna_list['id']}"
@@ -121,7 +125,9 @@ def test_joining_returns_the_default_name_in_the_joiners_language(client, sign_i
     anna, carlos = sign_in(ANNA), sign_in(CARLOS)
     anna_list = client.get("/api/lists", headers=anna["headers"]).json()[0]
     joined = client.post(
-        "/api/lists/join", json={"code": anna_list["share_code"]}, headers=carlos["headers"]
+        "/api/lists/join",
+        json={"code": invite_code(client, anna, anna_list["id"])},
+        headers=carlos["headers"],
     ).json()
     assert joined["name"] == "Compras"
     carlos_lists = client.get("/api/lists", headers=carlos["headers"]).json()

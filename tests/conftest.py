@@ -169,14 +169,20 @@ def sign_in(client: TestClient) -> Callable[..., dict]:
     return _sign_in
 
 
-@pytest.fixture
-def add_member(client: TestClient) -> Callable[[dict, dict], dict]:
-    """Make a signed-in user a Member of a List by opening its Share link (POST /lists/join)."""
+def invite_code(client, session: dict, list_id: int) -> str:
+    """The code of the session's own Invite to the List (created on first request)."""
+    response = client.get(f"/api/lists/{list_id}/invite", headers=session["headers"])
+    assert response.status_code == 200, response.text
+    return response.json()["code"]
 
-    def _add(lst: dict, session: dict) -> dict:
-        response = client.post(
-            "/api/lists/join", json={"code": lst["share_code"]}, headers=session["headers"]
-        )
+
+@pytest.fixture
+def add_member(client: TestClient) -> Callable[[dict, dict, dict], dict]:
+    """Make a signed-in user a Member of a List by opening an existing Member's Invite link."""
+
+    def _add(lst: dict, session: dict, inviter: dict) -> dict:
+        code = invite_code(client, inviter, lst["id"])
+        response = client.post("/api/lists/join", json={"code": code}, headers=session["headers"])
         assert response.status_code == 200, response.text
         return response.json()
 

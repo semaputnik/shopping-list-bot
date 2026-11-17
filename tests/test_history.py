@@ -1,6 +1,7 @@
 """Purchase History: order, cursor paging, re-add (HTTP API only)."""
 
 import pytest
+from conftest import invite_code
 
 ANNA = {"id": 1001, "first_name": "Анна", "language_code": "ru"}
 CARLOS = {"id": 2002, "first_name": "Carlos", "language_code": "es-MX"}
@@ -74,7 +75,7 @@ def test_purchase_shows_time_buyer_and_items_with_notes(client, anna):
 
 
 def test_purchase_shows_which_member_pressed_it(client, sign_in, anna):
-    code = client.get(lp(anna), headers=anna["headers"]).json()["share_code"]
+    code = invite_code(client, anna, anna["list_id"])
     carlos = sign_in(CARLOS)
     joined = client.post("/api/lists/join", json={"code": code}, headers=carlos["headers"])
     assert joined.status_code == 200

@@ -55,8 +55,8 @@ NOTIFICATION_KINDS = ("added", "bought")
 LANGUAGES = ("ru", "es", "en")
 
 
-def new_share_code() -> str:
-    # 16 random bytes -> 22 URL-safe characters; unguessable and permanent.
+def new_invite_code() -> str:
+    # 16 random bytes -> 22 URL-safe characters; unguessable.
     return secrets.token_urlsafe(16)
 
 
@@ -89,7 +89,6 @@ class List(Base):
     # True while the List still has its auto-created name; it is then shown in each
     # viewer's language. Whatever renames a List must set this to False.
     name_is_default: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
-    share_code: Mapped[str] = mapped_column(String(64), unique=True, default=new_share_code)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     # Time of the last change; Lists are ordered by it.
@@ -107,15 +106,45 @@ class ListMember(Base):
     __table_args__ = (
         UniqueConstraint("list_id", "user_id"),
         Index("ix_list_member_user_id", "user_id"),
+        Index("ix_list_member_invite_id", "invite_id"),
     )
 
     id: Mapped[int] = _pk()
     list_id: Mapped[int] = mapped_column(ForeignKey("list.id", ondelete="CASCADE"))
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"))
     joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # The Invite whose link they opened; null for a creator and for Members from before Invites.
+    invite_id: Mapped[int | None] = mapped_column(ForeignKey("invite.id", ondelete="SET NULL"))
 
     list: Mapped[List] = relationship(back_populates="members")
     user: Mapped[User] = relationship()
+    invite: Mapped[Invite | None] = relationship()
+
+
+class Invite(Base):
+    """A Member's link into a List. One active Invite per (Member, List); a reset revokes it."""
+
+    __tablename__ = "invite"
+    __table_args__ = (
+        # The partial unique index also serves lookups by List.
+        Index(
+            "uq_invite_active_per_member",
+            "list_id",
+            "created_by",
+            unique=True,
+            postgresql_where=text("revoked_at IS NULL"),
+        ),
+        Index("ix_invite_created_by", "created_by"),
+    )
+
+    id: Mapped[int] = _pk()
+    list_id: Mapped[int] = mapped_column(ForeignKey("list.id", ondelete="CASCADE"))
+    code: Mapped[str] = mapped_column(String(64), unique=True, default=new_invite_code)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    creator: Mapped[User | None] = relationship()
 
 
 class Product(Base):

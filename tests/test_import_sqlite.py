@@ -179,9 +179,10 @@ def test_lists_members_entries_and_history_arrive_with_their_ids(
         headers = {"Authorization": f"Bearer {r.json()['token']}"}
 
         lists = client.get("/api/lists", headers=headers).json()
-        assert [(lst["id"], lst["name"], lst["share_code"]) for lst in lists] == [
-            (5, "Покупки", "code5")
-        ]
+        assert [(lst["id"], lst["name"]) for lst in lists] == [(5, "Покупки")]
+        # The MVP's share code is Анна's Invite now, and the old link still joins.
+        invite = client.get("/api/lists/5/invite", headers=headers).json()
+        assert invite["code"] == "code5"
         assert [(e["id"], e["name"], e["note"]) for e in contents(client, headers, 5)] == [
             (20, "молоко", "2 л")
         ]

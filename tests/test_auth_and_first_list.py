@@ -3,7 +3,7 @@ import hmac
 import time
 
 import pytest
-from conftest import TEST_BOT_TOKEN, sign_init_data
+from conftest import TEST_BOT_TOKEN, invite_code, sign_init_data
 from fastapi.testclient import TestClient
 
 from shopping_list_bot.app import create_app
@@ -225,8 +225,9 @@ class TestFirstList:
         assert len(client.get("/api/lists", headers=again["headers"]).json()) == 1
 
     def share_code_of(self, client, sign_in, user):
-        (lst,) = client.get("/api/lists", headers=sign_in(user)["headers"]).json()
-        return lst["share_code"]
+        session = sign_in(user)
+        (lst,) = client.get("/api/lists", headers=session["headers"]).json()
+        return invite_code(client, session, lst["id"])
 
     def test_arriving_through_a_real_share_link_creates_no_own_list(self, client, sign_in):
         code = self.share_code_of(client, sign_in, ANNA)
@@ -248,16 +249,10 @@ class TestFirstList:
         lists = client.get("/api/lists", headers=session["headers"]).json()
         assert [lst["name"] for lst in lists] == [name]
 
-    def test_list_has_an_unguessable_share_code_and_starting_version(self, client, sign_in):
+    def test_list_starts_at_version_zero(self, client, sign_in):
         headers = sign_in(ANNA)["headers"]
         (lst,) = client.get("/api/lists", headers=headers).json()
-        assert len(lst["share_code"]) >= 16
         assert lst["version"] == 0
-
-    def test_share_codes_differ_between_lists(self, client, sign_in):
-        a = client.get("/api/lists", headers=sign_in(ANNA)["headers"]).json()[0]
-        b = client.get("/api/lists", headers=sign_in(CARLOS)["headers"]).json()[0]
-        assert a["share_code"] != b["share_code"]
 
 
 class TestListAccess:

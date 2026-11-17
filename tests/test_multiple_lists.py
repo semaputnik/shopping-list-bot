@@ -41,7 +41,7 @@ class TestCreateAndRename:
 
     def test_any_member_can_rename(self, client, anna, boris, add_member):
         lst = create(client, anna["headers"], "Дача")
-        add_member(lst, boris)
+        add_member(lst, boris, anna)
         response = client.patch(
             f"/api/lists/{lst['id']}", json={"name": "Дом"}, headers=boris["headers"]
         )
@@ -116,7 +116,7 @@ class TestRenamingTheDefaultList:
     ):
         carlos = sign_in({"id": 2002, "first_name": "Carlos", "language_code": "es"})
         lst = self.default_list(client, anna)
-        add_member(lst, carlos)
+        add_member(lst, carlos, anna)
         client.patch(f"/api/lists/{lst['id']}", json={"name": "Дача"}, headers=anna["headers"])
         assert "Дача" in names(client, carlos["headers"])
 
@@ -129,7 +129,7 @@ class TestOrdering:
         assert names(client, h)[:2] == ["Дом", "Дача"]
         before = client.get(f"/api/lists/{shared['id']}", headers=h).json()["version"]
 
-        joined = add_member(shared, boris)
+        joined = add_member(shared, boris, anna)
 
         assert joined["version"] == before + 1
         assert names(client, h)[:2] == ["Дача", "Дом"]
@@ -150,7 +150,7 @@ class TestOrdering:
         shared = create(client, h, "Дача")
         create(client, h, "Дом")
         assert names(client, h)[:2] == ["Дом", "Дача"]
-        add_member(shared, boris)
+        add_member(shared, boris, anna)
         before = client.get(f"/api/lists/{shared['id']}", headers=h).json()["version"]
 
         client.post(f"/api/lists/{shared['id']}/leave", headers=boris["headers"])
@@ -167,7 +167,7 @@ class TestOrdering:
 class TestLeave:
     def test_leaving_removes_the_list_for_that_user_only(self, client, anna, boris, add_member):
         lst = create(client, anna["headers"], "Дача")
-        add_member(lst, boris)
+        add_member(lst, boris, anna)
         seen = client.get(f"/api/lists/{lst['id']}", headers=boris["headers"]).json()
         assert [m["first_name"] for m in seen["members"]] == ["Анна", "Борис"]
 
@@ -180,7 +180,7 @@ class TestLeave:
 
     def test_leaving_twice_is_not_found(self, client, anna, boris, add_member):
         lst = create(client, anna["headers"], "Дача")
-        add_member(lst, boris)
+        add_member(lst, boris, anna)
         client.post(f"/api/lists/{lst['id']}/leave", headers=boris["headers"])
         again = client.post(f"/api/lists/{lst['id']}/leave", headers=boris["headers"])
         assert again.status_code == 404
@@ -205,7 +205,7 @@ class TestDelete:
         self, client, anna, boris, add_member, count_rows
     ):
         lst = create(client, anna["headers"], "Дача")
-        add_member(lst, boris)
+        add_member(lst, boris, anna)
         added = client.post(
             f"/api/lists/{lst['id']}/entries",
             json={"text": "молоко\nхлеб"},

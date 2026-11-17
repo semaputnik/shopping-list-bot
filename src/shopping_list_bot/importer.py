@@ -42,6 +42,25 @@ def _copy(source: Connection, target: Connection, table: Table) -> None:
     )
 
 
+def _invites_from_share_codes(source: Connection, target: Connection) -> None:
+    """The MVP kept a List's code on the List: it becomes the creator's Invite, code unchanged."""
+    lists = Table("list", MetaData(), autoload_with=source)
+    rows = source.execute(
+        select(lists.c.id, lists.c.share_code, lists.c.created_by, lists.c.created_at)
+    ).mappings()
+    invites = [
+        {
+            "list_id": row["id"],
+            "code": row["share_code"],
+            "created_by": row["created_by"],
+            "created_at": _convert(row["created_at"], lists.c.created_at),
+        }
+        for row in rows
+    ]
+    if invites:
+        target.execute(Base.metadata.tables["invite"].insert(), invites)
+
+
 def import_sqlite(sqlite_path: Path, database_url: str) -> dict[str, tuple[int, int]]:
     """Copy every table in one transaction; returns ``{table: (source rows, target rows)}``.
 
@@ -75,6 +94,8 @@ def import_sqlite(sqlite_path: Path, database_url: str) -> dict[str, tuple[int, 
                     conn.execute(select(func.count()).select_from(table)).scalar_one()
                     for conn in (source, target)
                 )
+            if "list" in present:
+                _invites_from_share_codes(source, target)
             mismatched = [name for name, (src, dst) in counts.items() if src != dst]
             if mismatched:
                 raise RuntimeError(f"Row counts differ after the copy: {mismatched}")
