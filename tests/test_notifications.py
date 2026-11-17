@@ -22,7 +22,7 @@ CARLOS = {"id": 1003, "first_name": "Carlos", "language_code": "es"}
 
 
 class Harness:
-    def __init__(self, tmp_path: Path) -> None:
+    def __init__(self, tmp_path: Path, database_url: str) -> None:
         self.sent = []
 
         async def send(message):
@@ -32,7 +32,7 @@ class Harness:
             bot_token=TEST_BOT_TOKEN,
             bot_username="shared_lists_test_bot",
             webapp_url="https://lists.example",
-            database_url=f"sqlite:///{tmp_path / 'test.db'}",
+            database_url=database_url,
             frontend_dist=tmp_path / "no-frontend",
             notify_added_quiet_seconds=180,
             notify_added_max_seconds=900,
@@ -70,8 +70,8 @@ class Harness:
 
 
 @pytest.fixture
-def h(tmp_path):
-    harness = Harness(tmp_path)
+def h(tmp_path, database_url):
+    harness = Harness(tmp_path, database_url)
     with harness.client:
         yield harness
 

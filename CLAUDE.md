@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project state
 
-The walking skeleton exists: Telegram sign-in, the first List, and an empty List screen, plus Share links (`POST /api/lists/join`) and the Members screen. Suggestions from the List's memory: `GET /api/lists/{id}/suggestions?q=` (ranking in `suggest.py`) and `DELETE /api/lists/{id}/products/{product_id}` (hides a Product from memory). Purchase History: `GET /api/lists/{id}/purchases?cursor=&limit=` (newest first, keyset cursor) and `POST /api/lists/{id}/purchases/{purchase_id}/entries/{item_id}/readd` (puts a past item back on the List); the History screen opens from the List menu. Backend is in `src/shopping_list_bot/` (FastAPI + SQLAlchemy + SQLite, see `docs/adr/0003-sqlite-database.md`), the Mini App in `frontend/` (React + Vite + TypeScript), and the bot in `src/shopping_list_bot/bot.py` (aiogram). Realtime sync: every List mutation goes through `_touch` in `app.py` (bumps the version, writes the `list_change` log, queues an event published after commit). `GET /api/events` is the per-user SSE stream, `GET /api/lists/{id}/changes?since=<version>` the catch-up (a snapshot when the gap exceeds `SL_CHANGES_MAX_GAP` or the log was pruned), and the `Idempotency-Key` header makes any command replay-safe (middleware in `app.py`, answers stored in `idempotency_record`). The client side is `frontend/src/sync.ts` (stream with reconnect) plus the handlers in `App.tsx` and `ListScreen.tsx`. Everything else is built ticket by ticket from GitHub issue #1.
+The walking skeleton exists: Telegram sign-in, the first List, and an empty List screen, plus Share links (`POST /api/lists/join`) and the Members screen. Suggestions from the List's memory: `GET /api/lists/{id}/suggestions?q=` (ranking in `suggest.py`) and `DELETE /api/lists/{id}/products/{product_id}` (hides a Product from memory). Purchase History: `GET /api/lists/{id}/purchases?cursor=&limit=` (newest first, keyset cursor) and `POST /api/lists/{id}/purchases/{purchase_id}/entries/{item_id}/readd` (puts a past item back on the List); the History screen opens from the List menu. Backend is in `src/shopping_list_bot/` (FastAPI + sync SQLAlchemy on Postgres 18 through psycopg 3, schema by Alembic, see `docs/adr/0004-postgres-database.md`), the Mini App in `frontend/` (React + Vite + TypeScript), and the bot in `src/shopping_list_bot/bot.py` (aiogram). Realtime sync: every List mutation takes the List row lock first (`_member_list(..., lock=True)`, `SELECT … FOR UPDATE`) and goes through `_touch` in `app.py` (bumps the version under that lock, writes the `list_change` log, queues an event published after commit). `GET /api/events` is the per-user SSE stream, `GET /api/lists/{id}/changes?since=<version>` the catch-up (a snapshot when the gap exceeds `SL_CHANGES_MAX_GAP` or the log was pruned), and the `Idempotency-Key` header makes any command replay-safe (middleware in `app.py`, answers stored in `idempotency_record`). The client side is `frontend/src/sync.ts` (stream with reconnect) plus the handlers in `App.tsx` and `ListScreen.tsx`. Everything else is built ticket by ticket from GitHub issue #1.
 
 **Product spec:** [docs/ui-spec.md](docs/ui-spec.md) (Russian). It covers scope, screens, input parsing, sync, Telegram Mini App rules, the data model, MVP staging, and acceptance criteria. Read the relevant section before building a feature.
 
@@ -17,7 +17,8 @@ uv sync                                  # create .venv and install
 uv add <pkg>                             # add a runtime dependency
 uv add --dev <pkg>                       # add a dev dependency
 
-uv run pytest                            # run the whole backend suite
+uv run shopping-list-bot migrate         # apply Alembic migrations to SL_DATABASE_URL (the app refuses to start unmigrated)
+uv run pytest                            # run the whole backend suite (needs Docker for the Postgres testcontainer)
 uv run pytest tests/test_auth_and_first_list.py::TestFirstList::test_first_time_russian_user_gets_pokupki  # one test
 uv run pytest -k pokupki                 # tests by keyword
 uv run ruff check . && uv run ruff format --check .   # lint and format check
@@ -31,20 +32,21 @@ cd frontend && npm run build             # typecheck (tsc) + production build in
 cd frontend && npm run typecheck         # typecheck only
 ```
 
-**Docker and CI.** One image serves both processes. The default is `serve` (API plus the built Mini App on :8000, SQLite at `/data/shared_lists.db`); the bot runs from the same image with the `bot` command.
+**Docker and CI.** One image serves every process. The default is `serve` (API plus the built Mini App on :8000, Postgres at `SL_DATABASE_URL`); the bot runs from the same image with the `bot` command, and `migrate` is the one-shot that applies the schema migrations before `serve` starts.
 
 ```bash
 docker build -t shared-lists .
-docker run -p 8000:8000 -v shared-lists-data:/data --env-file .env shared-lists           # API + Mini App
-docker run -v shared-lists-data:/data --env-file .env shared-lists shopping-list-bot bot  # bot
+docker run --env-file .env shared-lists shopping-list-bot migrate      # schema, run first and after every upgrade
+docker run -p 8000:8000 --env-file .env shared-lists                   # API + Mini App
+docker run --env-file .env shared-lists shopping-list-bot bot          # bot
 ```
 
-**Local dev stack with Telegram.** `docker-compose.dev.yml` runs three services: `app`, the bot, and an ngrok tunnel. The tunnel gives the Mini App the public https URL that Telegram requires. `.env` needs `SL_BOT_TOKEN`, `SL_BOT_USERNAME` and `NGROK_AUTHTOKEN`. `NGROK_URL` is optional; without it, the bot reads the tunnel URL from the ngrok inspector API through `docker/dev-bot-entrypoint.py`. The ngrok inspector is at http://localhost:4040.
+**Local dev stack with Telegram.** `docker-compose.dev.yml` runs `db` (postgres:18, volume `pgdata`), a one-shot `migrate`, `app`, the bot, and an ngrok tunnel; `app` and the bot use `SL_DATABASE_URL=postgresql+psycopg://shopping_list:shopping_list@db:5432/shopping_list`. The tunnel gives the Mini App the public https URL that Telegram requires. `.env` needs `SL_BOT_TOKEN`, `SL_BOT_USERNAME` and `NGROK_AUTHTOKEN`. `NGROK_URL` is optional; without it, the bot reads the tunnel URL from the ngrok inspector API through `docker/dev-bot-entrypoint.py`. The ngrok inspector is at http://localhost:4040.
 
 ```bash
 docker compose -f docker-compose.dev.yml up -d --build   # start / rebuild after code changes
 docker compose -f docker-compose.dev.yml logs -f bot app # follow logs
-docker compose -f docker-compose.dev.yml down            # stop (the SQLite volume `data` is kept)
+docker compose -f docker-compose.dev.yml down            # stop (the Postgres volume `pgdata` is kept)
 ```
 
 GitHub Actions has two workflows:
@@ -59,9 +61,9 @@ git tag v0.1.0 && git push origin v0.1.0
 
 **Sync tuning** (all optional, `SL_` prefix): `CHECK_WINS_WINDOW_SECONDS` (2.0; another Member's uncheck within this long after a check is dropped), `CHANGES_MAX_GAP` (100), `CHANGES_RETENTION` (500 versions of log per List), `SSE_HEARTBEAT_SECONDS` (15), `IDEMPOTENCY_TTL_SECONDS` (24 h).
 
-**Configuration** is read from `SL_*` environment variables or a `.env` file: `SL_BOT_TOKEN`, `SL_BOT_USERNAME` (the bot's @username without `@`; builds Share links `https://t.me/<bot>?startapp=<code>`, `share_url` is null without it), `SL_WEBAPP_URL` (public https URL of the Mini App), `SL_DATABASE_URL` (default `sqlite:///./shared_lists.db`), `SL_SESSION_SECRET` (optional; derived from the bot token if empty; with neither set, no session is issued or accepted). The bot also reads `SL_DATABASE_URL` (to look up a user's chosen language for `/start`), so it must point at the same database as the backend; the backend owns the schema, and if the database is unreachable or not yet migrated the bot falls back to Telegram's language. No real bot token is needed to run tests or build.
+**Configuration** is read from `SL_*` environment variables or a `.env` file: `SL_BOT_TOKEN`, `SL_BOT_USERNAME` (the bot's @username without `@`; builds Share links `https://t.me/<bot>?startapp=<code>`, `share_url` is null without it), `SL_WEBAPP_URL` (public https URL of the Mini App), `SL_DATABASE_URL` (default `postgresql+psycopg://shopping_list:shopping_list@localhost:5432/shopping_list`; the schema is owned by Alembic migrations in `src/shopping_list_bot/migrations/`, applied by `shopping-list-bot migrate`, and the app refuses to start when the database is not at the newest one), `SL_SESSION_SECRET` (optional; derived from the bot token if empty; with neither set, no session is issued or accepted). The bot also reads `SL_DATABASE_URL` (to look up a user's chosen language for `/start`), so it must point at the same database as the backend; the backend owns the schema, and if the database is unreachable or not yet migrated the bot falls back to Telegram's language. No real bot token is needed to run tests or build.
 
-**Tests:** the only automated seam is the backend HTTP API. `tests/test_event_stream.py` is the exception in transport only: Starlette's `TestClient` buffers a response until it ends, so the never-ending SSE stream is tested against a real uvicorn server on a local port (the `server` fixture), still through HTTP only. Run it alone with `uv run pytest tests/test_event_stream.py`. `tests/conftest.py` gives each test a fresh SQLite file and a `sign_in` fixture that authenticates with `initData` signed by a test bot token. Test external behaviour (request in, response out), never internals. The frontend has no automated tests; it must typecheck and build.
+**Tests:** the only automated seam is the backend HTTP API. `tests/test_event_stream.py` is the exception in transport only: Starlette's `TestClient` buffers a response until it ends, so the never-ending SSE stream is tested against a real uvicorn server on a local port (the `server` fixture), still through HTTP only. Run it alone with `uv run pytest tests/test_event_stream.py`. `tests/conftest.py` runs the suite on Postgres only: a session-wide testcontainers `postgres:18` (or the server in `SL_TEST_POSTGRES_URL`, which CI points at its service container) holds a migrated template database, and each test gets a fresh copy of it (`database_url` fixture; `blank_database_url` for the migration tests). It also gives a `sign_in` fixture that authenticates with `initData` signed by a test bot token. Test external behaviour (request in, response out), never internals. The frontend has no automated tests; it must typecheck and build.
 
 **Telegram setup (manual, once):** in @BotFather set the bot's menu button and Main Mini App to `SL_WEBAPP_URL` so `t.me/<bot>?startapp=<code>` links work. The bot also sets the menu button itself on startup.
 

@@ -25,11 +25,11 @@ EVE = {"id": 3003, "first_name": "Eve", "language_code": "en"}
 
 
 @pytest.fixture
-def server(tmp_path: Path) -> Iterator[str]:
+def server(tmp_path: Path, database_url: str) -> Iterator[str]:
     settings = Settings(
         bot_token=TEST_BOT_TOKEN,
         bot_username="shared_lists_test_bot",
-        database_url=f"sqlite:///{tmp_path / 'test.db'}",
+        database_url=database_url,
         frontend_dist=tmp_path / "no-frontend",
         _env_file=None,
     )

@@ -11,7 +11,7 @@ import json
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, sessionmaker
@@ -63,10 +63,6 @@ class RetryLater(Exception):
     pass
 
 
-def _aware(value: datetime) -> datetime:
-    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
-
-
 def queue_added(
     session: Session,
     settings: Settings,
@@ -100,7 +96,7 @@ def queue_added(
         )
         return
     pending.items = json.dumps(json.loads(pending.items) + new_items, ensure_ascii=False)
-    cap = _aware(pending.first_at) + timedelta(seconds=settings.notify_added_max_seconds)
+    cap = pending.first_at + timedelta(seconds=settings.notify_added_max_seconds)
     pending.due_at = min(now + timedelta(seconds=settings.notify_added_quiet_seconds), cap)
 
 

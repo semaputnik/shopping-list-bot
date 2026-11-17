@@ -13,7 +13,9 @@ class Settings(BaseSettings):
     webapp_url: str = "https://localhost:5173"
     # The bot's @username (without @); Share links are `https://t.me/<bot>?startapp=<code>`.
     bot_username: str = ""
-    database_url: str = "sqlite:///./shared_lists.db"
+    database_url: str = (
+        "postgresql+psycopg://shopping_list:shopping_list@localhost:5432/shopping_list"
+    )
     # Secret for signing session tokens. Falls back to a key derived from the bot token; with neither, sessions are refused.
     session_secret: str = ""
     # initData older than this is rejected.

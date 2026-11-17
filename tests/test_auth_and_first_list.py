@@ -103,10 +103,10 @@ class TestInitDataVerification:
         bad = {"Authorization": "Bearer 1.9999999999.\u00e9".encode("latin-1")}
         assert client.get("/api/me", headers=bad).status_code == 401
 
-    def test_expired_session_is_rejected(self, tmp_path):
+    def test_expired_session_is_rejected(self, tmp_path, database_url):
         settings = Settings(
             bot_token=TEST_BOT_TOKEN,
-            database_url=f"sqlite:///{tmp_path / 'expired.db'}",
+            database_url=database_url,
             frontend_dist=tmp_path / "no-frontend",
             session_ttl_seconds=-10,
             _env_file=None,
@@ -121,10 +121,10 @@ class TestInitDataVerification:
             client.get("/api/me", headers={"Authorization": f"Bearer {token}"}).status_code == 401
         )
 
-    def test_no_secret_configured_accepts_no_session(self, tmp_path):
+    def test_no_secret_configured_accepts_no_session(self, tmp_path, database_url):
         settings = Settings(
             bot_token="",
-            database_url=f"sqlite:///{tmp_path / 'nosecret.db'}",
+            database_url=database_url,
             frontend_dist=tmp_path / "no-frontend",
             _env_file=None,
         )

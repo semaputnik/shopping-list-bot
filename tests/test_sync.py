@@ -1,5 +1,7 @@
 """Versioning, `changes?since`, conflict rules and idempotent replays (HTTP API only)."""
 
+from concurrent.futures import ThreadPoolExecutor
+
 import pytest
 
 ANNA = {"id": 1001, "first_name": "Анна", "language_code": "ru"}
@@ -340,3 +342,21 @@ class TestIdempotentReplays:
             headers={"Authorization": "Bearer nope", "Idempotency-Key": "k2"},
         )
         assert stolen.status_code == 401
+
+
+def test_concurrent_adds_get_unique_consecutive_versions(client, anna):
+    before = version(client, anna)
+    writers = 12
+
+    def add_one(n):
+        response = client.post(
+            f"/api/lists/{anna['id']}/entries", json={"text": f"item {n}"}, headers=anna["headers"]
+        )
+        assert response.status_code == 201, response.text
+        return response.json()["version"]
+
+    with ThreadPoolExecutor(max_workers=writers) as pool:
+        versions = sorted(pool.map(add_one, range(writers)))
+
+    assert versions == list(range(before + 1, before + writers + 1))
+    assert version(client, anna) == before + writers

@@ -142,11 +142,11 @@ def test_members_expose_names_and_photos_but_no_telegram_ids(client, sign_in):
 
 
 class TestShareUrlConfiguration:
-    def _lists(self, tmp_path, bot_username):
+    def _lists(self, tmp_path, database_url, bot_username):
         settings = Settings(
             bot_token=TEST_BOT_TOKEN,
             bot_username=bot_username,
-            database_url=f"sqlite:///{tmp_path / 'cfg.db'}",
+            database_url=database_url,
             frontend_dist=tmp_path / "no-frontend",
             _env_file=None,
         )
@@ -155,12 +155,12 @@ class TestShareUrlConfiguration:
             headers = {"Authorization": f"Bearer {auth['token']}"}
             return c.get("/api/lists", headers=headers).json()
 
-    def test_share_url_is_null_without_a_bot_username(self, tmp_path):
-        (lst,) = self._lists(tmp_path, "")
+    def test_share_url_is_null_without_a_bot_username(self, tmp_path, database_url):
+        (lst,) = self._lists(tmp_path, database_url, "")
         assert lst["share_url"] is None
 
-    def test_leading_at_sign_is_stripped_from_the_bot_username(self, tmp_path):
-        (lst,) = self._lists(tmp_path, "@my_bot")
+    def test_leading_at_sign_is_stripped_from_the_bot_username(self, tmp_path, database_url):
+        (lst,) = self._lists(tmp_path, database_url, "@my_bot")
         assert lst["share_url"] == f"https://t.me/my_bot?startapp={lst['share_code']}"
 
 

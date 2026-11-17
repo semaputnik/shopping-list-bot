@@ -2,7 +2,7 @@ import sys
 
 
 def main() -> None:
-    """Console entry point: ``shopping-list-bot serve`` (default) or ``shopping-list-bot bot``."""
+    """Console entry point: ``serve`` (default), ``bot`` or ``migrate``."""
     command = sys.argv[1] if len(sys.argv) > 1 else "serve"
     if command == "serve":
         import uvicorn
@@ -12,5 +12,10 @@ def main() -> None:
         from .bot import main as bot_main
 
         bot_main()
+    elif command == "migrate":
+        from .config import Settings
+        from .migrate import upgrade
+
+        upgrade(Settings().database_url)
     else:
-        raise SystemExit("usage: shopping-list-bot [serve|bot]")
+        raise SystemExit("usage: shopping-list-bot [serve|bot|migrate]")

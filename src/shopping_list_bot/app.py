@@ -9,14 +9,14 @@ import json
 import logging
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, StringConstraints
-from sqlalchemy import and_, delete, event, func, inspect, or_, select, text, update
+from sqlalchemy import and_, delete, event, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from starlette.concurrency import run_in_threadpool
@@ -32,8 +32,9 @@ from .auth import (
 )
 from .categories import CATEGORIES, CATEGORY_BY_KEY, guess_category
 from .config import Settings
-from .db import Base, make_engine, make_session_factory
+from .db import make_engine, make_session_factory
 from .i18n import FIRST_LIST_NAME, effective_language
+from .migrate import is_current
 from .normalize import normalize
 from .notifications import Notifier, Send, TelegramSender, queue_added, queue_bought
 from .parsing import parse_input
@@ -353,33 +354,6 @@ def _upsert_user(session: Session, tg: TelegramUser) -> tuple[models.User, bool]
     return user, created
 
 
-def _aware(moment: datetime) -> datetime:
-    """SQLite hands datetimes back naive; they are UTC."""
-    return moment if moment.tzinfo else moment.replace(tzinfo=UTC)
-
-
-def _add_missing_columns(engine) -> None:
-    """create_all does not alter existing tables; add columns introduced later.
-
-    Ad-hoc stopgap: replace with a migration tool (e.g. Alembic) once one is introduced.
-    """
-    inspector = inspect(engine)
-    additions = [
-        ("user", "language", "VARCHAR(8)"),
-        ("list", "name_is_default", "BOOLEAN NOT NULL DEFAULT 0"),
-        ("entry", "deleted_at", "DATETIME"),
-        ("product", "purchase_count", "INTEGER NOT NULL DEFAULT 0"),
-        ("product", "hidden", "BOOLEAN NOT NULL DEFAULT 0"),
-        ("entry", "checked_at", "DATETIME"),
-        ("entry", "checked_by", "INTEGER REFERENCES user (id) ON DELETE SET NULL"),
-        ("product", "last_purchased_at", "DATETIME"),
-    ]
-    for table, column, ddl in additions:
-        if column not in {c["name"] for c in inspector.get_columns(table)}:
-            with engine.begin() as conn:
-                conn.execute(text(f'ALTER TABLE "{table}" ADD COLUMN {column} {ddl}'))
-
-
 def create_app(settings: Settings | None = None, notify_send: Send | None = None) -> FastAPI:
     """Build the app. ``notify_send`` replaces the Telegram sender for bot notifications
     (tests pass a fake); without it, notifications go through the Bot API when a token is set."""
@@ -404,8 +378,11 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
     async def lifespan(_app: FastAPI):
         if not settings.bot_username.lstrip("@"):
             logger.warning("SL_BOT_USERNAME is not set: Share links cannot be built")
-        Base.metadata.create_all(engine)
-        _add_missing_columns(engine)
+        if not is_current(engine):
+            logger.error(
+                "The database schema is not up to date: run `shopping-list-bot migrate` first"
+            )
+            raise RuntimeError("database is not migrated")
         loop = (
             asyncio.create_task(_deliver_forever())
             if notifier.send is not None and settings.notify_poll_seconds > 0
@@ -569,18 +546,17 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
     ) -> None:
         """Record a mutation: bump the List's version and change time, log it, announce it.
 
-        One atomic UPDATE (version = version + 1), so concurrent mutations cannot lose an
-        increment the way a read-modify-write on the loaded object could. The change goes to
-        the List's change log (for `changes?since=`) and, after commit, to every Member's
-        stream (plus `also_notify`, e.g. a Member who just left).
+        The List row is locked (`SELECT ... FOR UPDATE`; a no-op when `_member_list(lock=True)`
+        already holds it) before `version` is read and bumped, so concurrent mutations of one List
+        get unique, consecutive versions. The change goes to the List's change log (for `changes?since=`) and, after commit, to every
+        Member's stream (plus `also_notify`, e.g. a Member who just left).
         """
-        session.execute(
-            update(models.List)
-            .where(models.List.id == lst.id)
-            .values(version=models.List.version + 1, updated_at=models.utcnow())
+        current = session.scalar(
+            select(models.List.version).where(models.List.id == lst.id).with_for_update()
         )
+        lst.version = current + 1
+        lst.updated_at = models.utcnow()
         session.flush()
-        session.refresh(lst)
         session.add(
             models.ListChange(list_id=lst.id, version=lst.version, kind=kind, entry_id=entry_id)
         )
@@ -601,8 +577,20 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
             {"list_id": lst.id, "version": lst.version, "kind": kind, "entry_id": entry_id},
         )
 
-    def _member_list(session: Session, user: models.User, list_id: int) -> models.List:
-        lst = session.scalar(_member_lists(user).where(models.List.id == list_id))
+    def _member_list(
+        session: Session, user: models.User, list_id: int, *, lock: bool = False
+    ) -> models.List:
+        """The List if the user is a Member, else 404.
+
+        A mutation passes ``lock=True`` to take the List row (`SELECT ... FOR UPDATE`) before it
+        writes anything: concurrent mutations of one List then queue up, and `_touch` bumps
+        `version` under that lock. Taking it first also avoids a deadlock: inserting a child row
+        takes a weaker lock on the List that could not be upgraded while another writer waits.
+        """
+        stmt = _member_lists(user).where(models.List.id == list_id)
+        if lock:
+            stmt = stmt.with_for_update(of=models.List)
+        lst = session.scalar(stmt)
         if lst is None:
             raise HTTPException(404, "list not found")
         return lst
@@ -610,7 +598,9 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
     @api.post("/lists/join", response_model=ListOut)
     def join_list(body: JoinIn, user: UserDep, session: SessionDep) -> ListOut:
         """Open a Share link: make the user a Member of the List (idempotent for Members)."""
-        lst = session.scalar(select(models.List).where(models.List.share_code == body.code))
+        lst = session.scalar(
+            select(models.List).where(models.List.share_code == body.code).with_for_update()
+        )
         if lst is None:
             raise HTTPException(404, "share link is not valid")
         if all(m.user_id != user.id for m in lst.members):
@@ -641,7 +631,7 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
 
     @api.patch("/lists/{list_id}", response_model=ListOut)
     def rename_list(list_id: int, body: ListIn, user: UserDep, session: SessionDep) -> ListOut:
-        lst = _member_list(session, user, list_id)
+        lst = _member_list(session, user, list_id, lock=True)
         lst.name = body.name
         lst.name_is_default = False  # an explicit name replaces the localized default
         _touch(session, lst, "list.renamed")
@@ -664,7 +654,7 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
 
     @api.post("/lists/{list_id}/leave", status_code=204)
     def leave_list(list_id: int, user: UserDep, session: SessionDep) -> Response:
-        lst = _member_list(session, user, list_id)
+        lst = _member_list(session, user, list_id, lock=True)
         membership = next(m for m in lst.members if m.user_id == user.id)
         # Delete the membership first (this takes the write lock), then count what is left in
         # the same transaction, so two last Members leaving at once cannot both see "not last".
@@ -690,7 +680,7 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
     def delete_list(list_id: int, user: UserDep, session: SessionDep) -> Response:
         # Any Member may delete the List for everyone; the UI asks for confirmation first.
         # Members (and, in later tickets, Entries, Products and History) go by FK cascade.
-        lst = _member_list(session, user, list_id)
+        lst = _member_list(session, user, list_id, lock=True)
         _forget_list(session, lst, {m.user_id for m in lst.members})
         session.delete(lst)
         session.commit()
@@ -778,7 +768,7 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
         user: UserDep,
         session: SessionDep,
     ) -> AddEntriesOut:
-        lst = _member_list(session, user, list_id)
+        lst = _member_list(session, user, list_id, lock=True)
         items = parse_input(body.text)
         if not items:
             raise HTTPException(422, "no items in the input")
@@ -851,7 +841,7 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
                 # A concurrent request won a race: the same client_id (a replay) or the same
                 # new Product name. Replays return the winner's Entries; otherwise retry once.
                 session.rollback()
-                lst = _member_list(session, user, list_id)
+                lst = _member_list(session, user, list_id, lock=True)
                 if (replayed := replay()) is not None:
                     return replayed
                 if attempt == 1:
@@ -873,7 +863,7 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
         """True while another Member's check of the Entry is too recent to be undone."""
         if entry.checked_at is None or entry.checked_by == user.id:
             return False
-        age = (models.utcnow() - _aware(entry.checked_at)).total_seconds()
+        age = (models.utcnow() - entry.checked_at).total_seconds()
         return age < settings.check_wins_window_seconds
 
     @api.patch("/lists/{list_id}/entries/{entry_id}", response_model=EntryChangeOut)
@@ -881,7 +871,7 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
         list_id: int, entry_id: int, body: EntryUpdate, user: UserDep, session: SessionDep
     ) -> EntryChangeOut:
         """Edit the Note, move the whole Product to another Category, or check/uncheck it."""
-        lst = _member_list(session, user, list_id)
+        lst = _member_list(session, user, list_id, lock=True)
         entry = _entry_or_404(session, lst, entry_id)
         sent = body.model_fields_set
         if "category" in sent and body.category not in CATEGORY_BY_KEY:
@@ -915,7 +905,7 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
         list_id: int, entry_id: int, user: UserDep, session: SessionDep
     ) -> EntryDeleteOut:
         """Remove an Entry from the List. Idempotent; the Product stays in memory."""
-        lst = _member_list(session, user, list_id)
+        lst = _member_list(session, user, list_id, lock=True)
         entry = _entry_or_404(session, lst, entry_id, include_deleted=True)
         if entry.deleted_at is None:
             entry.deleted_at = models.utcnow()
@@ -928,7 +918,7 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
         list_id: int, entry_id: int, user: UserDep, session: SessionDep
     ) -> EntryChangeOut:
         """Undo a delete: the Entry comes back where it was. A no-op for a live Entry."""
-        lst = _member_list(session, user, list_id)
+        lst = _member_list(session, user, list_id, lock=True)
         entry = _entry_or_404(session, lst, entry_id, include_deleted=True)
         if entry.deleted_at is not None:
             entry.deleted_at = None
@@ -973,7 +963,7 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
         list_id: int, product_id: int, user: UserDep, session: SessionDep
     ) -> ProductHiddenOut:
         """Remove a Product from the List's memory. It is only hidden from suggestions."""
-        lst = _member_list(session, user, list_id)
+        lst = _member_list(session, user, list_id, lock=True)
         product = session.scalar(
             select(models.Product).where(
                 models.Product.id == product_id, models.Product.list_id == lst.id
@@ -997,7 +987,7 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
         exists), the two are merged: Entries and History move to that Product, the stats add up,
         and the renamed Product is gone. Past Purchases keep the names they were bought under.
         """
-        lst = _member_list(session, user, list_id)
+        lst = _member_list(session, user, list_id, lock=True)
         product = session.scalar(
             select(models.Product).where(
                 models.Product.id == product_id, models.Product.list_id == lst.id
@@ -1030,7 +1020,7 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
                 other.purchase_count += product.purchase_count
                 if product.last_purchased_at is not None and (
                     other.last_purchased_at is None
-                    or _aware(product.last_purchased_at) > _aware(other.last_purchased_at)
+                    or product.last_purchased_at > other.last_purchased_at
                 ):
                     other.last_purchased_at = product.last_purchased_at
                 other.hidden = False
@@ -1057,7 +1047,7 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
     @api.post("/lists/{list_id}/entries/uncheck-all", response_model=UncheckAllOut)
     def uncheck_all(list_id: int, user: UserDep, session: SessionDep) -> UncheckAllOut:
         """Uncheck every Checked Entry of the List (the «Снять все отметки» menu action)."""
-        lst = _member_list(session, user, list_id)
+        lst = _member_list(session, user, list_id, lock=True)
         # A check made by someone else in the last moments survives (check beats uncheck).
         cutoff = models.utcnow() - timedelta(seconds=settings.check_wins_window_seconds)
         result = session.execute(
@@ -1100,7 +1090,7 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
     @api.post("/lists/{list_id}/purchases", response_model=PurchaseOut, status_code=201)
     def buy(list_id: int, user: UserDep, session: SessionDep) -> PurchaseOut:
         """«Куплено»: all Checked Entries leave the List as one Purchase, in one transaction."""
-        lst = _member_list(session, user, list_id)
+        lst = _member_list(session, user, list_id, lock=True)
         checked = session.scalars(
             select(models.Entry)
             .where(models.Entry.list_id == lst.id, models.Entry.checked_at.is_not(None))
@@ -1163,7 +1153,7 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
         list_id: int, purchase_id: int, user: UserDep, session: SessionDep
     ) -> UndoPurchaseOut:
         """Undo «Куплено»: Entries return Checked, the Purchase is deleted, stats roll back."""
-        lst = _member_list(session, user, list_id)
+        lst = _member_list(session, user, list_id, lock=True)
         purchase = session.scalar(
             select(models.Purchase).where(
                 models.Purchase.id == purchase_id, models.Purchase.list_id == lst.id
@@ -1171,10 +1161,9 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
         )
         if purchase is None:
             raise HTTPException(404, "purchase not found")
-        bought_at = purchase.purchased_at
-        if bought_at.tzinfo is None:  # SQLite hands back naive UTC
-            bought_at = bought_at.replace(tzinfo=UTC)
-        if (models.utcnow() - bought_at).total_seconds() > settings.purchase_undo_grace_seconds:
+        if (
+            models.utcnow() - purchase.purchased_at
+        ).total_seconds() > settings.purchase_undo_grace_seconds:
             raise HTTPException(409, "too late to undo this purchase")
         snapshots = sorted(purchase.entries, key=lambda s: (s.entry_created_at, s.id))
         product_ids = {s.product_id for s in snapshots}
@@ -1366,18 +1355,18 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
             if holder[1] == 0:
                 key_locks.pop(lock_key, None)
 
-    def _utc(at: datetime) -> datetime:
-        return at.replace(tzinfo=UTC) if at.tzinfo is None else at  # SQLite hands back naive UTC
-
     def _encode_cursor(purchase: models.Purchase) -> str:
-        raw = f"{_utc(purchase.purchased_at).replace(tzinfo=None).isoformat()}|{purchase.id}"
+        raw = f"{purchase.purchased_at.isoformat()}|{purchase.id}"
         return base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
 
     def _decode_cursor(cursor: str) -> tuple[datetime, int]:
         try:
             raw = base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)).decode()
             at, _, pid = raw.partition("|")
-            return datetime.fromisoformat(at), int(pid)
+            moment = datetime.fromisoformat(at)
+            if moment.tzinfo is None:
+                raise ValueError("cursor time has no zone")
+            return moment, int(pid)
         except ValueError, binascii.Error:
             raise HTTPException(422, "invalid cursor") from None
 
@@ -1416,7 +1405,7 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
         purchases = [
             HistoryPurchaseOut(
                 id=p.id,
-                purchased_at=_utc(p.purchased_at),
+                purchased_at=p.purchased_at,
                 purchased_by=p.purchased_by,
                 purchased_by_name=names.get(p.purchased_by),
                 entries=[
@@ -1444,7 +1433,7 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
         session: SessionDep,
     ) -> AddEntriesOut:
         """Put a past item back on the List with the same Note (a new unchecked Entry)."""
-        lst = _member_list(session, user, list_id)
+        lst = _member_list(session, user, list_id, lock=True)
         snap = session.scalar(
             select(models.PurchaseEntry)
             .join(models.Purchase)
@@ -1492,7 +1481,7 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
             session.commit()
         except IntegrityError:  # concurrent replay of the same client_id
             session.rollback()
-            lst = _member_list(session, user, list_id)
+            lst = _member_list(session, user, list_id, lock=True)
             if (replayed := replay()) is not None:
                 return replayed
             raise
