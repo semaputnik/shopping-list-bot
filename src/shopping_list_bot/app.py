@@ -111,10 +111,17 @@ class ListOut(BaseModel):
     updated_at: datetime
 
 
+class AliasOut(BaseModel):
+    id: int
+    name: str
+
+
 class EntryOut(BaseModel):
     id: int
     product_id: int
     name: str
+    # Other names of the Entry's Product.
+    aliases: list[AliasOut]
     note: str | None
     category: str
     added_by: int | None
@@ -183,10 +190,23 @@ class ChangesOut(BaseModel):
 
 class SuggestionOut(BaseModel):
     product_id: int
+    # The canonical name, also when the match came through an alias.
     name: str
+    # The alias that matched the typed text; null when the name did.
+    matched_alias: str | None
     category: str
     # True when the Product already has an Entry on the List (a duplicate is still allowed).
     on_list: bool
+
+
+class AliasIn(BaseModel):
+    name: str = Field(max_length=200)
+
+
+class AliasAddedOut(BaseModel):
+    version: int
+    id: int
+    name: str
 
 
 class ProductHiddenOut(BaseModel):
@@ -211,6 +231,7 @@ class UncheckAllOut(BaseModel):
 class ProductOut(BaseModel):
     id: int
     name: str
+    aliases: list[AliasOut]
     category: str
     purchase_count: int
     last_purchased_at: datetime | None
@@ -695,11 +716,15 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
         session.commit()
         return Response(status_code=204)
 
+    def _aliases_out(product: models.Product) -> list[AliasOut]:
+        return [AliasOut(id=a.id, name=a.name) for a in product.aliases]
+
     def _entry_out(entry: models.Entry) -> EntryOut:
         return EntryOut(
             id=entry.id,
             product_id=entry.product_id,
             name=entry.name,
+            aliases=_aliases_out(entry.product),
             note=entry.note,
             category=entry.product.category_key,
             added_by=entry.added_by,
@@ -809,12 +834,16 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
 
         created: list[models.Entry] = []
         for attempt in range(2):
+            # Typing an alias finds the Product, so the Entry carries its canonical name.
             products = {
                 p.name_norm: p
                 for p in session.scalars(
                     select(models.Product).where(models.Product.list_id == lst.id)
                 )
             }
+            for product in list(products.values()):
+                for alias in product.aliases:
+                    products[alias.name_norm] = product
             created = []
             try:
                 for item, client_key in zip(items, keys(), strict=True):
@@ -822,7 +851,7 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
                     product = products.get(norm)
                     if product is not None:
                         product.hidden = False  # entering the name again restores the memory
-                    if product is None:
+                    else:
                         product = models.Product(
                             list_id=lst.id,
                             name=item.name,
@@ -834,7 +863,7 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
                     entry = models.Entry(
                         list_id=lst.id,
                         product=product,
-                        name=item.name,
+                        name=item.name if product.name_norm == norm else product.name,
                         note=item.note,
                         added_by=user.id,
                         client_id=client_key,
@@ -957,14 +986,18 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
             session.scalars(
                 select(models.Entry.product_id)
                 .where(models.Entry.list_id == lst.id, models.Entry.deleted_at.is_(None))
-                .where(models.Entry.product_id.in_([p.id for p in top]))
+                .where(models.Entry.product_id.in_([p.id for p, _ in top]))
             )
         )
         return [
             SuggestionOut(
-                product_id=p.id, name=p.name, category=p.category_key, on_list=p.id in on_list
+                product_id=p.id,
+                name=p.name,
+                matched_alias=alias,
+                category=p.category_key,
+                on_list=p.id in on_list,
             )
-            for p in top
+            for p, alias in top
         ]
 
     @api.delete("/lists/{list_id}/products/{product_id}", response_model=ProductHiddenOut)
@@ -986,6 +1019,87 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
             session.commit()
         return ProductHiddenOut(version=lst.version)
 
+    def _product_or_404(session: Session, lst: models.List, product_id: int) -> models.Product:
+        product = session.scalar(
+            select(models.Product).where(
+                models.Product.id == product_id, models.Product.list_id == lst.id
+            )
+        )
+        if product is None:
+            raise HTTPException(404, "product not found")
+        return product
+
+    def _product_named(session: Session, lst: models.List, norm: str) -> models.Product | None:
+        """The List's Product whose name or alias normalises to ``norm``."""
+        return session.scalar(
+            select(models.Product)
+            .outerjoin(models.ProductAlias, models.ProductAlias.product_id == models.Product.id)
+            .where(
+                models.Product.list_id == lst.id,
+                or_(models.Product.name_norm == norm, models.ProductAlias.name_norm == norm),
+            )
+        )
+
+    @api.post(
+        "/lists/{list_id}/products/{product_id}/aliases",
+        response_model=AliasAddedOut,
+        status_code=201,
+    )
+    def add_alias(
+        list_id: int,
+        product_id: int,
+        body: AliasIn,
+        response: Response,
+        user: UserDep,
+        session: SessionDep,
+    ) -> AliasAddedOut:
+        """Give a Product another name. The same alias twice is a no-op (200); a name that is
+        already another Product's name or alias in this List is a conflict (409)."""
+        lst = _member_list(session, user, list_id, lock=True)
+        product = _product_or_404(session, lst, product_id)
+        name = body.name.strip()
+        norm = normalize(name)
+        if not norm:
+            raise HTTPException(422, "alias must not be empty")
+        for existing in product.aliases:
+            if existing.name_norm == norm:
+                response.status_code = 200
+                return AliasAddedOut(version=lst.version, id=existing.id, name=existing.name)
+        if _product_named(session, lst, norm) is not None:
+            raise HTTPException(409, "that name already belongs to a product in this list")
+        alias = models.ProductAlias(
+            list_id=lst.id, product_id=product.id, name=name, name_norm=norm
+        )
+        session.add(alias)
+        session.flush()
+        _touch(session, lst, "product.alias_added")
+        session.commit()
+        session.refresh(lst)
+        return AliasAddedOut(version=lst.version, id=alias.id, name=alias.name)
+
+    @api.delete(
+        "/lists/{list_id}/products/{product_id}/aliases/{alias_id}",
+        response_model=ProductHiddenOut,
+    )
+    def delete_alias(
+        list_id: int, product_id: int, alias_id: int, user: UserDep, session: SessionDep
+    ) -> ProductHiddenOut:
+        lst = _member_list(session, user, list_id, lock=True)
+        alias = session.scalar(
+            select(models.ProductAlias).where(
+                models.ProductAlias.id == alias_id,
+                models.ProductAlias.product_id == product_id,
+                models.ProductAlias.list_id == lst.id,
+            )
+        )
+        if alias is None:
+            raise HTTPException(404, "alias not found")
+        session.delete(alias)
+        session.flush()
+        _touch(session, lst, "product.alias_removed")
+        session.commit()
+        return ProductHiddenOut(version=lst.version)
+
     @api.patch("/lists/{list_id}/products/{product_id}", response_model=ProductRenameOut)
     def rename_product(
         list_id: int, product_id: int, body: ProductRenameIn, user: UserDep, session: SessionDep
@@ -997,25 +1111,17 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
         and the renamed Product is gone. Past Purchases keep the names they were bought under.
         """
         lst = _member_list(session, user, list_id, lock=True)
-        product = session.scalar(
-            select(models.Product).where(
-                models.Product.id == product_id, models.Product.list_id == lst.id
-            )
-        )
-        if product is None:
-            raise HTTPException(404, "product not found")
+        product = _product_or_404(session, lst, product_id)
         name = body.name.strip()
         norm = normalize(name)
         if not norm:
             raise HTTPException(422, "name must not be empty")
         target = product
         if norm != product.name_norm:
-            other = session.scalar(
-                select(models.Product).where(
-                    models.Product.list_id == lst.id, models.Product.name_norm == norm
-                )
-            )
-            if other is not None:
+            other = _product_named(session, lst, norm)
+            if other is not None and other.id != product.id:
+                if other.name_norm != norm:  # found through an alias: the canonical name wins
+                    name, norm = other.name, other.name_norm
                 session.execute(
                     update(models.Entry)
                     .where(models.Entry.product_id == product.id)
@@ -1033,11 +1139,23 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
                 ):
                     other.last_purchased_at = product.last_purchased_at
                 other.hidden = False
+                # The source's aliases move over; one the target already has is dropped.
+                kept = {other.name_norm, *(a.name_norm for a in other.aliases)}
+                for alias in list(product.aliases):
+                    if alias.name_norm in kept:
+                        session.delete(alias)
+                    else:
+                        alias.product_id = other.id
+                        kept.add(alias.name_norm)
                 session.flush()
+                session.expire(product, ["aliases"])
                 session.delete(product)
                 target = other
         target.name = name
         target.name_norm = norm
+        for alias in list(target.aliases):
+            if alias.name_norm == norm:  # now the Product's own name
+                session.delete(alias)
         session.execute(
             update(models.Entry)
             .where(models.Entry.product_id == target.id, models.Entry.deleted_at.is_(None))
@@ -1089,6 +1207,7 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
             ProductOut(
                 id=p.id,
                 name=p.name,
+                aliases=_aliases_out(p),
                 category=p.category_key,
                 purchase_count=p.purchase_count,
                 last_purchased_at=p.last_purchased_at,

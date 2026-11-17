@@ -94,7 +94,7 @@ Planned pieces that interact:
 
 ## Staging
 
-The MVP covers Telegram login, multiple lists shared by link, delete with confirmation, input with suggestions, dictionary categories, check/uncheck, the «Куплено» button that moves checked entries into the list's purchase history, member avatars in the header, realtime, Telegram themes, and RU/ES/EN. Bot notifications for adds and «Куплено» and renaming a Product (`PATCH /api/lists/{id}/products/{product_id}`, merging into an existing Product with that name) are built too. Stores and their ordering, in-store mode and the offline queue come next (see spec §9). Don't build later-stage features unless asked.
+The MVP covers Telegram login, multiple lists shared by link, delete with confirmation, input with suggestions, dictionary categories, check/uncheck, the «Куплено» button that moves checked entries into the list's purchase history, member avatars in the header, realtime, Telegram themes, and RU/ES/EN. Bot notifications for adds and «Куплено» and renaming a Product (`PATCH /api/lists/{id}/products/{product_id}`, merging into an existing Product with that name) are built too. Product aliases (backend): `POST /api/lists/{id}/products/{product_id}/aliases` and `DELETE …/aliases/{alias_id}`; an alias is another name that suggestions match (`matched_alias` in the hit) and that adds the Product under its canonical name, it is unique among the List's Product names and aliases (409), moves to the target when a rename merges Products, and `aliases` is in the Entry and Product payloads. Stores and their ordering, in-store mode and the offline queue come next (see spec §9). Don't build later-stage features unless asked.
 
 ## Agent skills
 

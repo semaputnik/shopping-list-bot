@@ -45,6 +45,8 @@ LIST_CHANGE_KINDS = (
     "entry.restored",
     "product.hidden",
     "product.renamed",
+    "product.alias_added",
+    "product.alias_removed",
     "entries.unchecked",
     "purchase.created",
     "purchase.undone",
@@ -142,6 +144,31 @@ class Product(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     # Stats change on «Куплено» (and its Undo), never on check.
     last_purchased_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # Other names that find this Product and add it; eager, since every Entry payload lists them.
+    aliases: Mapped[list[ProductAlias]] = relationship(
+        order_by="ProductAlias.id",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        lazy="selectin",
+    )
+
+
+class ProductAlias(Base):
+    """Another name for a Product, added by hand. Unique among the List's Products and aliases."""
+
+    __tablename__ = "product_alias"
+    __table_args__ = (
+        UniqueConstraint("list_id", "name_norm"),
+        Index("ix_product_alias_product_id", "product_id"),
+    )
+
+    id: Mapped[int] = _pk()
+    # Repeats the Product's List so the DB can enforce one name per List.
+    list_id: Mapped[int] = mapped_column(ForeignKey("list.id", ondelete="CASCADE"))
+    product_id: Mapped[int] = mapped_column(ForeignKey("product.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(String(200))
+    name_norm: Mapped[str] = mapped_column(String(200))
 
 
 class Entry(Base):
