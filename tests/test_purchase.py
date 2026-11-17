@@ -1,6 +1,7 @@
 """«Куплено» and its Undo (HTTP API only)."""
 
 import pytest
+from conftest import invite_code
 
 ANNA = {"id": 1001, "first_name": "Анна", "language_code": "ru"}
 CARLOS = {"id": 2002, "first_name": "Carlos", "language_code": "es-MX"}
@@ -151,9 +152,7 @@ def test_buy_again_after_undo(client, anna):
 
 
 def test_another_member_can_undo_but_a_stranger_cannot(client, sign_in, anna):
-    share = client.get(f"/api/lists/{anna['list_id']}", headers=anna["headers"]).json()[
-        "share_code"
-    ]
+    share = invite_code(client, anna, anna["list_id"])
     carlos = sign_in(CARLOS)
     client.post("/api/lists/join", json={"code": share}, headers=carlos["headers"])
     carlos_who = {"headers": carlos["headers"], "list_id": anna["list_id"]}
@@ -179,9 +178,7 @@ def test_purchase_of_another_list_cannot_be_undone_through_this_one(client, anna
 
 
 def test_purchase_record_has_time_buyer_and_snapshots(client, sign_in, anna):
-    share = client.get(f"/api/lists/{anna['list_id']}", headers=anna["headers"]).json()[
-        "share_code"
-    ]
+    share = invite_code(client, anna, anna["list_id"])
     carlos = sign_in(CARLOS)
     client.post("/api/lists/join", json={"code": share}, headers=carlos["headers"])
     carlos_who = {"headers": carlos["headers"], "list_id": anna["list_id"]}
@@ -195,9 +192,7 @@ def test_purchase_record_has_time_buyer_and_snapshots(client, sign_in, anna):
 
 
 def test_undo_bumps_version_and_keeps_who_checked_and_added(client, sign_in, anna):
-    share = client.get(f"/api/lists/{anna['list_id']}", headers=anna["headers"]).json()[
-        "share_code"
-    ]
+    share = invite_code(client, anna, anna["list_id"])
     carlos = sign_in(CARLOS)
     client.post("/api/lists/join", json={"code": share}, headers=carlos["headers"])
     carlos_who = {"headers": carlos["headers"], "list_id": anna["list_id"]}

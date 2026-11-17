@@ -7,11 +7,10 @@ on a timer (see ``create_app``), and tests call it directly with a fake ``send``
 
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, sessionmaker
@@ -19,6 +18,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from . import models
 from .config import Settings
 from .i18n import effective_language
+from .invite_card import PreparedInvite
 
 logger = logging.getLogger(__name__)
 
@@ -63,10 +63,6 @@ class RetryLater(Exception):
     pass
 
 
-def _aware(value: datetime) -> datetime:
-    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
-
-
 def queue_added(
     session: Session,
     settings: Settings,
@@ -93,14 +89,14 @@ def queue_added(
                 list_id=lst.id,
                 actor_id=actor.id,
                 kind="added",
-                items=json.dumps(new_items, ensure_ascii=False),
+                items=new_items,
                 first_at=now,
                 due_at=now + timedelta(seconds=settings.notify_added_quiet_seconds),
             )
         )
         return
-    pending.items = json.dumps(json.loads(pending.items) + new_items, ensure_ascii=False)
-    cap = _aware(pending.first_at) + timedelta(seconds=settings.notify_added_max_seconds)
+    pending.items = pending.items + new_items
+    cap = pending.first_at + timedelta(seconds=settings.notify_added_max_seconds)
     pending.due_at = min(now + timedelta(seconds=settings.notify_added_quiet_seconds), cap)
 
 
@@ -123,7 +119,7 @@ def queue_bought(
             actor_id=actor.id,
             kind="bought",
             purchase_id=purchase.id,
-            items=json.dumps(names, ensure_ascii=False),
+            items=names,
             first_at=now,
             due_at=now + timedelta(seconds=settings.notify_bought_delay_seconds),
         )
@@ -155,7 +151,7 @@ class Notifier:
         actor = session.get(models.User, note.actor_id)
         if lst is None or actor is None:
             return []
-        raw = json.loads(note.items)
+        raw = note.items
         if note.kind == "added":
             # Entries that were deleted (Undo-able removal) before the message went are left
             # out; Entries already bought are still news, so they stay.
@@ -244,6 +240,32 @@ class TelegramSender:
             await self.bot.send_message(message.chat_id, message.text, reply_markup=markup)
         except TelegramRetryAfter as exc:
             raise RetryLater from exc
+
+    async def prepare_invite(self, card: PreparedInvite) -> str:
+        """Store an Invite card for ``savePreparedInlineMessage``; returns its prepared id."""
+        from aiogram.types import (
+            InlineKeyboardButton,
+            InlineKeyboardMarkup,
+            InlineQueryResultArticle,
+            InputTextMessageContent,
+        )
+
+        result = InlineQueryResultArticle(
+            id="invite",
+            title=card.text,
+            input_message_content=InputTextMessageContent(message_text=card.text),
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text=card.button_text, url=card.button_url)]]
+            ),
+        )
+        prepared = await self.bot.save_prepared_inline_message(
+            user_id=card.user_id,
+            result=result,
+            allow_user_chats=True,
+            allow_group_chats=True,
+            allow_channel_chats=True,
+        )
+        return prepared.id
 
     async def aclose(self) -> None:
         await self.bot.session.close()

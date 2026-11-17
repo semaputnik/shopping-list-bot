@@ -1,5 +1,7 @@
 # SQLite as the database engine, behind SQLAlchemy
 
+Status: superseded by [ADR 0004](0004-postgres-database.md).
+
 The backend stores everything in SQLite through SQLAlchemy 2. The product is a small, family-scale app run by one person: one process, one file, no database server to provision, back up or pay for. The same engine serves production and the automated tests, which run against a real database file created per test, so the HTTP API test seam exercises real SQL, constraints and transactions rather than a fake.
 
 SQLAlchemy keeps the door open: moving to PostgreSQL later means changing `SL_DATABASE_URL` and adding migrations, not rewriting queries. We avoid SQLite-only features in application code. Foreign keys are enforced (`PRAGMA foreign_keys=ON`) and the journal runs in WAL mode so readers (the SSE stream, catch-up) do not block the single writer.

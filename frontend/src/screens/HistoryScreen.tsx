@@ -1,5 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Button,
+  Cell,
+  List,
+  Placeholder,
+  Section,
+  Skeleton,
+  Snackbar,
+  Title,
+} from "@telegram-apps/telegram-ui";
 import { fetchHistory, readdFromHistory, type HistoryPurchase } from "../api";
+import { ActionCell } from "../components/ActionCell";
 import type { Language, Strings } from "../i18n";
 import { bindBackButton, haptic } from "../telegram";
 
@@ -34,17 +45,9 @@ export function HistoryScreen({ token, listId, language, strings, onBack }: Prop
   /** Items re-added during this visit, marked so a second tap is a deliberate one. */
   const [added, setAdded] = useState<Set<number>>(new Set());
   const [toast, setToast] = useState<string | null>(null);
-  const toastTimer = useRef<number | undefined>(undefined);
   const sentinel = useRef<HTMLDivElement | null>(null);
   const busy = useRef(false);
   useEffect(() => bindBackButton(onBack), [onBack]);
-  useEffect(() => () => window.clearTimeout(toastTimer.current), []);
-
-  const showToast = (text: string) => {
-    setToast(text);
-    window.clearTimeout(toastTimer.current);
-    toastTimer.current = window.setTimeout(() => setToast(null), 2500);
-  };
 
   const loadMore = useCallback(async () => {
     if (busy.current || done) return;
@@ -83,63 +86,86 @@ export function HistoryScreen({ token, listId, language, strings, onBack }: Prop
       await readdFromHistory(token, listId, purchaseId, itemId, crypto.randomUUID());
       setAdded((prev) => new Set(prev).add(itemId));
       haptic.success();
-      showToast(strings.historyAdded);
+      setToast(strings.historyAdded);
     } catch (error) {
       console.error(error);
       haptic.error();
-      showToast(strings.historyAddFailed);
+      setToast(strings.historyAddFailed);
     }
   };
 
   return (
     <main className="screen">
-      <h1 className="screen__title">{strings.history}</h1>
+      <Title level="1" weight="1" className="screen__title">
+        {strings.history}
+      </Title>
       {done && purchases.length === 0 && (
-        <p className="history__empty">{strings.historyEmpty}</p>
+        <Placeholder
+          header={strings.historyEmptyTitle}
+          description={strings.historyEmpty}
+          action={
+            <Button size="m" mode="bezeled" onClick={onBack}>
+              {strings.historyToList}
+            </Button>
+          }
+        >
+          <span className="placeholder__emoji" aria-hidden="true">
+            🧾
+          </span>
+        </Placeholder>
       )}
-      <ul className="history">
+      <List className="plain-list">
         {purchases.map((purchase) => (
-          <li key={purchase.id} className="history__purchase">
-            <div className="history__when">
-              {formatWhen(purchase.purchased_at, language)}
-              {purchase.purchased_by_name && ` · ${purchase.purchased_by_name}`}
-            </div>
-            <ul className="history__items">
-              {purchase.entries.map((item) => (
-                <li key={item.id}>
-                  <button
-                    type="button"
-                    className="history__item"
-                    onClick={() => void readd(purchase.id, item.id)}
-                  >
-                    <span className="history__name">
-                      {item.name}
-                      {item.note && <span className="history__note"> · {item.note}</span>}
-                    </span>
-                    <span className="history__add" aria-label={strings.historyAddBack}>
-                      {added.has(item.id) ? "✓" : "+"}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </li>
+          <Section
+            key={purchase.id}
+            header={`${formatWhen(purchase.purchased_at, language)}${
+              purchase.purchased_by_name ? ` · ${purchase.purchased_by_name}` : ""
+            }`}
+          >
+            {purchase.entries.map((item) => (
+              <ActionCell
+                key={item.id}
+                multiline
+                subtitle={item.note ?? undefined}
+                after={
+                  <span className="history__add" aria-label={strings.historyAddBack}>
+                    {added.has(item.id) ? "✓" : "+"}
+                  </span>
+                }
+                onClick={() => void readd(purchase.id, item.id)}
+              >
+                {item.name}
+              </ActionCell>
+            ))}
+          </Section>
         ))}
-      </ul>
+      </List>
       {!done && <div ref={sentinel} className="history__sentinel" />}
-      {load === "loading" && <p className="history__status">{strings.loading}</p>}
+      {load === "loading" && (
+        <List className="plain-list" role="status" aria-busy="true" aria-label={strings.loading}>
+          <Section>
+            {[0, 1, 2].map((i) => (
+              <Cell key={i}>
+                <Skeleton visible className="skeleton__line" />
+              </Cell>
+            ))}
+          </Section>
+        </List>
+      )}
       {load === "failed" && (
-        <div className="history__status">
-          <p>{strings.historyLoadFailed}</p>
-          <button type="button" className="text-button" onClick={() => setLoad("idle")}>
-            {strings.retry}
-          </button>
-        </div>
+        <Placeholder
+          header={strings.historyLoadFailed}
+          action={
+            <Button size="m" mode="bezeled" onClick={() => setLoad("idle")}>
+              {strings.retry}
+            </Button>
+          }
+        />
       )}
       {toast && (
-        <div className="toast" role="status">
+        <Snackbar key={toast} className="snackbar" duration={2500} onClose={() => setToast(null)}>
           {toast}
-        </div>
+        </Snackbar>
       )}
     </main>
   );

@@ -1,3 +1,5 @@
+import { Button, Placeholder } from "@telegram-apps/telegram-ui";
+
 interface Props {
   title: string;
   hint?: string;
@@ -8,13 +10,17 @@ interface Props {
 export function Message({ title, hint, action }: Props) {
   return (
     <main className="message">
-      <h1 className="message__title">{title}</h1>
-      {hint && <p className="message__hint">{hint}</p>}
-      {action && (
-        <button type="button" className="message__action" onClick={action.onClick}>
-          {action.label}
-        </button>
-      )}
+      <Placeholder
+        header={title}
+        description={hint}
+        action={
+          action && (
+            <Button size="l" mode="filled" onClick={action.onClick}>
+              {action.label}
+            </Button>
+          )
+        }
+      />
     </main>
   );
 }

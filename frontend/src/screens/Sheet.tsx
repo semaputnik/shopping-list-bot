@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Button, Input, List, Modal, Section } from "@telegram-apps/telegram-ui";
 import { bindBackButton } from "../telegram";
 
 interface SheetProps {
@@ -9,7 +10,7 @@ interface SheetProps {
 }
 
 /**
- * A bottom sheet over a dimmed backdrop; tapping the backdrop closes it. While it is open
+ * A tgui Modal drawer; tapping the backdrop or dragging it down closes it. While it is open
  * Telegram's BackButton is shown and calls `onClose` (which may return to a parent sheet).
  */
 export function Sheet({ title, closeLabel, onClose, children }: SheetProps) {
@@ -19,21 +20,21 @@ export function Sheet({ title, closeLabel, onClose, children }: SheetProps) {
   onCloseRef.current = onClose;
   useEffect(() => bindBackButton(() => onCloseRef.current()), []);
   return (
-    <div className="sheet-backdrop" onClick={onClose}>
-      <div
-        className="sheet"
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        onClick={(event) => event.stopPropagation()}
-      >
-        <h2 className="sheet__title">{title}</h2>
+    <Modal
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+      header={<Modal.Header>{title}</Modal.Header>}
+      aria-label={title}
+    >
+      <div className="sheet">
         {children}
-        <button type="button" className="sheet__cancel" onClick={onClose}>
+        <Button mode="bezeled" size="l" stretched onClick={onClose}>
           {closeLabel}
-        </button>
+        </Button>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -88,20 +89,21 @@ export function NameSheet({
           });
         }}
       >
-        <label className="field">
-          <span className="field__label">{label}</span>
-          <input
-            className="field__input"
-            value={name}
-            maxLength={200}
-            placeholder={placeholder}
-            autoFocus
-            onChange={(event) => setName(event.target.value)}
-          />
-        </label>
-        <button type="submit" className="sheet__submit" disabled={!trimmed || busy}>
+        <List>
+          <Section>
+            <Input
+              header={label}
+              value={name}
+              maxLength={200}
+              placeholder={placeholder}
+              autoFocus
+              onChange={(event) => setName(event.target.value)}
+            />
+          </Section>
+        </List>
+        <Button type="submit" mode="filled" size="l" stretched disabled={!trimmed || busy}>
           {submitLabel}
-        </button>
+        </Button>
       </form>
     </Sheet>
   );

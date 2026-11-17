@@ -1,5 +1,7 @@
 """Versioning, `changes?since`, conflict rules and idempotent replays (HTTP API only)."""
 
+from concurrent.futures import ThreadPoolExecutor
+
 import pytest
 
 ANNA = {"id": 1001, "first_name": "Анна", "language_code": "ru"}
@@ -17,7 +19,7 @@ def anna(sign_in, client):
 @pytest.fixture
 def carlos(sign_in, anna, add_member):
     session = sign_in(CARLOS)
-    add_member(anna["list"], session)
+    add_member(anna["list"], session, anna)
     return {"headers": session["headers"], "id": anna["id"]}
 
 
@@ -131,7 +133,7 @@ class TestVersioning:
         assert undone["version"] == before + 2
 
         carlos = sign_in(CARLOS)
-        add_member(anna["list"], carlos)
+        add_member(anna["list"], carlos, anna)
         assert version(client, anna) == before + 3
 
         client.post(f"/api/lists/{lid}/leave", headers=carlos["headers"])
@@ -168,7 +170,7 @@ class TestChangesSince:
 
     def test_membership_and_rename_are_changes_too(self, client, anna, sign_in, add_member):
         v0 = version(client, anna)
-        add_member(anna["list"], sign_in(CARLOS))
+        add_member(anna["list"], sign_in(CARLOS), anna)
         client.patch(f"/api/lists/{anna['id']}", json={"name": "Дом"}, headers=anna["headers"])
         kinds = [c["kind"] for c in changes(client, anna, v0).json()["changes"]]
         assert kinds == ["member.joined", "list.renamed"]
@@ -340,3 +342,21 @@ class TestIdempotentReplays:
             headers={"Authorization": "Bearer nope", "Idempotency-Key": "k2"},
         )
         assert stolen.status_code == 401
+
+
+def test_concurrent_adds_get_unique_consecutive_versions(client, anna):
+    before = version(client, anna)
+    writers = 12
+
+    def add_one(n):
+        response = client.post(
+            f"/api/lists/{anna['id']}/entries", json={"text": f"item {n}"}, headers=anna["headers"]
+        )
+        assert response.status_code == 201, response.text
+        return response.json()["version"]
+
+    with ThreadPoolExecutor(max_workers=writers) as pool:
+        versions = sorted(pool.map(add_one, range(writers)))
+
+    assert versions == list(range(before + 1, before + writers + 1))
+    assert version(client, anna) == before + writers

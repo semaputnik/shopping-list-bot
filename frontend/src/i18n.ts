@@ -37,6 +37,12 @@ type StringKey =
   | "share"
   | "linkCopied"
   | "linkUnavailable"
+  | "invitedBy"
+  | "resetLink"
+  | "resetLinkTitle"
+  | "resetLinkMessage"
+  | "resetLinkConfirm"
+  | "linkReset"
   | "members"
   | "you"
   | "membersHint"
@@ -50,6 +56,11 @@ type StringKey =
   | "entryNote"
   | "entryName"
   | "entryNameHint"
+  | "aliases"
+  | "aliasesPlaceholder"
+  | "aliasesHint"
+  | "aliasTaken"
+  | "aliasRemove"
   | "entryDetails"
   | "entryNotePlaceholder"
   | "entryCategory"
@@ -83,11 +94,20 @@ type StringKey =
   | "buyFailed"
   | "undoBuyFailed"
   | "history"
+  | "historyEmptyTitle"
   | "historyEmpty"
+  | "historyToList"
   | "historyAdded"
   | "historyAddFailed"
   | "historyAddBack"
-  | "historyLoadFailed";
+  | "historyLoadFailed"
+  | "languageAsTelegramHint"
+  | "tipMultiAddTitle"
+  | "tipMultiAddText"
+  | "tipInviteTitle"
+  | "tipInviteText"
+  | "tipBoughtTitle"
+  | "tipBoughtText";
 
 const strings: Record<Language, Record<StringKey, string>> = {
   ru: {
@@ -128,6 +148,12 @@ const strings: Record<Language, Record<StringKey, string>> = {
     share: "Поделиться",
     linkCopied: "Ссылка скопирована",
     linkUnavailable: "Не удалось получить ссылку",
+    invitedBy: "пригласил(а) {name}",
+    resetLink: "Сбросить ссылку",
+    resetLinkTitle: "Сбросить ссылку?",
+    resetLinkMessage: "Старая ссылка перестанет работать. Те, кто уже в списке, останутся.",
+    resetLinkConfirm: "Сбросить",
+    linkReset: "Ссылка сброшена",
     members: "Участники",
     you: "вы",
     membersHint: "У всех участников одинаковые права. Отправьте ссылку, чтобы добавить ещё кого-то.",
@@ -141,6 +167,11 @@ const strings: Record<Language, Record<StringKey, string>> = {
     entryNote: "Заметка",
     entryName: "Название",
     entryNameHint: "Меняется у товара целиком: во всех его строках и подсказках.",
+    aliases: "Другие названия",
+    aliasesPlaceholder: "Например, milk",
+    aliasesHint: "Поиск найдёт товар и по этим названиям.",
+    aliasTaken: "Это название уже занято другим товаром в списке.",
+    aliasRemove: "Убрать название",
     entryNotePlaceholder: "Количество или детали",
     entryCategory: "Отдел",
     entryAddedBy: "Добавлено:",
@@ -174,11 +205,20 @@ const strings: Record<Language, Record<StringKey, string>> = {
     buyFailed: "Покупка не сохранилась. Проверьте связь.",
     undoBuyFailed: "Не удалось отменить покупку. Проверьте связь.",
     history: "История покупок",
+    historyEmptyTitle: "Покупок пока нет",
+    historyToList: "К списку",
     historyEmpty: "Пока пусто. Здесь появятся покупки после нажатия «Куплено».",
     historyAdded: "Добавлено в список",
     historyAddFailed: "Не удалось добавить. Попробуйте ещё раз.",
     historyAddBack: "Добавить в список снова",
     historyLoadFailed: "Не удалось загрузить историю.",
+    languageAsTelegramHint: "Сейчас: {language}",
+    tipMultiAddTitle: "Несколько товаров сразу",
+    tipMultiAddText: "Разделяйте их точкой с запятой или вставьте список по строкам: молоко; хлеб; яйца.",
+    tipInviteTitle: "Покупаете вместе?",
+    tipInviteText: "Отправьте ссылку, и другие смогут добавлять товары и отмечать купленное.",
+    tipBoughtTitle: "Закончили покупки?",
+    tipBoughtText: "Нажмите «Куплено» внизу: отмеченные товары уйдут в историю.",
   },
   es: {
     loading: "Cargando…",
@@ -218,6 +258,12 @@ const strings: Record<Language, Record<StringKey, string>> = {
     share: "Compartir",
     linkCopied: "Enlace copiado",
     linkUnavailable: "No se pudo obtener el enlace",
+    invitedBy: "invitación de {name}",
+    resetLink: "Restablecer el enlace",
+    resetLinkTitle: "¿Restablecer el enlace?",
+    resetLinkMessage: "El enlace anterior dejará de funcionar. Quienes ya están en la lista se quedan.",
+    resetLinkConfirm: "Restablecer",
+    linkReset: "Enlace restablecido",
     members: "Miembros",
     you: "tú",
     membersHint: "Todos los miembros tienen los mismos derechos. Envía el enlace para añadir a alguien más.",
@@ -231,6 +277,11 @@ const strings: Record<Language, Record<StringKey, string>> = {
     entryNote: "Nota",
     entryName: "Nombre",
     entryNameHint: "Cambia en todo el producto: en todas sus filas y sugerencias.",
+    aliases: "Otros nombres",
+    aliasesPlaceholder: "Por ejemplo, milk",
+    aliasesHint: "La búsqueda también encontrará el producto por estos nombres.",
+    aliasTaken: "Otro producto de la lista ya tiene este nombre.",
+    aliasRemove: "Quitar nombre",
     entryNotePlaceholder: "Cantidad o detalles",
     entryCategory: "Sección",
     entryAddedBy: "Añadido por:",
@@ -264,11 +315,20 @@ const strings: Record<Language, Record<StringKey, string>> = {
     buyFailed: "La compra no se guardó. Revisa la conexión.",
     undoBuyFailed: "No se pudo deshacer la compra. Revisa la conexión.",
     history: "Historial de compras",
+    historyEmptyTitle: "Aún no hay compras",
+    historyToList: "A la lista",
     historyEmpty: "Aún no hay nada. Las compras aparecerán aquí al pulsar «Comprado».",
     historyAdded: "Añadido a la lista",
     historyAddFailed: "No se pudo añadir. Inténtalo de nuevo.",
     historyAddBack: "Volver a añadir a la lista",
     historyLoadFailed: "No se pudo cargar el historial.",
+    languageAsTelegramHint: "Ahora: {language}",
+    tipMultiAddTitle: "Varios productos a la vez",
+    tipMultiAddText: "Sepáralos con punto y coma o pega una lista por líneas: leche; pan; huevos.",
+    tipInviteTitle: "¿Compráis juntos?",
+    tipInviteText: "Envía el enlace y los demás podrán añadir productos y marcar lo comprado.",
+    tipBoughtTitle: "¿Has terminado?",
+    tipBoughtText: "Pulsa «Comprado» abajo: lo marcado pasa al historial.",
   },
   en: {
     loading: "Loading…",
@@ -308,6 +368,12 @@ const strings: Record<Language, Record<StringKey, string>> = {
     share: "Share",
     linkCopied: "Link copied",
     linkUnavailable: "Couldn't get the link",
+    invitedBy: "invited by {name}",
+    resetLink: "Reset link",
+    resetLinkTitle: "Reset the link?",
+    resetLinkMessage: "The old link will stop working. People already in the list stay.",
+    resetLinkConfirm: "Reset",
+    linkReset: "Link reset",
     members: "Members",
     you: "you",
     membersHint: "Every member has the same rights. Send the link to add someone else.",
@@ -321,6 +387,11 @@ const strings: Record<Language, Record<StringKey, string>> = {
     entryNote: "Note",
     entryName: "Name",
     entryNameHint: "Changes the whole item: every row of it and its suggestions.",
+    aliases: "Other names",
+    aliasesPlaceholder: "For example, leche",
+    aliasesHint: "Search finds the item by these names too.",
+    aliasTaken: "Another item on the list already has this name.",
+    aliasRemove: "Remove name",
     entryNotePlaceholder: "Amount or details",
     entryCategory: "Section",
     entryAddedBy: "Added by:",
@@ -354,11 +425,20 @@ const strings: Record<Language, Record<StringKey, string>> = {
     buyFailed: "The purchase wasn't saved. Check your connection.",
     undoBuyFailed: "Couldn't undo the purchase. Check your connection.",
     history: "Purchase history",
+    historyEmptyTitle: "No purchases yet",
+    historyToList: "Back to the list",
     historyEmpty: "Nothing yet. Purchases show up here when you tap “Bought”.",
     historyAdded: "Added to the list",
     historyAddFailed: "Couldn't add. Try again.",
     historyAddBack: "Add back to the list",
     historyLoadFailed: "Couldn't load the history.",
+    languageAsTelegramHint: "Now: {language}",
+    tipMultiAddTitle: "Add several at once",
+    tipMultiAddText: "Separate items with a semicolon or paste a list line by line: milk; bread; eggs.",
+    tipInviteTitle: "Shopping together?",
+    tipInviteText: "Send the link and others can add items and check off what they buy.",
+    tipBoughtTitle: "Done shopping?",
+    tipBoughtText: "Tap “Bought” below: the checked items move to history.",
   },
 };
 
@@ -371,6 +451,13 @@ export const QUICK_ADD: Record<Language, string[]> = {
 
 /** Each language is always shown in its own name, whatever the interface language is. */
 export const LANGUAGE_NAMES: Record<Language, string> = { ru: "Русский", es: "Español", en: "English" };
+
+/** The one-line consequence shown under each language option, also in that language. */
+export const LANGUAGE_HINTS: Record<Language, string> = {
+  ru: "Интерфейс на русском",
+  es: "Interfaz en español",
+  en: "Interface in English",
+};
 
 export type Strings = Record<StringKey, string>;
 

@@ -25,11 +25,11 @@ EVE = {"id": 3003, "first_name": "Eve", "language_code": "en"}
 
 
 @pytest.fixture
-def server(tmp_path: Path) -> Iterator[str]:
+def server(tmp_path: Path, database_url: str) -> Iterator[str]:
     settings = Settings(
         bot_token=TEST_BOT_TOKEN,
         bot_username="shared_lists_test_bot",
-        database_url=f"sqlite:///{tmp_path / 'test.db'}",
+        database_url=database_url,
         frontend_dist=tmp_path / "no-frontend",
         _env_file=None,
     )
@@ -124,6 +124,11 @@ def make_user(server):
         api.http.close()
 
 
+def join(member: Api, inviter: Api, list_id: int) -> httpx.Response:
+    code = inviter.http.get(f"/api/lists/{list_id}/invite").json()["code"]
+    return member.http.post("/api/lists/join", json={"code": code})
+
+
 def add(api: Api, list_id: int, text: str) -> dict:
     response = api.http.post(f"/api/lists/{list_id}/entries", json={"text": text})
     assert response.status_code == 201, response.text
@@ -144,10 +149,7 @@ def test_the_stream_is_event_stream_and_says_ready(make_user):
 def test_a_member_hears_the_other_members_change_with_its_version(make_user):
     anna, carlos = make_user(ANNA), make_user(CARLOS)
     lid = anna.list["id"]
-    assert (
-        carlos.http.post("/api/lists/join", json={"code": anna.list["share_code"]}).status_code
-        == 200
-    )
+    assert join(carlos, anna, lid).status_code == 200
     anna_stream = anna.open_stream()
     carlos_stream = carlos.open_stream()
 
@@ -220,7 +222,7 @@ def test_joining_leaving_and_renaming_reach_the_members(make_user):
     anna_stream = anna.open_stream()
     carlos_stream = carlos.open_stream()
 
-    carlos.http.post("/api/lists/join", json={"code": anna.list["share_code"]})
+    join(carlos, anna, lid)
     assert anna_stream.next()[1]["kind"] == "member.joined"
     assert carlos_stream.next()[1]["kind"] == "member.joined"  # the new Member's own devices
 
@@ -240,7 +242,7 @@ def test_joining_leaving_and_renaming_reach_the_members(make_user):
 def test_deleting_a_list_tells_every_member_and_nobody_else(make_user):
     anna, carlos, eve = make_user(ANNA), make_user(CARLOS), make_user(EVE)
     lid = anna.list["id"]
-    carlos.http.post("/api/lists/join", json={"code": anna.list["share_code"]})
+    join(carlos, anna, lid)
     streams = [anna.open_stream(), carlos.open_stream(), eve.open_stream()]
 
     assert carlos.http.delete(f"/api/lists/{lid}").status_code == 204
@@ -283,7 +285,7 @@ def test_purchases_are_announced(make_user):
 def test_after_a_reconnect_changes_since_covers_what_was_missed(make_user):
     anna, carlos = make_user(ANNA), make_user(CARLOS)
     lid = anna.list["id"]
-    carlos.http.post("/api/lists/join", json={"code": anna.list["share_code"]})
+    join(carlos, anna, lid)
     stream = anna.open_stream()
     seen = add(carlos, lid, "молоко")
     assert stream.next()[1]["version"] == seen["version"]
@@ -315,7 +317,7 @@ def test_a_replayed_command_emits_nothing(make_user):
 def test_a_readd_from_history_reaches_the_other_member(make_user):
     anna, carlos = make_user(ANNA), make_user(CARLOS)
     lid = anna.list["id"]
-    carlos.http.post("/api/lists/join", json={"code": anna.list["share_code"]})
+    join(carlos, anna, lid)
     entry = add(anna, lid, "молоко")["entries"][0]
     anna.http.patch(f"/api/lists/{lid}/entries/{entry['id']}", json={"checked": True})
     purchase = anna.http.post(f"/api/lists/{lid}/purchases").json()

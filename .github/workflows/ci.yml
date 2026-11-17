@@ -15,6 +15,18 @@ jobs:
   backend:
     name: Backend tests and lint
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -27,6 +39,8 @@ jobs:
       - name: Ruff format check
         run: uv run ruff format --check .
       - name: Tests
+        env:
+          SL_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@localhost:5432/postgres
         run: uv run pytest
 
   frontend:
@@ -49,6 +63,18 @@ jobs:
   docker:
     name: Docker image build and smoke test
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -63,7 +89,9 @@ jobs:
           cache-to: type=gha,mode=max
       - name: Smoke test
         run: |
-          docker run -d --name app -p 8000:8000 shared-lists:ci
+          export SL_DATABASE_URL=postgresql+psycopg://postgres:postgres@127.0.0.1:5432/postgres
+          docker run --rm --network host -e SL_DATABASE_URL shared-lists:ci shopping-list-bot migrate
+          docker run -d --name app --network host -e SL_DATABASE_URL shared-lists:ci
           for _ in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8000/healthz; then break; fi
             sleep 1

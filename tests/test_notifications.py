@@ -9,7 +9,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import pytest
-from conftest import TEST_BOT_TOKEN, sign_init_data
+from conftest import TEST_BOT_TOKEN, invite_code, sign_init_data
 from fastapi.testclient import TestClient
 
 from shopping_list_bot.app import create_app
@@ -22,7 +22,7 @@ CARLOS = {"id": 1003, "first_name": "Carlos", "language_code": "es"}
 
 
 class Harness:
-    def __init__(self, tmp_path: Path) -> None:
+    def __init__(self, tmp_path: Path, database_url: str) -> None:
         self.sent = []
 
         async def send(message):
@@ -32,7 +32,7 @@ class Harness:
             bot_token=TEST_BOT_TOKEN,
             bot_username="shared_lists_test_bot",
             webapp_url="https://lists.example",
-            database_url=f"sqlite:///{tmp_path / 'test.db'}",
+            database_url=database_url,
             frontend_dist=tmp_path / "no-frontend",
             notify_added_quiet_seconds=180,
             notify_added_max_seconds=900,
@@ -48,10 +48,9 @@ class Harness:
         body = response.json()
         return {"headers": {"Authorization": f"Bearer {body['token']}"}, "lists": body["lists"]}
 
-    def join(self, lst: dict, who: dict) -> None:
-        r = self.client.post(
-            "/api/lists/join", json={"code": lst["share_code"]}, headers=who["headers"]
-        )
+    def join(self, lst: dict, who: dict, inviter: dict) -> None:
+        code = invite_code(self.client, inviter, lst["id"])
+        r = self.client.post("/api/lists/join", json={"code": code}, headers=who["headers"])
         assert r.status_code == 200, r.text
 
     def add(self, who: dict, list_id: int, text: str) -> list[dict]:
@@ -70,8 +69,8 @@ class Harness:
 
 
 @pytest.fixture
-def h(tmp_path):
-    harness = Harness(tmp_path)
+def h(tmp_path, database_url):
+    harness = Harness(tmp_path, database_url)
     with harness.client:
         yield harness
 
@@ -81,8 +80,8 @@ def shared(h):
     """Анна's first List, shared with Борис and Carlos."""
     anna, boris, carlos = h.sign_in(ANNA), h.sign_in(BORIS), h.sign_in(CARLOS)
     lst = anna["lists"][0]
-    h.join(lst, boris)
-    h.join(lst, carlos)
+    h.join(lst, boris, anna)
+    h.join(lst, carlos, anna)
     return {"anna": anna, "boris": boris, "carlos": carlos, "list": lst}
 
 
@@ -131,7 +130,7 @@ class TestAddedNotification:
 
     def test_english_speakers_get_english(self, h, shared):
         dave = h.sign_in({"id": 1004, "first_name": "Dave", "language_code": "en-GB"})
-        h.join(shared["list"], dave)
+        h.join(shared["list"], dave, shared["anna"])
         h.add(shared["anna"], shared["list"]["id"], "milk")
         sent = h.deliver(after_seconds=200)
         to_dave = next(m for m in sent if m.chat_id == 1004)

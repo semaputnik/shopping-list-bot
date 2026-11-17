@@ -9,12 +9,16 @@ A named shopping list. It is the only unit of sharing: there is no group, family
 _Avoid_: Household, family, group, workspace
 
 **Member**:
-A Telegram user who has joined a List, either as its creator or through its Share link. All Members of a List have equal rights. Any Member can leave the List or delete it for everyone.
+A Telegram user who has joined a List, either as its creator or through a Share link. All Members of a List have equal rights. Any Member can leave the List or delete it for everyone.
 _Avoid_: Participant, collaborator, owner, admin
 
+**Invite**:
+A Member's own entry point into a List: a secret code, who created it and when, and whether it was revoked. Each Member has one active Invite per List; resetting it revokes the old one and issues a new one. A Member who joins through an Invite is recorded as invited by its creator.
+_Avoid_: Invitation, share code
+
 **Share link**:
-A link that opens the Mini App with a List's secret share code. Opening it makes the user a Member of that List.
-_Avoid_: Invite, invitation
+The link built from an Invite, `https://t.me/<bot>?startapp=join_<code>`. Opening it makes the user a Member of the Invite's List. Links made before Invites (a bare code) keep working.
+_Avoid_: Invite link, invitation
 
 ## What is on a List
 
@@ -53,3 +57,9 @@ _Avoid_: Log, archive, recently bought
 **Notification**:
 A bot message to a List's other Members about one Member's activity: Entries they added (one message per burst of adding) or a Purchase they made (sent only if it was not undone).
 _Avoid_: Alert, push, digest
+
+## Onboarding
+
+**Tip**:
+A one-time card in the Mini App that teaches one gesture: multi-add, sharing, «Куплено». A user closes each Tip for good, and the choice follows them to every device.
+_Avoid_: Hint, tooltip, tutorial, coachmark

@@ -6,10 +6,17 @@ export interface User {
   username: string | null;
   photo_url: string | null;
   language_code: string | null;
+  is_premium: boolean;
+  allows_write_to_pm: boolean;
+  added_to_attachment_menu: boolean;
   language: "ru" | "es" | "en";
   /** True when the user overrode Telegram's language in Settings. */
   language_overridden: boolean;
+  /** Onboarding tips the user has closed. */
+  dismissed_tips: TipKey[];
 }
+
+export type TipKey = "multi_add" | "invite" | "bought";
 
 /** A Member of a List, as the backend exposes it (no Telegram id). */
 export interface Member {
@@ -18,6 +25,8 @@ export interface Member {
   last_name: string | null;
   username: string | null;
   photo_url: string | null;
+  /** Whose Invite link they joined through; null for the creator and for older Members. */
+  invited_by: Omit<Member, "invited_by"> | null;
 }
 
 /** A List in GLOSSARY.md terms (named ShoppingList to avoid clashing with the TS/DOM List names). */
@@ -25,9 +34,6 @@ export interface ShoppingList {
   id: number;
   name: string;
   member_count: number;
-  share_code: string;
-  /** The Share link; null while the backend has no SL_BOT_USERNAME. */
-  share_url: string | null;
   members: Member[];
   version: number;
   updated_at: string;
@@ -87,6 +93,11 @@ export function updateLanguage(token: string, language: "ru" | "es" | "en" | nul
   return request<User>("/api/me", { method: "PATCH", body: JSON.stringify({ language }) }, token);
 }
 
+/** Records that the user closed an onboarding tip, for good and on every device. */
+export function dismissTip(token: string, key: TipKey): Promise<User> {
+  return request<User>(`/api/me/tips/${key}/dismiss`, { method: "POST" }, token);
+}
+
 /** The user's Lists, most recently changed first. */
 export function fetchLists(token: string): Promise<ShoppingList[]> {
   return request<ShoppingList[]>("/api/lists", {}, token);
@@ -100,10 +111,17 @@ export function createList(token: string, name: string): Promise<ShoppingList> {
   );
 }
 
+/** Another name of a Product, added by hand. */
+export interface Alias {
+  id: number;
+  name: string;
+}
+
 export interface Entry {
   id: number;
   product_id: number;
   name: string;
+  aliases: Alias[];
   note: string | null;
   category: string;
   added_by: number | null;
@@ -195,7 +213,10 @@ export function updateEntry(
 /** A Product from the List's memory matching the typed text. */
 export interface Suggestion {
   product_id: number;
+  /** The canonical name, also when the match came through an alias. */
   name: string;
+  /** The alias that matched the typed text; null when the name did. */
+  matched_alias: string | null;
   category: string;
   /** The Product already has an Entry on the List (adding it again still creates another row). */
   on_list: boolean;
@@ -220,6 +241,33 @@ export function renameProduct(
   return request(
     `/api/lists/${listId}/products/${productId}`,
     { method: "PATCH", body: JSON.stringify({ name }) },
+    token,
+  );
+}
+
+/** Gives a Product another name. Rejects with ApiError 409 when another Product already has it. */
+export function addAlias(
+  token: string,
+  listId: number,
+  productId: number,
+  name: string,
+): Promise<{ version: number; id: number; name: string }> {
+  return request(
+    `/api/lists/${listId}/products/${productId}/aliases`,
+    { method: "POST", body: JSON.stringify({ name }) },
+    token,
+  );
+}
+
+export function removeAlias(
+  token: string,
+  listId: number,
+  productId: number,
+  aliasId: number,
+): Promise<{ version: number }> {
+  return request(
+    `/api/lists/${listId}/products/${productId}/aliases/${aliasId}`,
+    { method: "DELETE" },
     token,
   );
 }
@@ -253,6 +301,21 @@ export function leaveList(token: string, id: number): Promise<void> {
 /** Deletes the List for all its Members. Always ask for confirmation first. */
 export function deleteList(token: string, id: number): Promise<void> {
   return request<void>(`/api/lists/${id}`, { method: "DELETE" }, token);
+}
+
+/** The Member's own Invite link into a List; `url` is null while the backend has no SL_BOT_USERNAME. */
+export function fetchInvite(token: string, listId: number): Promise<{ code: string; url: string | null }> {
+  return request(`/api/lists/${listId}/invite`, {}, token);
+}
+
+/** Stores the Invite card with the bot; `id` goes to Telegram's `shareMessage`. */
+export function prepareInvite(token: string, listId: number): Promise<{ id: string }> {
+  return request(`/api/lists/${listId}/invite/prepared`, { method: "POST" }, token);
+}
+
+/** Revokes the Member's Invite link and issues a new one; the old link stops working. */
+export function resetInvite(token: string, listId: number): Promise<{ code: string; url: string | null }> {
+  return request(`/api/lists/${listId}/invite/reset`, { method: "POST" }, token);
 }
 
 /** Opens a Share link: joins the List (a no-op for a Member). Rejects with ApiError 404 for an invalid code. */

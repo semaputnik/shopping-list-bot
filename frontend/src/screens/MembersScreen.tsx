@@ -1,60 +1,91 @@
-import { useEffect, useRef, useState } from "react";
-import type { ShoppingList, User } from "../api";
+import { useEffect, useState } from "react";
+import { Button, Cell, List, Section, Snackbar, Title } from "@telegram-apps/telegram-ui";
+import { resetInvite, type Member, type ShoppingList, type User } from "../api";
 import { Avatar, memberName } from "../components/Avatar";
 import type { Strings } from "../i18n";
 import { shareList } from "../share";
-import { bindBackButton, haptic } from "../telegram";
+import { bindBackButton, confirmDestructive, haptic } from "../telegram";
 
 interface Props {
+  token: string;
   user: User;
   list: ShoppingList;
   strings: Strings;
   onBack: () => void;
 }
 
+/** «пригласил(а) Анна · @carlos»: who invited them, then their username; either may be missing. */
+function memberSubtitle(member: Member, strings: Strings): string | undefined {
+  const parts = [
+    member.invited_by && strings.invitedBy.replace("{name}", memberName(member.invited_by)),
+    member.username && `@${member.username}`,
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(" · ") : undefined;
+}
+
 /** The Members screen: everyone with access to the List, and the Share button. */
-export function MembersScreen({ user, list, strings, onBack }: Props) {
-  const [toast, setToast] = useState<string | null>(null);
-  const timer = useRef<number | undefined>(undefined);
-  useEffect(() => () => window.clearTimeout(timer.current), []);
+export function MembersScreen({ token, user, list, strings, onBack }: Props) {
+  const [info, setInfo] = useState<string | null>(null);
   // Leaving a nested screen is Telegram's native BackButton (also the Android back press).
   useEffect(() => bindBackButton(onBack), [onBack]);
 
   const share = async () => {
-    const result = await shareList(list.share_url, strings.shareText.replace("{name}", list.name));
+    const result = await shareList(token, list, strings.shareText.replace("{name}", list.name));
     if (result === "unavailable") haptic.error();
     else haptic.success();
     if (result === "shared") return; // Telegram's own picker is the feedback
-    setToast(result === "copied" ? strings.linkCopied : strings.linkUnavailable);
-    window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => setToast(null), 2500);
+    setInfo(result === "copied" ? strings.linkCopied : strings.linkUnavailable);
+  };
+
+  const reset = async () => {
+    const ok = await confirmDestructive({
+      title: strings.resetLinkTitle,
+      message: strings.resetLinkMessage,
+      confirmLabel: strings.resetLinkConfirm,
+    });
+    if (!ok) return;
+    try {
+      await resetInvite(token, list.id);
+      haptic.success();
+      setInfo(strings.linkReset);
+    } catch {
+      haptic.error();
+      setInfo(strings.actionFailed);
+    }
   };
 
   return (
     <main className="screen">
-      <h1 className="screen__title">{strings.members}</h1>
-      <ul className="members">
-        {list.members.map((member) => (
-          <li key={member.id} className="members__row">
-            <Avatar member={member} size="lg" />
-            <span className="members__name">
-              <span className="members__line">
-                {memberName(member)}
-                {member.id === user.id && <span className="members__you"> · {strings.you}</span>}
-              </span>
-              {member.username && <span className="members__username">@{member.username}</span>}
-            </span>
-          </li>
-        ))}
-      </ul>
-      <button type="button" className="message__action share-button" onClick={() => void share()}>
-        {strings.share}
-      </button>
-      <p className="members__hint">{strings.membersHint}</p>
-      {toast && (
-        <div className="toast" role="status">
-          {toast}
-        </div>
+      <Title level="1" weight="1" className="screen__title">
+        {strings.members}
+      </Title>
+      <List className="plain-list">
+        <Section footer={strings.membersHint}>
+          {list.members.map((member) => (
+            <Cell
+              key={member.id}
+              before={<Avatar member={member} size="lg" />}
+              subtitle={memberSubtitle(member, strings)}
+              multiline
+            >
+              {memberName(member)}
+              {member.id === user.id && <span className="hint"> · {strings.you}</span>}
+            </Cell>
+          ))}
+        </Section>
+        <Button size="l" mode="filled" stretched onClick={() => void share()}>
+          {strings.share}
+        </Button>
+        <Section>
+          <Cell className="cell--destructive" onClick={() => void reset()}>
+            {strings.resetLink}
+          </Cell>
+        </Section>
+      </List>
+      {info && (
+        <Snackbar key={info} className="snackbar" duration={2500} onClose={() => setInfo(null)}>
+          {info}
+        </Snackbar>
       )}
     </main>
   );
