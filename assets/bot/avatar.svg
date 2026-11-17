@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640" width="640" height="640">
+  <title>Shared Lists</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3FB3EE"/>
+      <stop offset="1" stop-color="#1A8BD6"/>
+    </linearGradient>
+    <filter id="lift" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#0B4F86" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- Telegram-blue ground; everything important sits inside the circular crop -->
+  <rect width="640" height="640" fill="url(#bg)"/>
+
+  <g transform="translate(320 330) scale(1.16) translate(-320 -334)">
+  <!-- The second, shared copy of the list peeking out behind -->
+  <g transform="rotate(-9 320 330)">
+    <rect x="186" y="150" width="268" height="340" rx="40" fill="#FFFFFF" opacity="0.38"/>
+  </g>
+
+  <!-- The list card -->
+  <g filter="url(#lift)">
+    <rect x="186" y="164" width="268" height="340" rx="40" fill="#FFFFFF"/>
+  </g>
+
+  <!-- Row 1: in the basket -->
+  <circle cx="246" cy="250" r="24" fill="#2AA0E6"/>
+  <path d="M235 251 l8 8 l15 -17" fill="none" stroke="#FFFFFF" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="290" y="244" width="118" height="12" rx="6" fill="#C9D6E2"/>
+  <rect x="284" y="247" width="130" height="6" rx="3" fill="#2AA0E6"/>
+
+  <!-- Row 2: in the basket -->
+  <circle cx="246" cy="334" r="24" fill="#2AA0E6"/>
+  <path d="M235 335 l8 8 l15 -17" fill="none" stroke="#FFFFFF" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="290" y="328" width="92" height="12" rx="6" fill="#C9D6E2"/>
+  <rect x="284" y="331" width="104" height="6" rx="3" fill="#2AA0E6"/>
+
+  <!-- Row 3: still to buy -->
+  <circle cx="246" cy="418" r="21" fill="none" stroke="#B4C3D1" stroke-width="6"/>
+  <rect x="290" y="412" width="126" height="12" rx="6" fill="#2B3A4A"/>
+  </g>
+</svg>
