@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from . import models
 from .config import Settings
 from .i18n import effective_language
+from .invite_card import PreparedInvite
 
 logger = logging.getLogger(__name__)
 
@@ -239,6 +240,32 @@ class TelegramSender:
             await self.bot.send_message(message.chat_id, message.text, reply_markup=markup)
         except TelegramRetryAfter as exc:
             raise RetryLater from exc
+
+    async def prepare_invite(self, card: PreparedInvite) -> str:
+        """Store an Invite card for ``savePreparedInlineMessage``; returns its prepared id."""
+        from aiogram.types import (
+            InlineKeyboardButton,
+            InlineKeyboardMarkup,
+            InlineQueryResultArticle,
+            InputTextMessageContent,
+        )
+
+        result = InlineQueryResultArticle(
+            id="invite",
+            title=card.text,
+            input_message_content=InputTextMessageContent(message_text=card.text),
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text=card.button_text, url=card.button_url)]]
+            ),
+        )
+        prepared = await self.bot.save_prepared_inline_message(
+            user_id=card.user_id,
+            result=result,
+            allow_user_chats=True,
+            allow_group_chats=True,
+            allow_channel_chats=True,
+        )
+        return prepared.id
 
     async def aclose(self) -> None:
         await self.bot.session.close()

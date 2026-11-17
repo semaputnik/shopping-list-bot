@@ -308,6 +308,16 @@ export function fetchInvite(token: string, listId: number): Promise<{ code: stri
   return request(`/api/lists/${listId}/invite`, {}, token);
 }
 
+/** Stores the Invite card with the bot; `id` goes to Telegram's `shareMessage`. */
+export function prepareInvite(token: string, listId: number): Promise<{ id: string }> {
+  return request(`/api/lists/${listId}/invite/prepared`, { method: "POST" }, token);
+}
+
+/** Revokes the Member's Invite link and issues a new one; the old link stops working. */
+export function resetInvite(token: string, listId: number): Promise<{ code: string; url: string | null }> {
+  return request(`/api/lists/${listId}/invite/reset`, { method: "POST" }, token);
+}
+
 /** Opens a Share link: joins the List (a no-op for a Member). Rejects with ApiError 404 for an invalid code. */
 export function joinList(token: string, code: string): Promise<ShoppingList> {
   return request<ShoppingList>(

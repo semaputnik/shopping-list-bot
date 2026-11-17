@@ -28,6 +28,7 @@ import {
   requestWriteAccess,
   retrieveLaunchParams,
   retrieveRawInitData,
+  shareMessage,
   setMainButtonParams,
   setMiniAppBackgroundColor,
   setMiniAppBottomBarColor,
@@ -245,6 +246,21 @@ export function shareToChat(url: string, text: string): boolean {
     `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`,
   );
   return true;
+}
+
+/**
+ * Opens Telegram's share dialog for a bot-prepared message (the Invite card). Resolves "shared"
+ * when it was sent or the user closed the dialog (nothing to fall back to), "unsupported" when
+ * the client cannot do it, and rejects when Telegram refused the message.
+ */
+export async function shareCard(preparedId: string): Promise<"shared" | "unsupported"> {
+  if (!shareMessage.isAvailable()) return "unsupported";
+  try {
+    await shareMessage(preparedId);
+  } catch (error) {
+    if (!String(error).includes("USER_DECLINED")) throw error;
+  }
+  return "shared";
 }
 
 const WRITE_ACCESS_ASKED = "shared-lists:write-access-asked";

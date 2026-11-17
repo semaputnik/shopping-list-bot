@@ -37,6 +37,12 @@ type StringKey =
   | "share"
   | "linkCopied"
   | "linkUnavailable"
+  | "invitedBy"
+  | "resetLink"
+  | "resetLinkTitle"
+  | "resetLinkMessage"
+  | "resetLinkConfirm"
+  | "linkReset"
   | "members"
   | "you"
   | "membersHint"
@@ -142,6 +148,12 @@ const strings: Record<Language, Record<StringKey, string>> = {
     share: "Поделиться",
     linkCopied: "Ссылка скопирована",
     linkUnavailable: "Не удалось получить ссылку",
+    invitedBy: "пригласил(а) {name}",
+    resetLink: "Сбросить ссылку",
+    resetLinkTitle: "Сбросить ссылку?",
+    resetLinkMessage: "Старая ссылка перестанет работать. Те, кто уже в списке, останутся.",
+    resetLinkConfirm: "Сбросить",
+    linkReset: "Ссылка сброшена",
     members: "Участники",
     you: "вы",
     membersHint: "У всех участников одинаковые права. Отправьте ссылку, чтобы добавить ещё кого-то.",
@@ -246,6 +258,12 @@ const strings: Record<Language, Record<StringKey, string>> = {
     share: "Compartir",
     linkCopied: "Enlace copiado",
     linkUnavailable: "No se pudo obtener el enlace",
+    invitedBy: "invitación de {name}",
+    resetLink: "Restablecer el enlace",
+    resetLinkTitle: "¿Restablecer el enlace?",
+    resetLinkMessage: "El enlace anterior dejará de funcionar. Quienes ya están en la lista se quedan.",
+    resetLinkConfirm: "Restablecer",
+    linkReset: "Enlace restablecido",
     members: "Miembros",
     you: "tú",
     membersHint: "Todos los miembros tienen los mismos derechos. Envía el enlace para añadir a alguien más.",
@@ -350,6 +368,12 @@ const strings: Record<Language, Record<StringKey, string>> = {
     share: "Share",
     linkCopied: "Link copied",
     linkUnavailable: "Couldn't get the link",
+    invitedBy: "invited by {name}",
+    resetLink: "Reset link",
+    resetLinkTitle: "Reset the link?",
+    resetLinkMessage: "The old link will stop working. People already in the list stay.",
+    resetLinkConfirm: "Reset",
+    linkReset: "Link reset",
     members: "Members",
     you: "you",
     membersHint: "Every member has the same rights. Send the link to add someone else.",

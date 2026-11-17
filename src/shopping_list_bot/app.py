@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Annotated, Literal
 
+import anyio.from_thread
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -34,6 +35,7 @@ from .categories import CATEGORIES, CATEGORY_BY_KEY, guess_category
 from .config import Settings
 from .db import make_engine, make_session_factory
 from .i18n import FIRST_LIST_NAME, effective_language
+from .invite_card import PrepareInvite, compose_card
 from .migrate import is_current
 from .normalize import normalize
 from .notifications import Notifier, Send, TelegramSender, queue_added, queue_bought
@@ -307,6 +309,10 @@ class CategoryOut(BaseModel):
     emoji: str
 
 
+class PreparedInviteOut(BaseModel):
+    id: str  # the prepared message id for `shareMessage`
+
+
 class InviteOut(BaseModel):
     code: str
     # `https://t.me/<bot>?startapp=join_<code>`; null while SL_BOT_USERNAME is unset.
@@ -416,9 +422,14 @@ def _upsert_user(session: Session, tg: TelegramUser) -> tuple[models.User, bool]
     return user, created
 
 
-def create_app(settings: Settings | None = None, notify_send: Send | None = None) -> FastAPI:
-    """Build the app. ``notify_send`` replaces the Telegram sender for bot notifications
-    (tests pass a fake); without it, notifications go through the Bot API when a token is set."""
+def create_app(
+    settings: Settings | None = None,
+    notify_send: Send | None = None,
+    prepare_invite: PrepareInvite | None = None,
+) -> FastAPI:
+    """Build the app. ``notify_send`` and ``prepare_invite`` replace the Telegram sender for bot
+    notifications and Invite cards (tests pass fakes); without them, both go through the Bot API
+    when a token is set."""
     settings = settings or Settings()
     engine = make_engine(settings.database_url)
     session_factory = make_session_factory(engine)
@@ -428,6 +439,8 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
         else None
     )
     notifier = Notifier(settings, session_factory, notify_send or telegram)
+    if prepare_invite is None and telegram is not None:
+        prepare_invite = telegram.prepare_invite
     # Fail closed: with neither SL_SESSION_SECRET nor a bot token there is no secret, and
     # no session is issued (sign-in needs the bot token anyway) or accepted.
     secret = settings.session_secret or (
@@ -715,6 +728,25 @@ def create_app(settings: Settings | None = None, notify_send: Send | None = None
                 session.add(invite)
                 session.commit()
         return _invite_out(invite)
+
+    @api.post("/lists/{list_id}/invite/prepared", response_model=PreparedInviteOut)
+    def prepare_invite_card(list_id: int, user: UserDep, session: SessionDep) -> PreparedInviteOut:
+        """Store the Invite card with the Bot API for the Mini App's `shareMessage`."""
+        lst = _member_list(session, user, list_id)
+        if prepare_invite is None:
+            raise HTTPException(503, "The bot cannot share cards right now")
+        invite = get_invite(list_id, user, session)
+        if invite.url is None:
+            raise HTTPException(503, "The bot cannot share cards right now")
+        card = compose_card(lst.name, user.first_name, user.telegram_id, invite.url, _lang(user))
+        # Release the List lock and the connection before the Telegram round trip.
+        session.rollback()
+        try:
+            prepared_id = anyio.from_thread.run(prepare_invite, card)
+        except Exception:
+            logger.warning("savePreparedInlineMessage failed", exc_info=True)
+            raise HTTPException(502, "Telegram did not accept the card") from None
+        return PreparedInviteOut(id=prepared_id)
 
     @api.post("/lists/{list_id}/invite/reset", response_model=InviteOut)
     def reset_invite(list_id: int, user: UserDep, session: SessionDep) -> InviteOut:
