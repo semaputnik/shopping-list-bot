@@ -50,6 +50,11 @@ type StringKey =
   | "entryNote"
   | "entryName"
   | "entryNameHint"
+  | "aliases"
+  | "aliasesPlaceholder"
+  | "aliasesHint"
+  | "aliasTaken"
+  | "aliasRemove"
   | "entryDetails"
   | "entryNotePlaceholder"
   | "entryCategory"
@@ -150,6 +155,11 @@ const strings: Record<Language, Record<StringKey, string>> = {
     entryNote: "Заметка",
     entryName: "Название",
     entryNameHint: "Меняется у товара целиком: во всех его строках и подсказках.",
+    aliases: "Другие названия",
+    aliasesPlaceholder: "Например, milk",
+    aliasesHint: "Поиск найдёт товар и по этим названиям.",
+    aliasTaken: "Это название уже занято другим товаром в списке.",
+    aliasRemove: "Убрать название",
     entryNotePlaceholder: "Количество или детали",
     entryCategory: "Отдел",
     entryAddedBy: "Добавлено:",
@@ -249,6 +259,11 @@ const strings: Record<Language, Record<StringKey, string>> = {
     entryNote: "Nota",
     entryName: "Nombre",
     entryNameHint: "Cambia en todo el producto: en todas sus filas y sugerencias.",
+    aliases: "Otros nombres",
+    aliasesPlaceholder: "Por ejemplo, milk",
+    aliasesHint: "La búsqueda también encontrará el producto por estos nombres.",
+    aliasTaken: "Otro producto de la lista ya tiene este nombre.",
+    aliasRemove: "Quitar nombre",
     entryNotePlaceholder: "Cantidad o detalles",
     entryCategory: "Sección",
     entryAddedBy: "Añadido por:",
@@ -348,6 +363,11 @@ const strings: Record<Language, Record<StringKey, string>> = {
     entryNote: "Note",
     entryName: "Name",
     entryNameHint: "Changes the whole item: every row of it and its suggestions.",
+    aliases: "Other names",
+    aliasesPlaceholder: "For example, leche",
+    aliasesHint: "Search finds the item by these names too.",
+    aliasTaken: "Another item on the list already has this name.",
+    aliasRemove: "Remove name",
     entryNotePlaceholder: "Amount or details",
     entryCategory: "Section",
     entryAddedBy: "Added by:",

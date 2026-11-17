@@ -111,10 +111,17 @@ export function createList(token: string, name: string): Promise<ShoppingList> {
   );
 }
 
+/** Another name of a Product, added by hand. */
+export interface Alias {
+  id: number;
+  name: string;
+}
+
 export interface Entry {
   id: number;
   product_id: number;
   name: string;
+  aliases: Alias[];
   note: string | null;
   category: string;
   added_by: number | null;
@@ -206,7 +213,10 @@ export function updateEntry(
 /** A Product from the List's memory matching the typed text. */
 export interface Suggestion {
   product_id: number;
+  /** The canonical name, also when the match came through an alias. */
   name: string;
+  /** The alias that matched the typed text; null when the name did. */
+  matched_alias: string | null;
   category: string;
   /** The Product already has an Entry on the List (adding it again still creates another row). */
   on_list: boolean;
@@ -231,6 +241,33 @@ export function renameProduct(
   return request(
     `/api/lists/${listId}/products/${productId}`,
     { method: "PATCH", body: JSON.stringify({ name }) },
+    token,
+  );
+}
+
+/** Gives a Product another name. Rejects with ApiError 409 when another Product already has it. */
+export function addAlias(
+  token: string,
+  listId: number,
+  productId: number,
+  name: string,
+): Promise<{ version: number; id: number; name: string }> {
+  return request(
+    `/api/lists/${listId}/products/${productId}/aliases`,
+    { method: "POST", body: JSON.stringify({ name }) },
+    token,
+  );
+}
+
+export function removeAlias(
+  token: string,
+  listId: number,
+  productId: number,
+  aliasId: number,
+): Promise<{ version: number }> {
+  return request(
+    `/api/lists/${listId}/products/${productId}/aliases/${aliasId}`,
+    { method: "DELETE" },
     token,
   );
 }

@@ -28,6 +28,8 @@ import {
   fetchInvite,
   fetchSuggestions,
   hideProduct,
+  addAlias,
+  removeAlias,
   renameProduct,
   restoreEntry,
   updateEntry,
@@ -171,7 +173,9 @@ export function ListScreen({
   const [boughtNames, setBoughtNames] = useState<string[]>([]);
   const [info, setInfo] = useState<string | null>(null);
   const { start: segmentStart, query } = currentSegment(text);
-  const isNew = query !== "" && !suggestions.some((s) => fold(s.name) === fold(query));
+  const isNew = query !== "" && !suggestions.some(
+    (s) => fold(s.name) === fold(query) || (s.matched_alias && fold(s.matched_alias) === fold(query)),
+  );
   // Options in order: matching Products, then «Добавить «…»» for a new name.
   const optionCount = suggestions.length + (isNew ? 1 : 0);
   const open = query !== "" && !dismissed && optionCount > 0;
@@ -389,6 +393,36 @@ export function ListScreen({
       await refresh();
     },
     [token, listId, openId, markOwn, refresh],
+  );
+
+  /** The open Entry's Product, for the alias edits below. */
+  const openProductId = useCallback(
+    () =>
+      contentsRef.current?.categories.flatMap((g) => g.entries).find((e) => e.id === openId)
+        ?.product_id,
+    [openId],
+  );
+
+  const addOpenAlias = useCallback(
+    async (name: string) => {
+      const productId = openProductId();
+      if (listId === undefined || productId === undefined || openId === null) return;
+      markOwn(openId);
+      await addAlias(token, listId, productId, name);
+      await refresh();
+    },
+    [token, listId, openId, openProductId, markOwn, refresh],
+  );
+
+  const removeOpenAlias = useCallback(
+    async (aliasId: number) => {
+      const productId = openProductId();
+      if (listId === undefined || productId === undefined || openId === null) return;
+      markOwn(openId);
+      await removeAlias(token, listId, productId, aliasId);
+      await refresh();
+    },
+    [token, listId, openId, openProductId, markOwn, refresh],
   );
 
   const removeEntry = async (id: number, name: string) => {
@@ -997,6 +1031,7 @@ export function ListScreen({
                   onClick={() => choose(i)}
                 >
                   <span className="suggest__name">{s.name}</span>
+                  {s.matched_alias && <span className="suggest__alias">· {s.matched_alias}</span>}
                   {s.on_list && <span className="suggest__hint">{strings.alreadyOnList}</span>}
                 </button>
                 <button
@@ -1231,6 +1266,8 @@ export function ListScreen({
           onSaveNote={saveNote}
           onChangeCategory={changeCategory}
           onRename={renameOpenProduct}
+          onAddAlias={addOpenAlias}
+          onRemoveAlias={removeOpenAlias}
           onDelete={() => void removeEntry(openEntry.id, openEntry.name)}
           onSaveFailed={() => setError("save")}
           onClose={closeCard}
