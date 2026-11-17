@@ -7,6 +7,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from "react";
+import { Cell, List, Section, Skeleton } from "@telegram-apps/telegram-ui";
 import {
   addEntries,
   buy,
@@ -33,7 +34,13 @@ import { applyEntryChange } from "../entryChange";
 import { QUICK_ADD, withCount, type Language, type Strings } from "../i18n";
 import { shareList } from "../share";
 import type { Remote } from "../sync";
-import { bindMainButton, confirmDestructive, haptic, setMainButtonText } from "../telegram";
+import {
+  bindMainButton,
+  confirmDestructive,
+  haptic,
+  platform,
+  setMainButtonText,
+} from "../telegram";
 import { NameSheet, Sheet } from "./Sheet";
 
 interface Props {
@@ -1091,68 +1098,80 @@ export function ListScreen({
         </section>
       )}
 
-      {groups.map((group) => (
-        <section
-          key={group.key}
-          className={group.entries.every((e) => e.checked) ? "group group--done" : "group"}
-        >
-          <h2 className="group__header">
-            <span className="group__emoji" aria-hidden="true">
-              {group.emoji}
-            </span>
-            <span className="group__name">{group.name}</span>
-            {(() => {
-              const left = group.entries.filter((e) => !e.checked).length;
-              return (
-                <span className="group__count" aria-label={withCount(strings.remaining, left)}>
-                  {left > 0 ? left : "✓"}
-                </span>
-              );
-            })()}
-          </h2>
-          <ul className="rows">
-            {group.entries.map((entry) => (
-              <li
-                key={entry.id}
-                className={["row", entry.checked && "row--checked", fresh.has(entry.id) && "row--new"]
-                  .filter(Boolean)
-                  .join(" ")}
-              >
-                {/* The whole row is the tap target for the aisle action (check / uncheck);
-                    the trailing chevron is the separate, visible way into the Entry card. */}
-                <button
-                  type="button"
-                  role="checkbox"
-                  aria-checked={entry.checked}
-                  className="row__toggle"
-                  onClick={() => toggle(entry.id, !entry.checked)}
-                >
-                  <span className="row__check" aria-hidden="true" />
-                  <span className="row__text">
-                    <span className="row__name">
-                      <span className="row__label">{entry.name}</span>
-                    </span>
-                    {entry.note && <span className="row__note">{entry.note}</span>}
-                  </span>
-                  {shared && (
-                    <span className="row__by" aria-hidden="true">
-                      <EntryAvatar members={list.members} addedBy={entry.added_by} />
-                    </span>
-                  )}
-                </button>
-                <button
-                  type="button"
-                  className="row__open"
-                  aria-label={`${strings.entryDetails}: ${entry.name}`}
-                  onClick={() => openCard(entry.id)}
-                >
-                  <span aria-hidden="true">›</span>
-                </button>
-              </li>
+      {!contents && error !== "load" && (
+        <List className="groups" data-platform={platform} role="status" aria-busy="true" aria-label={strings.loading}>
+          <Section>
+            {[0, 1, 2, 3].map((i) => (
+              <Cell key={i} before={<Skeleton visible className="skeleton__check" />}>
+                <Skeleton visible className="skeleton__line" />
+              </Cell>
             ))}
-          </ul>
-        </section>
-      ))}
+          </Section>
+        </List>
+      )}
+
+      <List className="groups" data-platform={platform}>
+        {groups.map((group) => {
+          const left = group.entries.filter((e) => !e.checked).length;
+          return (
+            <Section
+              key={group.key}
+              className={left === 0 ? "group group--done" : "group"}
+              header={
+                <h2 className="group__header">
+                  <span className="group__emoji" aria-hidden="true">
+                    {group.emoji}
+                  </span>
+                  <span className="group__name">{group.name}</span>
+                  <span className="group__count" aria-label={withCount(strings.remaining, left)}>
+                    {left > 0 ? left : "✓"}
+                  </span>
+                </h2>
+              }
+            >
+              {group.entries.map((entry) => (
+                <div
+                  key={entry.id}
+                  className={["row", entry.checked && "row--checked", fresh.has(entry.id) && "row--new"]
+                    .filter(Boolean)
+                    .join(" ")}
+                >
+                  {/* The whole row is the tap target for the aisle action (check / uncheck);
+                      the trailing chevron is the separate, visible way into the Entry card. */}
+                  <Cell
+                    Component="button"
+                    type="button"
+                    role="checkbox"
+                    aria-checked={entry.checked}
+                    className="row__toggle"
+                    multiline
+                    before={<span className="row__check" aria-hidden="true" />}
+                    subtitle={entry.note ? <span className="row__note">{entry.note}</span> : undefined}
+                    after={
+                      shared ? (
+                        <span className="row__by" aria-hidden="true">
+                          <EntryAvatar members={list.members} addedBy={entry.added_by} />
+                        </span>
+                      ) : undefined
+                    }
+                    onClick={() => toggle(entry.id, !entry.checked)}
+                  >
+                    <span className="row__label">{entry.name}</span>
+                  </Cell>
+                  <button
+                    type="button"
+                    className="row__open"
+                    aria-label={`${strings.entryDetails}: ${entry.name}`}
+                    onClick={() => openCard(entry.id)}
+                  >
+                    <span aria-hidden="true">›</span>
+                  </button>
+                </div>
+              ))}
+            </Section>
+          );
+        })}
+      </List>
       {openEntry && (
         <EntrySheet
           key={openEntry.id}

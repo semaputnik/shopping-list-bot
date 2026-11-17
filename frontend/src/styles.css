@@ -416,8 +416,45 @@ body {
 }
 
 /* A Category section: caps-style header, then an inset grouped list of rows. */
-.group {
+.groups.groups {
+  padding: 0;
+}
+
+.groups.groups > :not(:last-child) {
   margin-bottom: 20px;
+}
+
+/* Hairlines start where the label starts: Cell padding + check (22px) + gap, as in Telegram's own lists. */
+.groups[data-platform="ios"] hr {
+  margin-inline-start: 54px;
+}
+
+.groups[data-platform="base"] hr {
+  margin-inline-start: 70px;
+}
+
+/* tgui's Divider uses a fixed outline colour; follow Telegram's section separator instead. */
+.groups hr {
+  border: 0;
+  border-bottom: 0.5px solid var(--separator);
+}
+
+/* Android grammar: tgui gives the section card a shadow; DESIGN.md Elevation has none. */
+.groups[data-platform="base"] .group > div:first-child {
+  box-shadow: none;
+}
+
+/* Android grammar: tgui draws the header inside the section card, so align it with the Cells and keep the tile visible. */
+.groups[data-platform="base"] .group__header {
+  padding: 16px 24px 4px;
+}
+
+.groups[data-platform="base"] .group__emoji {
+  background: var(--ground);
+}
+
+.groups[data-platform="base"] .group--done .group__emoji::after {
+  border-color: var(--section);
 }
 
 /* Category header: the emoji tile carries the only colour the product owns. */
@@ -431,7 +468,7 @@ body {
   font-weight: 400;
   text-transform: uppercase;
   letter-spacing: 0.02em;
-  color: var(--tg-theme-section-header-text-color, var(--hint));
+  color: var(--tgui--section_header_text_color, var(--hint));
 }
 
 .group__emoji {
@@ -453,15 +490,6 @@ body {
 
 .group__name {
   flex: 1;
-}
-
-.rows {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  border-radius: 12px;
-  background: var(--section);
-  overflow: hidden;
 }
 
 /* Header controls: the List name opens the switcher, "⋯" opens the List menu. */
@@ -686,41 +714,26 @@ body {
 /* The whole row toggles; the trailing chevron opens the Entry card. Checking only restyles the row. */
 .row {
   position: relative;
-  display: flex;
-  align-items: stretch;
 }
 
+/* Room on the right for the chevron, which sits over the Cell as its own button. */
 .row__toggle {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  align-items: center;
-  gap: 12px;
+  width: 100%;
   min-height: 52px;
-  padding: 10px 4px 10px 16px;
+  padding-right: 44px;
   border: 0;
   background: none;
   color: inherit;
-  font: inherit;
+  font-family: inherit;
   text-align: left;
 }
 
-.row__text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.row__name {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
 .row__open {
-  flex-shrink: 0;
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
   width: 44px;
-  min-height: 52px;
   padding: 0 12px 0 0;
   border: 0;
   background: none;
@@ -757,7 +770,7 @@ body {
   transform: rotate(45deg);
 }
 
-.row--checked .row__name,
+.row--checked .row__label,
 .row--checked .row__note {
   color: var(--hint);
 }
@@ -768,6 +781,7 @@ body {
 
 /* Crossing off is a pen stroke drawn across the name, left to right, and undrawn on uncheck. */
 .row__label {
+  overflow-wrap: anywhere;
   background: linear-gradient(currentColor, currentColor) no-repeat 0 58% / 0% 1.5px;
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
@@ -794,17 +808,6 @@ body {
   100% {
     transform: scale(1);
   }
-}
-
-/* Hairline separators start at the text, as in Telegram's own lists (16 + 22 check + 12 gap). */
-.row + .row::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 50px;
-  right: 0;
-  height: 0.5px;
-  background: var(--separator);
 }
 
 /* The Entry card (inside the shared Sheet). */
@@ -868,8 +871,6 @@ body {
 }
 
 .row__note {
-  font-size: 15px;
-  color: var(--hint);
   overflow-wrap: anywhere;
 }
 
@@ -1147,8 +1148,6 @@ body {
 .row__by {
   display: flex;
   flex-shrink: 0;
-  margin-left: auto;
-  padding-left: 8px;
 }
 
 /* On a row the avatar sits on the section surface, so its ring matches that, not the page ground. */
@@ -1161,4 +1160,25 @@ body {
   margin: 6px 4px 0;
   color: var(--hint);
   font-size: 13px;
+}
+
+/* First load: grey placeholders in the shape of rows. */
+.skeleton__check {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+}
+
+.skeleton__line {
+  width: 140px;
+  height: 17px;
+  border-radius: 6px;
+}
+
+/* tgui paints the shimmer on pseudo-elements with no radius; make them take the placeholder's shape. */
+.skeleton__check::before,
+.skeleton__check::after,
+.skeleton__line::before,
+.skeleton__line::after {
+  border-radius: inherit;
 }

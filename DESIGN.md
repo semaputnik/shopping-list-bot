@@ -214,7 +214,7 @@ The kit's forms, unmodified:
 - **9 px** (`tile`): squircle-ish Category emoji tiles.
 - **Round**: checks, avatars (with a 2 px ring in the surface color, overlapping by 8 px in stacks), and the done badge on a tile.
 
-Hairline dividers start at the text, not the edge: 50 px on Entry rows (16 padding + 22 check + 12 gap) and 16 px elsewhere.
+Hairline dividers start at the text: on Entry rows 54 px on iOS (16 padding + 22 check + 16 gap) and 70 px on Android (24 + 22 + 24), following tgui Cell; 16 px elsewhere.
 
 ## Components
 
@@ -234,7 +234,7 @@ Every component is a tgui component unless marked custom. Character: **calm and 
 ### Cards / Containers
 - **Section** (`Section` with a `header`): one per Category. The header is caps Caption text with the emoji tile in front, the unchecked count, and optionally an «Add ⊕» plain button on the right (to implement). The footer is used for explanatory notes in Settings.
 - **Placeholder** (`Placeholder`): empty List, empty History, errors and bad links. A large emoji or illustration slot, a Headline, a Subheadline description, and one action. An empty state always says what to do next. When behaviour depends on a setting, it adds an inline link to that setting.
-- **Skeleton** (`Skeleton`): first load of a List and each History page. It replaces the text-only "Loading…" (to implement).
+- **Skeleton** (`Skeleton`): first load of a List (shipped) and each History page (to implement). It replaces the text-only "Loading…".
 
 ### Inputs / Fields
 - **Composer** (custom, sticky): a borderless 44 px field on Section Surface with 12 px corners, growing to 120 px. Like Telegram's own fields, focus shows only the caret and no ring. Pasting multiline text adds every line.

@@ -10,6 +10,7 @@ import {
   isBackButtonMounted,
   isMainButtonMounted,
   isMiniAppActive,
+  isThemeParamsDark,
   isTMA,
   miniAppReady,
   mountBackButton,
@@ -33,6 +34,25 @@ import {
   setMiniAppHeaderColor,
   showBackButton,
 } from "@telegram-apps/sdk-react";
+
+/** Which grammar tgui renders: iOS-style on Apple clients, Android-style everywhere else. */
+function launchPlatform(): "ios" | "base" {
+  try {
+    const platform = retrieveLaunchParams().tgWebAppPlatform;
+    return platform === "ios" || platform === "macos" ? "ios" : "base";
+  } catch {
+    return "base"; // not inside Telegram
+  }
+}
+
+export const platform = launchPlatform();
+
+/**
+ * Whether the Telegram theme is dark (a signal: it changes when the client switches theme).
+ * Outside Telegram there is no theme, and the SDK would read that as dark.
+ */
+export const isDarkTheme = isThemeParamsDark;
+export const insideTelegram = isTMA();
 
 export interface TelegramContext {
   rawInitData: string;
