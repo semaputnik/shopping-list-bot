@@ -1,12 +1,16 @@
 """Telegram bot: ``/start`` and ``/help`` explain the basics and open the Mini App."""
 
 import asyncio
+import html
 import logging
+from pathlib import Path
 
 from aiogram import Bot, Dispatcher
+from aiogram.enums import ParseMode
 from aiogram.filters import Command
 from aiogram.types import (
     BotCommand,
+    FSInputFile,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     MenuButtonWebApp,
@@ -22,39 +26,45 @@ from .db import make_engine, make_session_factory
 from .i18n import effective_language
 
 OPEN_BUTTON = {"ru": "Открыть список", "es": "Abrir lista", "en": "Open list"}
-# Sent by /start and /help: the basics, step by step.
+# Sent by /start and /help as the caption of the welcome banner (HTML; Telegram caps captions at
+# 1024 characters). {greeting} comes from GREETING.
 ONBOARDING_TEXT = {
     "ru": (
-        "Как это работает\n\n"
-        "1. Откройте список кнопкой ниже.\n"
-        "2. Добавляйте несколько позиций сразу через «;» или с новой строки, "
-        "а заметку пишите после запятой: молоко, 2 л.\n"
-        "3. Пригласите близких: ⋯ → «Пригласить».\n"
-        "4. Нажмите на позицию, чтобы вычеркнуть её, а «Куплено» переносит "
-        "вычеркнутое в историю покупок.\n"
-        "5. Бот напишет вам, когда другие добавят или купят что-то."
+        "<b>{greeting} 👋</b>\n"
+        "Shared Lists — общий список покупок прямо в Telegram.\n\n"
+        "🛒 <b>Добавляйте</b> сразу несколько: <code>молоко, 2 л; хлеб; яйца</code>\n"
+        "👆 <b>Вычёркивайте</b> тапом по позиции прямо в магазине\n"
+        "✅ <b>«Куплено»</b> переносит вычеркнутое в историю покупок\n"
+        "👨‍👩‍👧 <b>Зовите своих</b>: ⋯ → «Пригласить»\n\n"
+        "<blockquote>🔔 Я напишу, когда кто-то добавит или купит что-то.</blockquote>"
     ),
     "es": (
-        "Cómo funciona\n\n"
-        "1. Abre la lista con el botón de abajo.\n"
-        "2. Añade varios artículos a la vez con «;» o en líneas nuevas, "
-        "y escribe la nota tras una coma: leche, 2 l.\n"
-        "3. Invita a los tuyos: ⋯ → «Invitar».\n"
-        "4. Toca un artículo para tacharlo; «Comprado» pasa lo tachado "
-        "al historial de compras.\n"
-        "5. El bot te avisará cuando otros añadan o compren algo."
+        "<b>{greeting} 👋</b>\n"
+        "Shared Lists es una lista de la compra compartida dentro de Telegram.\n\n"
+        "🛒 <b>Añade</b> varios a la vez: <code>leche, 2 l; pan; huevos</code>\n"
+        "👆 <b>Tacha</b> tocando un artículo, ya en la tienda\n"
+        "✅ <b>«Comprado»</b> pasa lo tachado al historial de compras\n"
+        "👨‍👩‍👧 <b>Invita a los tuyos</b>: ⋯ → «Invitar»\n\n"
+        "<blockquote>🔔 Te avisaré cuando alguien añada o compre algo.</blockquote>"
     ),
     "en": (
-        "How it works\n\n"
-        "1. Open the list with the button below.\n"
-        "2. Add several items at once with “;” or on new lines, "
-        "and write a note after a comma: milk, 2 l.\n"
-        "3. Invite your people: ⋯ → “Invite”.\n"
-        "4. Tap an item to cross it out; “Bought” moves the crossed-out items "
-        "to the purchase history.\n"
-        "5. The bot will tell you when others add or buy something."
+        "<b>{greeting} 👋</b>\n"
+        "Shared Lists is a shared shopping list right inside Telegram.\n\n"
+        "🛒 <b>Add</b> several at once: <code>milk, 2 l; bread; eggs</code>\n"
+        "👆 <b>Cross off</b> with a tap, right in the store\n"
+        "✅ <b>“Bought”</b> moves the crossed-off items to the purchase history\n"
+        "👨‍👩‍👧 <b>Invite your people</b>: ⋯ → “Invite”\n\n"
+        "<blockquote>🔔 I’ll tell you when someone adds or buys something.</blockquote>"
     ),
 }
+# With the user's first name (HTML-escaped) when Telegram gives one, and without it otherwise.
+GREETING = {
+    "ru": ("Привет, {name}!", "Привет!"),
+    "es": ("¡Hola, {name}!", "¡Hola!"),
+    "en": ("Hi, {name}!", "Hi!"),
+}
+# The banner above the onboarding text; its source is assets/bot/welcome.svg.
+WELCOME_IMAGE = Path(__file__).parent / "assets" / "welcome.png"
 # Shown on the bot's empty chat (before Start) and in its profile; Telegram caps them at
 # 512 and 120 characters.
 DESCRIPTION = {
@@ -88,6 +98,12 @@ COMMANDS = {
 BOT_PROFILE_LANGUAGES = (None, "ru", "es", "en")
 
 
+def onboarding_text(lang: str, first_name: str | None) -> str:
+    with_name, without_name = GREETING[lang]
+    greeting = with_name.format(name=html.escape(first_name)) if first_name else without_name
+    return ONBOARDING_TEXT[lang].format(greeting=greeting)
+
+
 def open_keyboard(webapp_url: str, lang: str) -> InlineKeyboardMarkup:
     button = InlineKeyboardButton(text=OPEN_BUTTON[lang], web_app=WebAppInfo(url=webapp_url))
     return InlineKeyboardMarkup(inline_keyboard=[[button]])
@@ -117,6 +133,8 @@ def build_dispatcher(settings: Settings) -> Dispatcher:
             chosen = None
         return effective_language(chosen, language_code)
 
+    welcome_photo: dict[str, str | None] = {"file_id": None}
+
     @dp.message(Command("start", "help"))
     async def start(message: Message) -> None:
         sender = message.from_user
@@ -125,9 +143,15 @@ def build_dispatcher(settings: Settings) -> Dispatcher:
             if sender
             else effective_language(None, None)
         )
-        await message.answer(
-            ONBOARDING_TEXT[lang], reply_markup=open_keyboard(settings.webapp_url, lang)
+        sent = await message.answer_photo(
+            welcome_photo["file_id"] or FSInputFile(WELCOME_IMAGE),
+            caption=onboarding_text(lang, sender.first_name if sender else None),
+            parse_mode=ParseMode.HTML,
+            reply_markup=open_keyboard(settings.webapp_url, lang),
         )
+        if sent and sent.photo:
+            # Telegram keeps the uploaded banner: later sends reuse it instead of uploading again.
+            welcome_photo["file_id"] = sent.photo[-1].file_id
 
     dp.shutdown.register(lambda: engine.dispose())
     return dp

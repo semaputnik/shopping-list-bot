@@ -514,7 +514,8 @@ body {
   .row--new,
   .row--checked .row__check,
   .group--done .group__emoji,
-  .popover {
+  .popover,
+  .tip {
     animation-duration: 0.01s;
   }
 
@@ -806,6 +807,35 @@ body {
   margin: 0 auto;
   border-radius: 12px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.16);
+  /* It arrives with the kit's own curve. */
+  animation: tip-in 0.34s cubic-bezier(0.3, 0.3, 0.5, 1);
+}
+
+/* The tip carries a light accent wash and an emoji tile. */
+.tip .tip__banner {
+  background: color-mix(in srgb, var(--accent) 9%, var(--section));
+}
+
+.tip__icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 16%, var(--section));
+  font-size: 24px;
+  line-height: 1;
+}
+
+@keyframes tip-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .tip__close {

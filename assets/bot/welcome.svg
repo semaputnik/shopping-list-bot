@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640">
+  <title>Shared Lists</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#43B7F0"/>
+      <stop offset="1" stop-color="#1784D1"/>
+    </linearGradient>
+    <filter id="lift" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="16" stdDeviation="18" flood-color="#0B4F86" flood-opacity="0.35"/>
+    </filter>
+    <filter id="soft" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#0B4F86" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+
+  <rect width="1280" height="640" fill="url(#bg)"/>
+
+  <!-- Quiet background rings, echoing a shared, synced list -->
+  <circle cx="1130" cy="90" r="190" fill="none" stroke="#FFFFFF" stroke-opacity="0.08" stroke-width="40"/>
+  <circle cx="130" cy="590" r="150" fill="none" stroke="#FFFFFF" stroke-opacity="0.07" stroke-width="34"/>
+
+  <!-- Wordmark (the product name stays the same in every language) -->
+  <text x="96" y="296" font-family="-apple-system, 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif" font-size="92" font-weight="700" fill="#FFFFFF" letter-spacing="-2">Shared</text>
+  <text x="96" y="392" font-family="-apple-system, 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif" font-size="92" font-weight="700" fill="#FFFFFF" letter-spacing="-2">Lists</text>
+  <rect x="100" y="430" width="120" height="10" rx="5" fill="#FFFFFF" opacity="0.55"/>
+
+  <g transform="translate(-60 0)">
+  <!-- The second, shared copy of the list behind -->
+  <g transform="rotate(-8 880 330)">
+    <rect x="730" y="112" width="300" height="400" rx="44" fill="#FFFFFF" opacity="0.36"/>
+  </g>
+
+  <!-- The list card -->
+  <g filter="url(#lift)">
+    <rect x="730" y="124" width="300" height="400" rx="44" fill="#FFFFFF"/>
+  </g>
+
+  <!-- Row 1: in the basket -->
+  <circle cx="796" cy="214" r="26" fill="#2AA0E6"/>
+  <path d="M784 215 l9 9 l16 -18" fill="none" stroke="#FFFFFF" stroke-width="7.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="844" y="207" width="130" height="14" rx="7" fill="#C9D6E2"/>
+  <rect x="838" y="211" width="142" height="6" rx="3" fill="#2AA0E6"/>
+
+  <!-- Row 2: in the basket -->
+  <circle cx="796" cy="306" r="26" fill="#2AA0E6"/>
+  <path d="M784 307 l9 9 l16 -18" fill="none" stroke="#FFFFFF" stroke-width="7.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="844" y="299" width="100" height="14" rx="7" fill="#C9D6E2"/>
+  <rect x="838" y="303" width="112" height="6" rx="3" fill="#2AA0E6"/>
+
+  <!-- Row 3 and 4: still to buy -->
+  <circle cx="796" cy="398" r="23" fill="none" stroke="#B4C3D1" stroke-width="6.5"/>
+  <rect x="844" y="391" width="140" height="14" rx="7" fill="#2B3A4A"/>
+  <circle cx="796" cy="472" r="23" fill="none" stroke="#B4C3D1" stroke-width="6.5"/>
+  <rect x="844" y="465" width="96" height="14" rx="7" fill="#2B3A4A"/>
+
+  <!-- Members sharing the list -->
+  <g filter="url(#soft)">
+    <circle cx="1046" cy="150" r="40" fill="#FFB547" stroke="#FFFFFF" stroke-width="7"/>
+    <circle cx="1100" cy="198" r="40" fill="#6CD07A" stroke="#FFFFFF" stroke-width="7"/>
+  </g>
+  <circle cx="1046" cy="140" r="13" fill="#FFFFFF" opacity="0.9"/>
+  <path d="M1022 172 a24 18 0 0 1 48 0" fill="#FFFFFF" opacity="0.9"/>
+  <circle cx="1100" cy="188" r="13" fill="#FFFFFF" opacity="0.9"/>
+  <path d="M1076 220 a24 18 0 0 1 48 0" fill="#FFFFFF" opacity="0.9"/>
+  </g>
+</svg>

@@ -883,15 +883,22 @@ export function ListScreen({
   // the first check outranks the invite tip; each shows until the user closes it or does what it teaches.
   const tipOpen = (key: TipKey) => !dismissedTips.includes(key);
   const busyAbove = panel !== null || openId !== null || lastRemoved || undoable || info;
-  let tip: { key: TipKey; title: string; text: string; action?: ReactNode } | null = null;
+  let tip: { key: TipKey; icon: string; title: string; text: string; action?: ReactNode } | null =
+    null;
   if (contents && !busyAbove) {
     if (anyChecked && tipOpen("bought")) {
-      tip = { key: "bought", title: strings.tipBoughtTitle, text: strings.tipBoughtText };
+      tip = { key: "bought", icon: "✅", title: strings.tipBoughtTitle, text: strings.tipBoughtText };
     } else if (totalCount === 0 && !justBought && tipOpen("multi_add")) {
-      tip = { key: "multi_add", title: strings.tipMultiAddTitle, text: strings.tipMultiAddText };
+      tip = {
+        key: "multi_add",
+        icon: "📝",
+        title: strings.tipMultiAddTitle,
+        text: strings.tipMultiAddText,
+      };
     } else if (totalCount > 0 && !shared && tipOpen("invite")) {
       tip = {
         key: "invite",
+        icon: "👨‍👩‍👧",
         title: strings.tipInviteTitle,
         text: strings.tipInviteText,
         action: (
@@ -1272,6 +1279,8 @@ export function ListScreen({
 
       {tip && (
         <Tip
+          key={tip.key}
+          icon={tip.icon}
           title={tip.title}
           text={tip.text}
           closeLabel={strings.close}
