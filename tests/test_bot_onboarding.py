@@ -10,7 +10,7 @@ from datetime import datetime
 import pytest
 from aiogram import Bot
 from aiogram.client.session.base import BaseSession
-from aiogram.methods import SendMessage, SetMyCommands, SetMyDescription, SetMyShortDescription
+from aiogram.methods import SendPhoto, SetMyCommands, SetMyDescription, SetMyShortDescription
 from aiogram.types import Chat, Message, Update, User
 
 from shopping_list_bot.bot import build_dispatcher, configure_bot
@@ -42,10 +42,12 @@ def make_bot() -> tuple[Bot, RecordingSession]:
     return Bot("123456:TEST-bot-token-not-real", session=session), session
 
 
-def send_command(database_url: str, command: str, language_code: str | None) -> SendMessage:
+def send_command(
+    database_url: str, command: str, language_code: str | None, first_name: str = "Anna"
+) -> SendPhoto:
     settings = Settings(database_url=database_url, webapp_url=WEBAPP_URL, _env_file=None)
     bot, session = make_bot()
-    user = User(id=1001, is_bot=False, first_name="Anna", language_code=language_code)
+    user = User(id=1001, is_bot=False, first_name=first_name, language_code=language_code)
     message = Message(
         message_id=1,
         date=datetime.now(),
@@ -61,31 +63,33 @@ def send_command(database_url: str, command: str, language_code: str | None) -> 
 
 @pytest.mark.parametrize("command", ["/start", "/help"])
 @pytest.mark.parametrize(
-    ("language_code", "heading", "bought"),
+    ("language_code", "greeting", "bought"),
     [
-        ("ru", "Как это работает", "«Куплено»"),
-        ("es-MX", "Cómo funciona", "«Comprado»"),
-        ("en", "How it works", "“Bought”"),
-        ("de", "How it works", "“Bought”"),
-        (None, "How it works", "“Bought”"),
+        ("ru", "<b>Привет, Anna! 👋</b>", "<b>«Куплено»</b>"),
+        ("es-MX", "<b>¡Hola, Anna! 👋</b>", "<b>«Comprado»</b>"),
+        ("en", "<b>Hi, Anna! 👋</b>", "<b>“Bought”</b>"),
+        ("de", "<b>Hi, Anna! 👋</b>", "<b>“Bought”</b>"),
+        (None, "<b>Hi, Anna! 👋</b>", "<b>“Bought”</b>"),
     ],
 )
-def test_start_and_help_send_the_steps_in_the_users_language(
-    database_url, command, language_code, heading, bought
+def test_start_and_help_send_the_banner_with_the_steps_in_the_users_language(
+    database_url, command, language_code, greeting, bought
 ):
     sent = send_command(database_url, command, language_code)
-    assert isinstance(sent, SendMessage)
-    assert sent.text.startswith(heading)
-    assert bought in sent.text
-    assert [line[:2] for line in sent.text.splitlines() if line[:1].isdigit()] == [
-        "1.",
-        "2.",
-        "3.",
-        "4.",
-        "5.",
-    ]
+    assert isinstance(sent, SendPhoto)
+    assert sent.parse_mode == "HTML"
+    assert sent.caption.startswith(greeting)
+    assert bought in sent.caption
+    assert len(sent.caption) <= 1024
+    steps = [line[:1] for line in sent.caption.splitlines() if line and line[0] in "🛒👆✅👨"]
+    assert steps == ["🛒", "👆", "✅", "👨"]
     (button,) = sent.reply_markup.inline_keyboard[0]
     assert button.web_app.url == WEBAPP_URL
+
+
+def test_the_users_name_is_escaped_in_the_greeting(database_url):
+    sent = send_command(database_url, "/start", "en", first_name="<Bob & Co>")
+    assert sent.caption.startswith("<b>Hi, &lt;Bob &amp; Co&gt;! 👋</b>")
 
 
 def test_start_button_is_labelled_in_the_users_language(database_url):

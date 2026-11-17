@@ -2,6 +2,8 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { Banner, IconButton } from "@telegram-apps/telegram-ui";
 
 interface Props {
+  /** An emoji that names the tip at a glance. */
+  icon: string;
   title: string;
   text: string;
   closeLabel: string;
@@ -11,7 +13,7 @@ interface Props {
 }
 
 /** A one-time onboarding card floating above the list, so showing it never moves a row. */
-export function Tip({ title, text, closeLabel, onClose, action }: Props) {
+export function Tip({ icon, title, text, closeLabel, onClose, action }: Props) {
   const ref = useRef<HTMLDivElement>(null);
 
   // The tip floats, so the screen reserves room for its real height (copy length varies by language).
@@ -31,7 +33,17 @@ export function Tip({ title, text, closeLabel, onClose, action }: Props) {
 
   return (
     <div className="tip" role="status" ref={ref}>
-      <Banner className="tip__banner" type="section" header={title} subheader={text}>
+      <Banner
+        className="tip__banner"
+        type="section"
+        before={
+          <span className="tip__icon" aria-hidden="true">
+            {icon}
+          </span>
+        }
+        header={title}
+        subheader={text}
+      >
         {action}
       </Banner>
       <IconButton mode="plain" size="s" className="tip__close" aria-label={closeLabel} onClick={onClose}>

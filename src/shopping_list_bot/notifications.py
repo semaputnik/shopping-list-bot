@@ -7,6 +7,7 @@ on a timer (see ``create_app``), and tests call it directly with a fake ``send``
 
 from __future__ import annotations
 
+import html
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -23,10 +24,12 @@ from .invite_card import PreparedInvite
 logger = logging.getLogger(__name__)
 
 TEXT = {
-    "ru": {"added": "Добавлено", "bought": "Куплено", "open": "Открыть список"},
-    "es": {"added": "Añadido", "bought": "Comprado", "open": "Abrir la lista"},
-    "en": {"added": "Added", "bought": "Bought", "open": "Open list"},
+    "ru": {"added": "добавлено", "bought": "куплено", "open": "Открыть список"},
+    "es": {"added": "añadido", "bought": "comprado", "open": "Abrir la lista"},
+    "en": {"added": "added", "bought": "bought", "open": "Open list"},
 }
+# Leads the message so the kind of news reads at a glance in the chat list.
+EMOJI = {"added": "🛒", "bought": "✅"}
 
 
 def items_phrase(n: int, lang: str) -> str:
@@ -127,9 +130,12 @@ def queue_bought(
 
 
 def compose(kind: str, list_name: str, actor_name: str, count: int, lang: str) -> str:
-    """«Покупки» · Анна / Добавлено: 3 позиции. Only the count: the List has the details."""
-    quoted = f"“{list_name}”" if lang == "en" else f"«{list_name}»"
-    return f"{quoted} · {actor_name}\n{TEXT[lang][kind]}: {items_phrase(count, lang)}"
+    """HTML: «🛒 <b>Покупки</b>» / «<b>Анна</b> · добавлено: 3 позиции». Only the count: the List
+    has the details. Names are user text, so they are escaped."""
+    return (
+        f"{EMOJI[kind]} <b>{html.escape(list_name)}</b>\n"
+        f"<b>{html.escape(actor_name)}</b> · {TEXT[lang][kind]}: {items_phrase(count, lang)}"
+    )
 
 
 class Notifier:
@@ -227,6 +233,7 @@ class TelegramSender:
         self.bot = Bot(bot_token)
 
     async def __call__(self, message: OutgoingMessage) -> None:
+        from aiogram.enums import ParseMode
         from aiogram.exceptions import TelegramRetryAfter
         from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
@@ -237,7 +244,9 @@ class TelegramSender:
             )
             markup = InlineKeyboardMarkup(inline_keyboard=[[button]])
         try:
-            await self.bot.send_message(message.chat_id, message.text, reply_markup=markup)
+            await self.bot.send_message(
+                message.chat_id, message.text, parse_mode=ParseMode.HTML, reply_markup=markup
+            )
         except TelegramRetryAfter as exc:
             raise RetryLater from exc
 
