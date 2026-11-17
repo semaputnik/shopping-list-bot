@@ -3,7 +3,7 @@ import hmac
 import time
 
 import pytest
-from conftest import TEST_BOT_TOKEN, sign_init_data
+from conftest import TEST_BOT_TOKEN, invite_code, sign_init_data
 from fastapi.testclient import TestClient
 
 from shopping_list_bot.app import create_app
@@ -103,10 +103,10 @@ class TestInitDataVerification:
         bad = {"Authorization": "Bearer 1.9999999999.\u00e9".encode("latin-1")}
         assert client.get("/api/me", headers=bad).status_code == 401
 
-    def test_expired_session_is_rejected(self, tmp_path):
+    def test_expired_session_is_rejected(self, tmp_path, database_url):
         settings = Settings(
             bot_token=TEST_BOT_TOKEN,
-            database_url=f"sqlite:///{tmp_path / 'expired.db'}",
+            database_url=database_url,
             frontend_dist=tmp_path / "no-frontend",
             session_ttl_seconds=-10,
             _env_file=None,
@@ -121,10 +121,10 @@ class TestInitDataVerification:
             client.get("/api/me", headers={"Authorization": f"Bearer {token}"}).status_code == 401
         )
 
-    def test_no_secret_configured_accepts_no_session(self, tmp_path):
+    def test_no_secret_configured_accepts_no_session(self, tmp_path, database_url):
         settings = Settings(
             bot_token="",
-            database_url=f"sqlite:///{tmp_path / 'nosecret.db'}",
+            database_url=database_url,
             frontend_dist=tmp_path / "no-frontend",
             _env_file=None,
         )
@@ -155,9 +155,51 @@ class TestUserUpsert:
         assert me["language_code"] == "es"
         assert me["language"] == "es"
 
+    def test_telegram_flags_are_stored_from_init_data(self, sign_in):
+        flagged = {**ANNA, "is_premium": True, "allows_write_to_pm": True}
+        user = sign_in({**flagged, "added_to_attachment_menu": True})["response"]["user"]
+        assert user["is_premium"] is True
+        assert user["allows_write_to_pm"] is True
+        assert user["added_to_attachment_menu"] is True
+
+    def test_flags_absent_from_init_data_are_false(self, sign_in):
+        user = sign_in(ANNA)["response"]["user"]
+        assert user["is_premium"] is False
+        assert user["allows_write_to_pm"] is False
+        assert user["added_to_attachment_menu"] is False
+
+    def test_second_sign_in_refreshes_every_field_and_drops_absent_ones(self, client, sign_in):
+        full = {
+            **ANNA,
+            "is_premium": True,
+            "allows_write_to_pm": True,
+            "added_to_attachment_menu": True,
+        }
+        first = sign_in(full)["response"]["user"]
+        second = sign_in({"id": 1001, "first_name": "Аня"})
+        me = client.get("/api/me", headers=second["headers"]).json()
+        assert me["id"] == first["id"]
+        assert me["first_name"] == "Аня"
+        assert me["last_name"] is None
+        assert me["username"] is None
+        assert me["photo_url"] is None
+        assert me["language_code"] is None
+        assert me["is_premium"] is False
+        assert me["allows_write_to_pm"] is False
+        assert me["added_to_attachment_menu"] is False
+
     @pytest.mark.parametrize(
         ("language_code", "expected"),
-        [("ru", "ru"), ("es", "es"), ("es-MX", "es"), ("ES", "es"), ("en", "ru"), (None, "ru")],
+        [
+            ("ru", "ru"),
+            ("es", "es"),
+            ("es-MX", "es"),
+            ("ES", "es"),
+            ("en", "en"),
+            ("en-GB", "en"),
+            ("de", "en"),  # a language we do not speak falls back to English
+            (None, "en"),
+        ],
     )
     def test_interface_language_is_picked_from_language_code(
         self, sign_in, language_code, expected
@@ -183,8 +225,9 @@ class TestFirstList:
         assert len(client.get("/api/lists", headers=again["headers"]).json()) == 1
 
     def share_code_of(self, client, sign_in, user):
-        (lst,) = client.get("/api/lists", headers=sign_in(user)["headers"]).json()
-        return lst["share_code"]
+        session = sign_in(user)
+        (lst,) = client.get("/api/lists", headers=session["headers"]).json()
+        return invite_code(client, session, lst["id"])
 
     def test_arriving_through_a_real_share_link_creates_no_own_list(self, client, sign_in):
         code = self.share_code_of(client, sign_in, ANNA)
@@ -206,16 +249,10 @@ class TestFirstList:
         lists = client.get("/api/lists", headers=session["headers"]).json()
         assert [lst["name"] for lst in lists] == [name]
 
-    def test_list_has_an_unguessable_share_code_and_starting_version(self, client, sign_in):
+    def test_list_starts_at_version_zero(self, client, sign_in):
         headers = sign_in(ANNA)["headers"]
         (lst,) = client.get("/api/lists", headers=headers).json()
-        assert len(lst["share_code"]) >= 16
         assert lst["version"] == 0
-
-    def test_share_codes_differ_between_lists(self, client, sign_in):
-        a = client.get("/api/lists", headers=sign_in(ANNA)["headers"]).json()[0]
-        b = client.get("/api/lists", headers=sign_in(CARLOS)["headers"]).json()[0]
-        assert a["share_code"] != b["share_code"]
 
 
 class TestListAccess:

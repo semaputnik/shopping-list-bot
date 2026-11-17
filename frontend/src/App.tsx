@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Snackbar } from "@telegram-apps/telegram-ui";
 import {
   ApiError,
   authenticate,
   createList,
   deleteList,
+  dismissTip,
   fetchLists,
   joinList,
   leaveList,
   renameList,
   updateLanguage,
   type ShoppingList,
+  type TipKey,
   type User,
 } from "./api";
 import { pickLanguage, t, type Language } from "./i18n";
@@ -46,7 +49,14 @@ export function App() {
   const [language, setLanguage] = useState<Language>(() =>
     pickLanguage(navigator.language),
   );
+  const [telegramLanguage, setTelegramLanguage] = useState<Language>(() =>
+    pickLanguage(navigator.language),
+  );
   const [failed, setFailed] = useState(false);
+  // Screen readers, hyphenation and spell-check follow the interface language, not the static HTML.
+  useEffect(() => {
+    document.documentElement.lang = language;
+  }, [language]);
   // Told to the Member when the List they were viewing disappears under them.
   const [notice, setNotice] = useState<string | null>(null);
   const [remote, setRemote] = useState<Remote>({ seq: 0, kind: "catchup", listId: null, version: 0 });
@@ -61,12 +71,6 @@ export function App() {
   const lastKind = useRef(new Map<number, string>());
   const lastCatchUp = useRef(0);
   const syncTimer = useRef<number | undefined>(undefined);
-
-  useEffect(() => {
-    if (notice === null) return;
-    const timer = setTimeout(() => setNotice(null), 5000);
-    return () => clearTimeout(timer);
-  }, [notice]);
 
   // The failure toast hides itself.
   useEffect(() => {
@@ -84,11 +88,14 @@ export function App() {
         setState({ kind: "not-telegram" });
         return;
       }
+      setTelegramLanguage(pickLanguage(telegram.languageCode));
       setLanguage(pickLanguage(telegram.languageCode));
       const session = await authenticate(telegram.rawInitData);
       let lists = session.lists ?? (await fetchLists(session.token));
       setLanguage(session.user.language);
-      let currentId = lists[0]?.id ?? null;
+      // A bot notification opens the Mini App at ?list=<id>: start on that List if it is ours.
+      const fromLink = Number(new URLSearchParams(window.location.search).get("list"));
+      let currentId = lists.find((l) => l.id === fromLink)?.id ?? lists[0]?.id ?? null;
       if (session.start_param) {
         // Opening a Share link joins the List (a no-op for a Member) and opens it.
         try {
@@ -269,6 +276,16 @@ export function App() {
     }
   }, []);
 
+  /** Closes a tip at once and tells the server; if that fails it simply shows again next launch. */
+  const closeTip = useCallback((token: string, key: TipKey) => {
+    setState((s) =>
+      s.kind === "ready" && !s.user.dismissed_tips.includes(key)
+        ? { ...s, user: { ...s.user, dismissed_tips: [...s.user.dismissed_tips, key] } }
+        : s,
+    );
+    dismissTip(token, key).catch((error) => console.warn("could not save the dismissed tip", error));
+  }, []);
+
   const strings = t(language);
   switch (state.kind) {
     case "loading":
@@ -312,7 +329,7 @@ export function App() {
       const current = state.lists.find((l) => l.id === state.currentId) ?? null;
       if (current && state.screen === "members") {
         return (
-          <MembersScreen user={state.user} list={current} strings={strings} onBack={backToList} />
+          <MembersScreen token={state.token} user={state.user} list={current} strings={strings} onBack={backToList} />
         );
       }
       if (current && state.screen === "history") {
@@ -330,6 +347,7 @@ export function App() {
         return (
           <SettingsScreen
             language={language}
+            telegramLanguage={telegramLanguage}
             overridden={state.user.language_overridden}
             strings={strings}
             onBack={backToList}
@@ -340,9 +358,9 @@ export function App() {
       return (
         <>
           {notice !== null && (
-            <p className="toast toast--top" role="status">
+            <Snackbar key={notice} className="snackbar" duration={5000} onClose={() => setNotice(null)}>
               {notice}
-            </p>
+            </Snackbar>
           )}
           <ListScreen
             key={current?.id ?? "none"}
@@ -352,6 +370,8 @@ export function App() {
             list={current}
             language={language}
             strings={strings}
+            dismissedTips={state.user.dismissed_tips}
+            onDismissTip={(key) => closeTip(state.token, key)}
             failed={failed}
             onSelect={(id) => setState({ ...state, currentId: id })}
             onOpenMembers={() => setState({ ...state, screen: "members" })}

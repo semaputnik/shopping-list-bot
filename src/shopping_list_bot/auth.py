@@ -21,6 +21,9 @@ class TelegramUser:
     username: str | None
     photo_url: str | None
     language_code: str | None
+    is_premium: bool
+    allows_write_to_pm: bool
+    added_to_attachment_menu: bool
 
 
 @dataclass(frozen=True)
@@ -70,6 +73,9 @@ def verify_init_data(
             username=raw.get("username"),
             photo_url=raw.get("photo_url"),
             language_code=raw.get("language_code"),
+            is_premium=bool(raw.get("is_premium")),
+            allows_write_to_pm=bool(raw.get("allows_write_to_pm")),
+            added_to_attachment_menu=bool(raw.get("added_to_attachment_menu")),
         )
     except (KeyError, ValueError, TypeError, AttributeError) as exc:
         raise AuthError("missing user") from exc

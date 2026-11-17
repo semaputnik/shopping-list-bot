@@ -10,6 +10,7 @@ import {
   isBackButtonMounted,
   isMainButtonMounted,
   isMiniAppActive,
+  isThemeParamsDark,
   isTMA,
   miniAppReady,
   mountBackButton,
@@ -24,14 +25,35 @@ import {
   onMainButtonClick,
   openPopup,
   openTelegramLink,
+  requestWriteAccess,
   retrieveLaunchParams,
   retrieveRawInitData,
+  shareMessage,
   setMainButtonParams,
   setMiniAppBackgroundColor,
   setMiniAppBottomBarColor,
   setMiniAppHeaderColor,
   showBackButton,
 } from "@telegram-apps/sdk-react";
+
+/** Which grammar tgui renders: iOS-style on Apple clients, Android-style everywhere else. */
+function launchPlatform(): "ios" | "base" {
+  try {
+    const platform = retrieveLaunchParams().tgWebAppPlatform;
+    return platform === "ios" || platform === "macos" ? "ios" : "base";
+  } catch {
+    return "base"; // not inside Telegram
+  }
+}
+
+export const platform = launchPlatform();
+
+/**
+ * Whether the Telegram theme is dark (a signal: it changes when the client switches theme).
+ * Outside Telegram there is no theme, and the SDK would read that as dark.
+ */
+export const isDarkTheme = isThemeParamsDark;
+export const insideTelegram = isTMA();
 
 export interface TelegramContext {
   rawInitData: string;
@@ -116,6 +138,7 @@ async function doStartTelegram(): Promise<TelegramContext | null> {
   const rawInitData = retrieveRawInitData();
   if (!rawInitData) return null;
   const user = retrieveLaunchParams().tgWebAppData?.user;
+  askForBotMessages(user?.allows_write_to_pm === true);
   return { rawInitData, languageCode: user?.language_code ?? null };
 }
 
@@ -223,4 +246,36 @@ export function shareToChat(url: string, text: string): boolean {
     `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`,
   );
   return true;
+}
+
+/**
+ * Opens Telegram's share dialog for a bot-prepared message (the Invite card). Resolves "shared"
+ * when it was sent or the user closed the dialog (nothing to fall back to), "unsupported" when
+ * the client cannot do it, and rejects when Telegram refused the message.
+ */
+export async function shareCard(preparedId: string): Promise<"shared" | "unsupported"> {
+  if (!shareMessage.isAvailable()) return "unsupported";
+  try {
+    await shareMessage(preparedId);
+  } catch (error) {
+    if (!String(error).includes("USER_DECLINED")) throw error;
+  }
+  return "shared";
+}
+
+const WRITE_ACCESS_ASKED = "shared-lists:write-access-asked";
+
+/**
+ * Bot notifications only reach people who let the bot write to them. Someone who opened the Mini
+ * App without ever pressing /start has not, so ask once (Telegram's own prompt); never nag again.
+ */
+function askForBotMessages(alreadyAllowed: boolean): void {
+  if (alreadyAllowed || !requestWriteAccess.isAvailable()) return;
+  try {
+    if (localStorage.getItem(WRITE_ACCESS_ASKED)) return;
+    localStorage.setItem(WRITE_ACCESS_ASKED, "1");
+  } catch {
+    return; // no storage: better never to ask than to ask on every open
+  }
+  requestWriteAccess().catch((e: unknown) => console.warn("Write access request failed", e));
 }

@@ -27,10 +27,10 @@ def built_frontend(tmp_path: Path) -> Path:
     return dist
 
 
-def test_frontend_is_compressed_and_cached_by_content_hash(tmp_path):
+def test_frontend_is_compressed_and_cached_by_content_hash(tmp_path, database_url):
     settings = Settings(
         bot_token=TEST_BOT_TOKEN,
-        database_url=f"sqlite:///{tmp_path / 'test.db'}",
+        database_url=database_url,
         frontend_dist=built_frontend(tmp_path),
         _env_file=None,
     )

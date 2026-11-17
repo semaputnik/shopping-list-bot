@@ -9,14 +9,15 @@ import json
 import logging
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Annotated, Literal
 
+import anyio.from_thread
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, StringConstraints
-from sqlalchemy import and_, delete, event, func, inspect, or_, select, text, update
+from sqlalchemy import and_, delete, event, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from starlette.concurrency import run_in_threadpool
@@ -32,9 +33,12 @@ from .auth import (
 )
 from .categories import CATEGORIES, CATEGORY_BY_KEY, guess_category
 from .config import Settings
-from .db import Base, make_engine, make_session_factory
+from .db import make_engine, make_session_factory
 from .i18n import FIRST_LIST_NAME, effective_language
+from .invite_card import PrepareInvite, compose_card
+from .migrate import is_current
 from .normalize import normalize
+from .notifications import Notifier, Send, TelegramSender, queue_added, queue_bought
 from .parsing import parse_input
 from .suggest import MAX_SUGGESTIONS, rank
 from .sync import Hub
@@ -52,13 +56,18 @@ class UserOut(BaseModel):
     username: str | None
     photo_url: str | None
     language_code: str | None
-    # Effective interface language, "ru" or "es": the user's choice, else from language_code.
+    is_premium: bool
+    allows_write_to_pm: bool
+    added_to_attachment_menu: bool
+    # Effective interface language, "ru", "es" or "en": the user's choice, else from language_code.
     language: str
     # True when the user overrode Telegram's language in Settings.
     language_overridden: bool
+    # Onboarding tips the user has closed (keys from models.TIPS).
+    dismissed_tips: list[str]
 
 
-class MemberOut(BaseModel):
+class UserRefOut(BaseModel):
     id: int
     first_name: str
     last_name: str | None
@@ -66,11 +75,29 @@ class MemberOut(BaseModel):
     photo_url: str | None
 
 
+class MemberOut(UserRefOut):
+    # Whose Invite they joined through; null for a List's creator and for Members from before
+    # Invites, or when the inviter's account is gone.
+    invited_by: UserRefOut | None
+
+
 ListName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 
 
 class ListIn(BaseModel):
     name: ListName
+
+
+class ProductRenameIn(BaseModel):
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+
+
+class ProductRenameOut(BaseModel):
+    version: int
+    # The Product the name now belongs to: a different id when the rename merged two Products.
+    product_id: int
+    name: str
+    merged: bool
 
 
 class ImmutableStaticFiles(StaticFiles):
@@ -85,19 +112,23 @@ class ImmutableStaticFiles(StaticFiles):
 class ListOut(BaseModel):
     id: int
     name: str
-    share_code: str
-    # The Share link, `https://t.me/<bot>?startapp=<code>`; null while SL_BOT_USERNAME is unset.
-    share_url: str | None
     # Members in the order they joined (the creator first).
     members: list[MemberOut]
     version: int
     updated_at: datetime
 
 
+class AliasOut(BaseModel):
+    id: int
+    name: str
+
+
 class EntryOut(BaseModel):
     id: int
     product_id: int
     name: str
+    # Other names of the Entry's Product.
+    aliases: list[AliasOut]
     note: str | None
     category: str
     added_by: int | None
@@ -166,10 +197,23 @@ class ChangesOut(BaseModel):
 
 class SuggestionOut(BaseModel):
     product_id: int
+    # The canonical name, also when the match came through an alias.
     name: str
+    # The alias that matched the typed text; null when the name did.
+    matched_alias: str | None
     category: str
     # True when the Product already has an Entry on the List (a duplicate is still allowed).
     on_list: bool
+
+
+class AliasIn(BaseModel):
+    name: str = Field(max_length=200)
+
+
+class AliasAddedOut(BaseModel):
+    version: int
+    id: int
+    name: str
 
 
 class ProductHiddenOut(BaseModel):
@@ -194,6 +238,7 @@ class UncheckAllOut(BaseModel):
 class ProductOut(BaseModel):
     id: int
     name: str
+    aliases: list[AliasOut]
     category: str
     purchase_count: int
     last_purchased_at: datetime | None
@@ -254,14 +299,24 @@ class UndoPurchaseOut(BaseModel):
 
 
 class MeUpdate(BaseModel):
-    # "ru" or "es" sets the language; null goes back to following Telegram.
-    language: Literal["ru", "es"] | None
+    # "ru", "es" or "en" sets the language; null goes back to following Telegram.
+    language: Literal["ru", "es", "en"] | None
 
 
 class CategoryOut(BaseModel):
     key: str
     name: str
     emoji: str
+
+
+class PreparedInviteOut(BaseModel):
+    id: str  # the prepared message id for `shareMessage`
+
+
+class InviteOut(BaseModel):
+    code: str
+    # `https://t.me/<bot>?startapp=join_<code>`; null while SL_BOT_USERNAME is unset.
+    url: str | None
 
 
 class JoinIn(BaseModel):
@@ -291,13 +346,17 @@ def user_out(user: models.User) -> UserOut:
         username=user.username,
         photo_url=user.photo_url,
         language_code=user.language_code,
+        is_premium=user.is_premium,
+        allows_write_to_pm=user.allows_write_to_pm,
+        added_to_attachment_menu=user.added_to_attachment_menu,
         language=effective_language(user.language, user.language_code),
         language_overridden=user.language is not None,
+        dismissed_tips=user.dismissed_tips,
     )
 
 
-def member_out(user: models.User) -> MemberOut:
-    return MemberOut(
+def user_ref_out(user: models.User) -> UserRefOut:
+    return UserRefOut(
         id=user.id,
         first_name=user.first_name,
         last_name=user.last_name,
@@ -306,20 +365,40 @@ def member_out(user: models.User) -> MemberOut:
     )
 
 
-def share_url(bot_username: str, share_code: str) -> str | None:
+def member_out(member: models.ListMember) -> MemberOut:
+    inviter = member.invite.creator if member.invite else None
+    return MemberOut(
+        **user_ref_out(member.user).model_dump(),
+        invited_by=user_ref_out(inviter) if inviter else None,
+    )
+
+
+JOIN_PREFIX = "join_"
+
+
+def invite_code(start_param: str) -> str:
+    """The Invite code in a link payload: `join_<code>`, or a legacy bare code."""
+    return start_param.removeprefix(JOIN_PREFIX)
+
+
+def invite_url(bot_username: str, code: str) -> str | None:
     username = bot_username.lstrip("@")
-    return f"https://t.me/{username}?startapp={share_code}" if username else None
+    return f"https://t.me/{username}?startapp={JOIN_PREFIX}{code}" if username else None
 
 
-def list_out(lst: models.List, lang: str, bot_username: str = "") -> ListOut:
+def _active_invite_by_code(code: str):
+    return select(models.Invite).where(
+        models.Invite.code == code, models.Invite.revoked_at.is_(None)
+    )
+
+
+def list_out(lst: models.List, lang: str) -> ListOut:
     members = sorted(lst.members, key=lambda m: m.id)
     return ListOut(
         id=lst.id,
         # An auto-created name is rendered in the viewer's language until a Member renames it.
         name=FIRST_LIST_NAME[lang] if lst.name_is_default else lst.name,
-        share_code=lst.share_code,
-        share_url=share_url(bot_username, lst.share_code),
-        members=[member_out(m.user) for m in members],
+        members=[member_out(m) for m in members],
         version=lst.version,
         updated_at=lst.updated_at,
     )
@@ -337,40 +416,31 @@ def _upsert_user(session: Session, tg: TelegramUser) -> tuple[models.User, bool]
     user.username = tg.username
     user.photo_url = tg.photo_url
     user.language_code = tg.language_code
+    user.is_premium = tg.is_premium
+    user.allows_write_to_pm = tg.allows_write_to_pm
+    user.added_to_attachment_menu = tg.added_to_attachment_menu
     return user, created
 
 
-def _aware(moment: datetime) -> datetime:
-    """SQLite hands datetimes back naive; they are UTC."""
-    return moment if moment.tzinfo else moment.replace(tzinfo=UTC)
-
-
-def _add_missing_columns(engine) -> None:
-    """create_all does not alter existing tables; add columns introduced later.
-
-    Ad-hoc stopgap: replace with a migration tool (e.g. Alembic) once one is introduced.
-    """
-    inspector = inspect(engine)
-    additions = [
-        ("user", "language", "VARCHAR(8)"),
-        ("list", "name_is_default", "BOOLEAN NOT NULL DEFAULT 0"),
-        ("entry", "deleted_at", "DATETIME"),
-        ("product", "purchase_count", "INTEGER NOT NULL DEFAULT 0"),
-        ("product", "hidden", "BOOLEAN NOT NULL DEFAULT 0"),
-        ("entry", "checked_at", "DATETIME"),
-        ("entry", "checked_by", "INTEGER REFERENCES user (id) ON DELETE SET NULL"),
-        ("product", "last_purchased_at", "DATETIME"),
-    ]
-    for table, column, ddl in additions:
-        if column not in {c["name"] for c in inspector.get_columns(table)}:
-            with engine.begin() as conn:
-                conn.execute(text(f'ALTER TABLE "{table}" ADD COLUMN {column} {ddl}'))
-
-
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    notify_send: Send | None = None,
+    prepare_invite: PrepareInvite | None = None,
+) -> FastAPI:
+    """Build the app. ``notify_send`` and ``prepare_invite`` replace the Telegram sender for bot
+    notifications and Invite cards (tests pass fakes); without them, both go through the Bot API
+    when a token is set."""
     settings = settings or Settings()
     engine = make_engine(settings.database_url)
     session_factory = make_session_factory(engine)
+    telegram = (
+        TelegramSender(settings.bot_token)
+        if notify_send is None and settings.bot_token and settings.notify_poll_seconds > 0
+        else None
+    )
+    notifier = Notifier(settings, session_factory, notify_send or telegram)
+    if prepare_invite is None and telegram is not None:
+        prepare_invite = telegram.prepare_invite
     # Fail closed: with neither SL_SESSION_SECRET nor a bot token there is no secret, and
     # no session is issued (sign-in needs the bot token anyway) or accepted.
     secret = settings.session_secret or (
@@ -383,12 +453,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(_app: FastAPI):
         if not settings.bot_username.lstrip("@"):
             logger.warning("SL_BOT_USERNAME is not set: Share links cannot be built")
-        Base.metadata.create_all(engine)
-        _add_missing_columns(engine)
+        if not is_current(engine):
+            logger.error(
+                "The database schema is not up to date: run `shopping-list-bot migrate` first"
+            )
+            raise RuntimeError("database is not migrated")
+        loop = (
+            asyncio.create_task(_deliver_forever())
+            if notifier.send is not None and settings.notify_poll_seconds > 0
+            else None
+        )
         yield
+        if loop is not None:
+            loop.cancel()
+        if telegram is not None:
+            await telegram.aclose()
         engine.dispose()
 
+    async def _deliver_forever() -> None:
+        while True:
+            await asyncio.sleep(settings.notify_poll_seconds)
+            try:
+                await notifier.deliver_due()
+            except Exception:  # a bad round must not stop the loop
+                logger.exception("Delivering notifications failed")
+
     app = FastAPI(title="Shared Lists", lifespan=lifespan)
+    app.state.notifier = notifier
 
     hub = Hub()
 
@@ -452,8 +543,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # link of an existing List (the client then joins that one through POST /api/lists/join). An unknown
         # or stale code does not count: they would be left with no List at all.
         arrived_by_share_link = bool(data.start_param) and (
-            session.scalar(select(models.List.id).where(models.List.share_code == data.start_param))
-            is not None
+            session.scalar(_active_invite_by_code(invite_code(data.start_param))) is not None
         )
         if created and not arrived_by_share_link:
             lst = models.List(
@@ -475,7 +565,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             expires_at=expires_at,
             user=user_out(user),
             start_param=data.start_param,
-            lists=[list_out(lst, lang, settings.bot_username) for lst in session.scalars(stmt)],
+            lists=[list_out(lst, lang) for lst in session.scalars(stmt)],
         )
 
     @api.get("/me", response_model=UserOut)
@@ -486,6 +576,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def update_me(body: MeUpdate, user: UserDep, session: SessionDep) -> UserOut:
         user.language = body.language
         session.commit()
+        return user_out(user)
+
+    @api.post("/me/tips/{key}/dismiss", response_model=UserOut)
+    def dismiss_tip(key: str, user: UserDep, session: SessionDep) -> UserOut:
+        if key not in models.TIPS:
+            raise HTTPException(404, "unknown tip")
+        session.refresh(user, with_for_update=True)  # no lost update between two dismissals
+        if key not in user.dismissed_tips:
+            user.dismissed_tips = [*user.dismissed_tips, key]
+            session.commit()
         return user_out(user)
 
     @api.get("/categories", response_model=list[CategoryOut])
@@ -502,21 +602,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             select(models.List)
             .join(models.ListMember)
             .where(models.ListMember.user_id == user.id)
-            .options(selectinload(models.List.members).selectinload(models.ListMember.user))
+            .options(
+                selectinload(models.List.members).selectinload(models.ListMember.user),
+                selectinload(models.List.members)
+                .selectinload(models.ListMember.invite)
+                .selectinload(models.Invite.creator),
+            )
         )
 
     @api.get("/lists", response_model=list[ListOut])
     def my_lists(user: UserDep, session: SessionDep) -> list[ListOut]:
         stmt = _member_lists(user).order_by(models.List.updated_at.desc(), models.List.id.desc())
         lang = _lang(user)
-        return [list_out(lst, lang, settings.bot_username) for lst in session.scalars(stmt)]
+        return [list_out(lst, lang) for lst in session.scalars(stmt)]
 
     @api.get("/lists/{list_id}", response_model=ListOut)
     def get_list(list_id: int, user: UserDep, session: SessionDep) -> ListOut:
         lst = session.scalar(_member_lists(user).where(models.List.id == list_id))
         if lst is None:  # also hides the existence of Lists the user is not a Member of
             raise HTTPException(404, "list not found")
-        return list_out(lst, _lang(user), settings.bot_username)
+        return list_out(lst, _lang(user))
 
     def _emit(session: Session, recipients: set[int], payload: dict) -> None:
         session.info.setdefault("pending_events", []).append((frozenset(recipients), payload))
@@ -530,18 +635,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> None:
         """Record a mutation: bump the List's version and change time, log it, announce it.
 
-        One atomic UPDATE (version = version + 1), so concurrent mutations cannot lose an
-        increment the way a read-modify-write on the loaded object could. The change goes to
-        the List's change log (for `changes?since=`) and, after commit, to every Member's
-        stream (plus `also_notify`, e.g. a Member who just left).
+        The List row is locked (`SELECT ... FOR UPDATE`; a no-op when `_member_list(lock=True)`
+        already holds it) before `version` is read and bumped, so concurrent mutations of one List
+        get unique, consecutive versions. The change goes to the List's change log (for `changes?since=`) and, after commit, to every
+        Member's stream (plus `also_notify`, e.g. a Member who just left).
         """
-        session.execute(
-            update(models.List)
-            .where(models.List.id == lst.id)
-            .values(version=models.List.version + 1, updated_at=models.utcnow())
+        current = session.scalar(
+            select(models.List.version).where(models.List.id == lst.id).with_for_update()
         )
+        lst.version = current + 1
+        lst.updated_at = models.utcnow()
         session.flush()
-        session.refresh(lst)
         session.add(
             models.ListChange(list_id=lst.id, version=lst.version, kind=kind, entry_id=entry_id)
         )
@@ -562,8 +666,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             {"list_id": lst.id, "version": lst.version, "kind": kind, "entry_id": entry_id},
         )
 
-    def _member_list(session: Session, user: models.User, list_id: int) -> models.List:
-        lst = session.scalar(_member_lists(user).where(models.List.id == list_id))
+    def _member_list(
+        session: Session, user: models.User, list_id: int, *, lock: bool = False
+    ) -> models.List:
+        """The List if the user is a Member, else 404.
+
+        A mutation passes ``lock=True`` to take the List row (`SELECT ... FOR UPDATE`) before it
+        writes anything: concurrent mutations of one List then queue up, and `_touch` bumps
+        `version` under that lock. Taking it first also avoids a deadlock: inserting a child row
+        takes a weaker lock on the List that could not be upgraded while another writer waits.
+        """
+        stmt = _member_lists(user).where(models.List.id == list_id)
+        if lock:
+            stmt = stmt.with_for_update(of=models.List)
+        lst = session.scalar(stmt)
         if lst is None:
             raise HTTPException(404, "list not found")
         return lst
@@ -571,11 +687,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @api.post("/lists/join", response_model=ListOut)
     def join_list(body: JoinIn, user: UserDep, session: SessionDep) -> ListOut:
         """Open a Share link: make the user a Member of the List (idempotent for Members)."""
-        lst = session.scalar(select(models.List).where(models.List.share_code == body.code))
-        if lst is None:
+        invite = session.scalar(_active_invite_by_code(invite_code(body.code)))
+        if invite is None:
             raise HTTPException(404, "share link is not valid")
+        lst = session.scalar(
+            select(models.List).where(models.List.id == invite.list_id).with_for_update()
+        )
         if all(m.user_id != user.id for m in lst.members):
-            lst.members.append(models.ListMember(user_id=user.id))
+            lst.members.append(models.ListMember(user_id=user.id, invite_id=invite.id))
             try:
                 session.flush()
             except IntegrityError:  # concurrent join by the same user: already a Member
@@ -583,7 +702,64 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             else:
                 _touch(session, lst, "member.joined")
                 session.commit()
-        return list_out(_member_list(session, user, lst.id), _lang(user), settings.bot_username)
+        return list_out(_member_list(session, user, lst.id), _lang(user))
+
+    def _my_active_invite(list_id: int, user: models.User):
+        return select(models.Invite).where(
+            models.Invite.list_id == list_id,
+            models.Invite.created_by == user.id,
+            models.Invite.revoked_at.is_(None),
+        )
+
+    def _invite_out(invite: models.Invite) -> InviteOut:
+        return InviteOut(code=invite.code, url=invite_url(settings.bot_username, invite.code))
+
+    @api.get("/lists/{list_id}/invite", response_model=InviteOut)
+    def get_invite(list_id: int, user: UserDep, session: SessionDep) -> InviteOut:
+        """The Member's own link into the List, created on first request."""
+        _member_list(session, user, list_id)
+        invite = session.scalar(_my_active_invite(list_id, user))
+        if invite is None:
+            # Under the List lock a concurrent first request or reset has finished: look again.
+            _member_list(session, user, list_id, lock=True)
+            invite = session.scalar(_my_active_invite(list_id, user))
+            if invite is None:
+                invite = models.Invite(list_id=list_id, created_by=user.id)
+                session.add(invite)
+                session.commit()
+        return _invite_out(invite)
+
+    @api.post("/lists/{list_id}/invite/prepared", response_model=PreparedInviteOut)
+    def prepare_invite_card(list_id: int, user: UserDep, session: SessionDep) -> PreparedInviteOut:
+        """Store the Invite card with the Bot API for the Mini App's `shareMessage`."""
+        lst = _member_list(session, user, list_id)
+        if prepare_invite is None:
+            raise HTTPException(503, "The bot cannot share cards right now")
+        invite = get_invite(list_id, user, session)
+        if invite.url is None:
+            raise HTTPException(503, "The bot cannot share cards right now")
+        card = compose_card(lst.name, user.first_name, user.telegram_id, invite.url, _lang(user))
+        # Release the List lock and the connection before the Telegram round trip.
+        session.rollback()
+        try:
+            prepared_id = anyio.from_thread.run(prepare_invite, card)
+        except Exception:
+            logger.warning("savePreparedInlineMessage failed", exc_info=True)
+            raise HTTPException(502, "Telegram did not accept the card") from None
+        return PreparedInviteOut(id=prepared_id)
+
+    @api.post("/lists/{list_id}/invite/reset", response_model=InviteOut)
+    def reset_invite(list_id: int, user: UserDep, session: SessionDep) -> InviteOut:
+        """Revoke the Member's link and issue a new one; the old link stops working."""
+        _member_list(session, user, list_id, lock=True)
+        old = session.scalar(_my_active_invite(list_id, user))
+        if old is not None:
+            old.revoked_at = models.utcnow()
+            session.flush()  # the partial unique index allows one active Invite at a time
+        invite = models.Invite(list_id=list_id, created_by=user.id)
+        session.add(invite)
+        session.commit()
+        return _invite_out(invite)
 
     @api.post("/lists", response_model=ListOut, status_code=201)
     def create_list(body: ListIn, user: UserDep, session: SessionDep) -> ListOut:
@@ -598,16 +774,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             {"list_id": lst.id, "version": lst.version, "kind": "list.created", "entry_id": None},
         )
         session.commit()
-        return list_out(_member_list(session, user, lst.id), _lang(user), settings.bot_username)
+        return list_out(_member_list(session, user, lst.id), _lang(user))
 
     @api.patch("/lists/{list_id}", response_model=ListOut)
     def rename_list(list_id: int, body: ListIn, user: UserDep, session: SessionDep) -> ListOut:
-        lst = _member_list(session, user, list_id)
+        lst = _member_list(session, user, list_id, lock=True)
         lst.name = body.name
         lst.name_is_default = False  # an explicit name replaces the localized default
         _touch(session, lst, "list.renamed")
         session.commit()
-        return list_out(_member_list(session, user, lst.id), _lang(user), settings.bot_username)
+        return list_out(_member_list(session, user, lst.id), _lang(user))
 
     def _forget_list(session: Session, lst: models.List, recipients: set[int]) -> None:
         """Announce the List's deletion to `recipients` and drop its change log."""
@@ -625,7 +801,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @api.post("/lists/{list_id}/leave", status_code=204)
     def leave_list(list_id: int, user: UserDep, session: SessionDep) -> Response:
-        lst = _member_list(session, user, list_id)
+        lst = _member_list(session, user, list_id, lock=True)
         membership = next(m for m in lst.members if m.user_id == user.id)
         # Delete the membership first (this takes the write lock), then count what is left in
         # the same transaction, so two last Members leaving at once cannot both see "not last".
@@ -651,17 +827,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def delete_list(list_id: int, user: UserDep, session: SessionDep) -> Response:
         # Any Member may delete the List for everyone; the UI asks for confirmation first.
         # Members (and, in later tickets, Entries, Products and History) go by FK cascade.
-        lst = _member_list(session, user, list_id)
+        lst = _member_list(session, user, list_id, lock=True)
         _forget_list(session, lst, {m.user_id for m in lst.members})
         session.delete(lst)
         session.commit()
         return Response(status_code=204)
+
+    def _aliases_out(product: models.Product) -> list[AliasOut]:
+        return [AliasOut(id=a.id, name=a.name) for a in product.aliases]
 
     def _entry_out(entry: models.Entry) -> EntryOut:
         return EntryOut(
             id=entry.id,
             product_id=entry.product_id,
             name=entry.name,
+            aliases=_aliases_out(entry.product),
             note=entry.note,
             category=entry.product.category_key,
             added_by=entry.added_by,
@@ -692,9 +872,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         entries=members,
                     )
                 )
-        return ListContentsOut(
-            list=list_out(lst, language, settings.bot_username), categories=groups
-        )
+        return ListContentsOut(list=list_out(lst, language), categories=groups)
 
     @api.get("/lists/{list_id}/entries", response_model=ListContentsOut)
     def list_entries(list_id: int, user: UserDep, session: SessionDep) -> ListContentsOut:
@@ -739,7 +917,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         user: UserDep,
         session: SessionDep,
     ) -> AddEntriesOut:
-        lst = _member_list(session, user, list_id)
+        lst = _member_list(session, user, list_id, lock=True)
         items = parse_input(body.text)
         if not items:
             raise HTTPException(422, "no items in the input")
@@ -771,12 +949,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         created: list[models.Entry] = []
         for attempt in range(2):
+            # Typing an alias finds the Product, so the Entry carries its canonical name.
             products = {
                 p.name_norm: p
                 for p in session.scalars(
                     select(models.Product).where(models.Product.list_id == lst.id)
                 )
             }
+            for product in list(products.values()):
+                for alias in product.aliases:
+                    products[alias.name_norm] = product
             created = []
             try:
                 for item, client_key in zip(items, keys(), strict=True):
@@ -784,7 +966,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     product = products.get(norm)
                     if product is not None:
                         product.hidden = False  # entering the name again restores the memory
-                    if product is None:
+                    else:
                         product = models.Product(
                             list_id=lst.id,
                             name=item.name,
@@ -796,7 +978,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     entry = models.Entry(
                         list_id=lst.id,
                         product=product,
-                        name=item.name,
+                        name=item.name if product.name_norm == norm else product.name,
                         note=item.note,
                         added_by=user.id,
                         client_id=client_key,
@@ -805,13 +987,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     created.append(entry)
                 session.flush()
                 _touch(session, lst, "entries.added")
+                queue_added(session, settings, lst, user, created)
                 session.commit()
                 break
             except IntegrityError:
                 # A concurrent request won a race: the same client_id (a replay) or the same
                 # new Product name. Replays return the winner's Entries; otherwise retry once.
                 session.rollback()
-                lst = _member_list(session, user, list_id)
+                lst = _member_list(session, user, list_id, lock=True)
                 if (replayed := replay()) is not None:
                     return replayed
                 if attempt == 1:
@@ -833,7 +1016,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """True while another Member's check of the Entry is too recent to be undone."""
         if entry.checked_at is None or entry.checked_by == user.id:
             return False
-        age = (models.utcnow() - _aware(entry.checked_at)).total_seconds()
+        age = (models.utcnow() - entry.checked_at).total_seconds()
         return age < settings.check_wins_window_seconds
 
     @api.patch("/lists/{list_id}/entries/{entry_id}", response_model=EntryChangeOut)
@@ -841,7 +1024,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         list_id: int, entry_id: int, body: EntryUpdate, user: UserDep, session: SessionDep
     ) -> EntryChangeOut:
         """Edit the Note, move the whole Product to another Category, or check/uncheck it."""
-        lst = _member_list(session, user, list_id)
+        lst = _member_list(session, user, list_id, lock=True)
         entry = _entry_or_404(session, lst, entry_id)
         sent = body.model_fields_set
         if "category" in sent and body.category not in CATEGORY_BY_KEY:
@@ -875,7 +1058,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         list_id: int, entry_id: int, user: UserDep, session: SessionDep
     ) -> EntryDeleteOut:
         """Remove an Entry from the List. Idempotent; the Product stays in memory."""
-        lst = _member_list(session, user, list_id)
+        lst = _member_list(session, user, list_id, lock=True)
         entry = _entry_or_404(session, lst, entry_id, include_deleted=True)
         if entry.deleted_at is None:
             entry.deleted_at = models.utcnow()
@@ -888,7 +1071,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         list_id: int, entry_id: int, user: UserDep, session: SessionDep
     ) -> EntryChangeOut:
         """Undo a delete: the Entry comes back where it was. A no-op for a live Entry."""
-        lst = _member_list(session, user, list_id)
+        lst = _member_list(session, user, list_id, lock=True)
         entry = _entry_or_404(session, lst, entry_id, include_deleted=True)
         if entry.deleted_at is not None:
             entry.deleted_at = None
@@ -918,14 +1101,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             session.scalars(
                 select(models.Entry.product_id)
                 .where(models.Entry.list_id == lst.id, models.Entry.deleted_at.is_(None))
-                .where(models.Entry.product_id.in_([p.id for p in top]))
+                .where(models.Entry.product_id.in_([p.id for p, _ in top]))
             )
         )
         return [
             SuggestionOut(
-                product_id=p.id, name=p.name, category=p.category_key, on_list=p.id in on_list
+                product_id=p.id,
+                name=p.name,
+                matched_alias=alias,
+                category=p.category_key,
+                on_list=p.id in on_list,
             )
-            for p in top
+            for p, alias in top
         ]
 
     @api.delete("/lists/{list_id}/products/{product_id}", response_model=ProductHiddenOut)
@@ -933,7 +1120,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         list_id: int, product_id: int, user: UserDep, session: SessionDep
     ) -> ProductHiddenOut:
         """Remove a Product from the List's memory. It is only hidden from suggestions."""
-        lst = _member_list(session, user, list_id)
+        lst = _member_list(session, user, list_id, lock=True)
         product = session.scalar(
             select(models.Product).where(
                 models.Product.id == product_id, models.Product.list_id == lst.id
@@ -947,10 +1134,162 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             session.commit()
         return ProductHiddenOut(version=lst.version)
 
+    def _product_or_404(session: Session, lst: models.List, product_id: int) -> models.Product:
+        product = session.scalar(
+            select(models.Product).where(
+                models.Product.id == product_id, models.Product.list_id == lst.id
+            )
+        )
+        if product is None:
+            raise HTTPException(404, "product not found")
+        return product
+
+    def _product_named(session: Session, lst: models.List, norm: str) -> models.Product | None:
+        """The List's Product whose name or alias normalises to ``norm``."""
+        return session.scalar(
+            select(models.Product)
+            .outerjoin(models.ProductAlias, models.ProductAlias.product_id == models.Product.id)
+            .where(
+                models.Product.list_id == lst.id,
+                or_(models.Product.name_norm == norm, models.ProductAlias.name_norm == norm),
+            )
+        )
+
+    @api.post(
+        "/lists/{list_id}/products/{product_id}/aliases",
+        response_model=AliasAddedOut,
+        status_code=201,
+    )
+    def add_alias(
+        list_id: int,
+        product_id: int,
+        body: AliasIn,
+        response: Response,
+        user: UserDep,
+        session: SessionDep,
+    ) -> AliasAddedOut:
+        """Give a Product another name. The same alias twice is a no-op (200); a name that is
+        already another Product's name or alias in this List is a conflict (409)."""
+        lst = _member_list(session, user, list_id, lock=True)
+        product = _product_or_404(session, lst, product_id)
+        name = body.name.strip()
+        norm = normalize(name)
+        if not norm:
+            raise HTTPException(422, "alias must not be empty")
+        for existing in product.aliases:
+            if existing.name_norm == norm:
+                response.status_code = 200
+                return AliasAddedOut(version=lst.version, id=existing.id, name=existing.name)
+        if _product_named(session, lst, norm) is not None:
+            raise HTTPException(409, "that name already belongs to a product in this list")
+        alias = models.ProductAlias(
+            list_id=lst.id, product_id=product.id, name=name, name_norm=norm
+        )
+        session.add(alias)
+        session.flush()
+        _touch(session, lst, "product.alias_added")
+        session.commit()
+        session.refresh(lst)
+        return AliasAddedOut(version=lst.version, id=alias.id, name=alias.name)
+
+    @api.delete(
+        "/lists/{list_id}/products/{product_id}/aliases/{alias_id}",
+        response_model=ProductHiddenOut,
+    )
+    def delete_alias(
+        list_id: int, product_id: int, alias_id: int, user: UserDep, session: SessionDep
+    ) -> ProductHiddenOut:
+        lst = _member_list(session, user, list_id, lock=True)
+        alias = session.scalar(
+            select(models.ProductAlias).where(
+                models.ProductAlias.id == alias_id,
+                models.ProductAlias.product_id == product_id,
+                models.ProductAlias.list_id == lst.id,
+            )
+        )
+        if alias is None:
+            raise HTTPException(404, "alias not found")
+        session.delete(alias)
+        session.flush()
+        _touch(session, lst, "product.alias_removed")
+        session.commit()
+        return ProductHiddenOut(version=lst.version)
+
+    @api.patch("/lists/{list_id}/products/{product_id}", response_model=ProductRenameOut)
+    def rename_product(
+        list_id: int, product_id: int, body: ProductRenameIn, user: UserDep, session: SessionDep
+    ) -> ProductRenameOut:
+        """Rename a Product everywhere in this List: its memory entry and every current Entry.
+
+        If the new name is another Product's (say «малоко» renamed to «молоко» that already
+        exists), the two are merged: Entries and History move to that Product, the stats add up,
+        and the renamed Product is gone. Past Purchases keep the names they were bought under.
+        """
+        lst = _member_list(session, user, list_id, lock=True)
+        product = _product_or_404(session, lst, product_id)
+        name = body.name.strip()
+        norm = normalize(name)
+        if not norm:
+            raise HTTPException(422, "name must not be empty")
+        target = product
+        if norm != product.name_norm:
+            other = _product_named(session, lst, norm)
+            if other is not None and other.id != product.id:
+                if other.name_norm != norm:  # found through an alias: the canonical name wins
+                    name, norm = other.name, other.name_norm
+                session.execute(
+                    update(models.Entry)
+                    .where(models.Entry.product_id == product.id)
+                    .values(product_id=other.id)
+                )
+                session.execute(
+                    update(models.PurchaseEntry)
+                    .where(models.PurchaseEntry.product_id == product.id)
+                    .values(product_id=other.id)
+                )
+                other.purchase_count += product.purchase_count
+                if product.last_purchased_at is not None and (
+                    other.last_purchased_at is None
+                    or product.last_purchased_at > other.last_purchased_at
+                ):
+                    other.last_purchased_at = product.last_purchased_at
+                other.hidden = False
+                # The source's aliases move over; one the target already has is dropped.
+                kept = {other.name_norm, *(a.name_norm for a in other.aliases)}
+                for alias in list(product.aliases):
+                    if alias.name_norm in kept:
+                        session.delete(alias)
+                    else:
+                        alias.product_id = other.id
+                        kept.add(alias.name_norm)
+                session.flush()
+                session.expire(product, ["aliases"])
+                session.delete(product)
+                target = other
+        target.name = name
+        target.name_norm = norm
+        for alias in list(target.aliases):
+            if alias.name_norm == norm:  # now the Product's own name
+                session.delete(alias)
+        session.execute(
+            update(models.Entry)
+            .where(models.Entry.product_id == target.id, models.Entry.deleted_at.is_(None))
+            .values(name=name)
+        )
+        _touch(session, lst, "product.renamed")
+        session.commit()
+        session.refresh(target)
+        return ProductRenameOut(
+            version=lst.version,
+            product_id=target.id,
+            name=target.name,
+            merged=target is not product,
+        )
+
     @api.post("/lists/{list_id}/entries/uncheck-all", response_model=UncheckAllOut)
     def uncheck_all(list_id: int, user: UserDep, session: SessionDep) -> UncheckAllOut:
         """Uncheck every Checked Entry of the List (the «Снять все отметки» menu action)."""
-        lst = _member_list(session, user, list_id)
+        lst = _member_list(session, user, list_id, lock=True)
         # A check made by someone else in the last moments survives (check beats uncheck).
         cutoff = models.utcnow() - timedelta(seconds=settings.check_wins_window_seconds)
         result = session.execute(
@@ -983,6 +1322,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ProductOut(
                 id=p.id,
                 name=p.name,
+                aliases=_aliases_out(p),
                 category=p.category_key,
                 purchase_count=p.purchase_count,
                 last_purchased_at=p.last_purchased_at,
@@ -993,7 +1333,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @api.post("/lists/{list_id}/purchases", response_model=PurchaseOut, status_code=201)
     def buy(list_id: int, user: UserDep, session: SessionDep) -> PurchaseOut:
         """«Куплено»: all Checked Entries leave the List as one Purchase, in one transaction."""
-        lst = _member_list(session, user, list_id)
+        lst = _member_list(session, user, list_id, lock=True)
         checked = session.scalars(
             select(models.Entry)
             .where(models.Entry.list_id == lst.id, models.Entry.checked_at.is_not(None))
@@ -1040,6 +1380,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             session.rollback()
             raise HTTPException(409, "the List changed, try again")
         _touch(session, lst, "purchase.created")
+        queue_bought(session, settings, lst, user, purchase, [e.name for e in checked])
         session.commit()
         return PurchaseOut(
             id=purchase.id,
@@ -1055,7 +1396,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         list_id: int, purchase_id: int, user: UserDep, session: SessionDep
     ) -> UndoPurchaseOut:
         """Undo «Куплено»: Entries return Checked, the Purchase is deleted, stats roll back."""
-        lst = _member_list(session, user, list_id)
+        lst = _member_list(session, user, list_id, lock=True)
         purchase = session.scalar(
             select(models.Purchase).where(
                 models.Purchase.id == purchase_id, models.Purchase.list_id == lst.id
@@ -1063,10 +1404,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         if purchase is None:
             raise HTTPException(404, "purchase not found")
-        bought_at = purchase.purchased_at
-        if bought_at.tzinfo is None:  # SQLite hands back naive UTC
-            bought_at = bought_at.replace(tzinfo=UTC)
-        if (models.utcnow() - bought_at).total_seconds() > settings.purchase_undo_grace_seconds:
+        if (
+            models.utcnow() - purchase.purchased_at
+        ).total_seconds() > settings.purchase_undo_grace_seconds:
             raise HTTPException(409, "too late to undo this purchase")
         snapshots = sorted(purchase.entries, key=lambda s: (s.entry_created_at, s.id))
         product_ids = {s.product_id for s in snapshots}
@@ -1258,18 +1598,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if holder[1] == 0:
                 key_locks.pop(lock_key, None)
 
-    def _utc(at: datetime) -> datetime:
-        return at.replace(tzinfo=UTC) if at.tzinfo is None else at  # SQLite hands back naive UTC
-
     def _encode_cursor(purchase: models.Purchase) -> str:
-        raw = f"{_utc(purchase.purchased_at).replace(tzinfo=None).isoformat()}|{purchase.id}"
+        raw = f"{purchase.purchased_at.isoformat()}|{purchase.id}"
         return base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
 
     def _decode_cursor(cursor: str) -> tuple[datetime, int]:
         try:
             raw = base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)).decode()
             at, _, pid = raw.partition("|")
-            return datetime.fromisoformat(at), int(pid)
+            moment = datetime.fromisoformat(at)
+            if moment.tzinfo is None:
+                raise ValueError("cursor time has no zone")
+            return moment, int(pid)
         except ValueError, binascii.Error:
             raise HTTPException(422, "invalid cursor") from None
 
@@ -1308,7 +1648,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         purchases = [
             HistoryPurchaseOut(
                 id=p.id,
-                purchased_at=_utc(p.purchased_at),
+                purchased_at=p.purchased_at,
                 purchased_by=p.purchased_by,
                 purchased_by_name=names.get(p.purchased_by),
                 entries=[
@@ -1336,7 +1676,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         session: SessionDep,
     ) -> AddEntriesOut:
         """Put a past item back on the List with the same Note (a new unchecked Entry)."""
-        lst = _member_list(session, user, list_id)
+        lst = _member_list(session, user, list_id, lock=True)
         snap = session.scalar(
             select(models.PurchaseEntry)
             .join(models.Purchase)
@@ -1378,11 +1718,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         session.add(entry)
         try:
+            session.flush()
             _touch(session, lst, "entries.added")
+            queue_added(session, settings, lst, user, [entry])
             session.commit()
         except IntegrityError:  # concurrent replay of the same client_id
             session.rollback()
-            lst = _member_list(session, user, list_id)
+            lst = _member_list(session, user, list_id, lock=True)
             if (replayed := replay()) is not None:
                 return replayed
             raise

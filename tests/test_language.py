@@ -1,3 +1,5 @@
+from conftest import invite_code
+
 ANNA = {"id": 1001, "first_name": "Анна", "language_code": "ru"}
 CARLOS = {"id": 2002, "first_name": "Carlos", "language_code": "es-MX"}
 JOHN = {"id": 3003, "first_name": "John", "language_code": "en"}
@@ -16,7 +18,13 @@ def test_language_defaults_to_telegram_language_code(sign_in):
     carlos = sign_in(CARLOS)["response"]["user"]
     assert carlos["language"] == "es"
     assert carlos["language_overridden"] is False
-    assert sign_in(JOHN)["response"]["user"]["language"] == "ru"
+    assert sign_in(JOHN)["response"]["user"]["language"] == "en"
+
+
+def test_english_names_categories_and_the_first_list(client, sign_in):
+    john = sign_in(JOHN)
+    assert names(client, john["headers"])[0] == "Fruit & vegetables"
+    assert list_names(client, john["headers"]) == ["Groceries"]
 
 
 def test_user_can_override_language(client, sign_in):
@@ -103,7 +111,9 @@ def test_each_member_sees_the_default_name_in_their_own_language(client, sign_in
     anna, carlos = sign_in(ANNA), sign_in(CARLOS)
     anna_list = client.get("/api/lists", headers=anna["headers"]).json()[0]
     joined = client.post(
-        "/api/lists/join", json={"code": anna_list["share_code"]}, headers=carlos["headers"]
+        "/api/lists/join",
+        json={"code": invite_code(client, anna, anna_list["id"])},
+        headers=carlos["headers"],
     )
     assert joined.status_code == 200
     url = f"/api/lists/{anna_list['id']}"
@@ -115,7 +125,9 @@ def test_joining_returns_the_default_name_in_the_joiners_language(client, sign_i
     anna, carlos = sign_in(ANNA), sign_in(CARLOS)
     anna_list = client.get("/api/lists", headers=anna["headers"]).json()[0]
     joined = client.post(
-        "/api/lists/join", json={"code": anna_list["share_code"]}, headers=carlos["headers"]
+        "/api/lists/join",
+        json={"code": invite_code(client, anna, anna_list["id"])},
+        headers=carlos["headers"],
     ).json()
     assert joined["name"] == "Compras"
     carlos_lists = client.get("/api/lists", headers=carlos["headers"]).json()
@@ -163,3 +175,21 @@ def test_categories_require_authentication(client):
 def test_empty_language_update_is_rejected(client, sign_in):
     session = sign_in(ANNA)
     assert client.patch("/api/me", json={}, headers=session["headers"]).status_code == 422
+
+
+def test_english_names_are_guessed_into_categories(client, sign_in):
+    john = sign_in(JOHN)
+    list_id = client.get("/api/lists", headers=john["headers"]).json()[0]["id"]
+    client.post(
+        f"/api/lists/{list_id}/entries",
+        json={"text": "milk; toilet paper; chicken breast; bananas"},
+        headers=john["headers"],
+    )
+    contents = client.get(f"/api/lists/{list_id}/entries", headers=john["headers"]).json()
+    by_name = {e["name"]: g["key"] for g in contents["categories"] for e in g["entries"]}
+    assert by_name == {
+        "milk": "dairy",
+        "toilet paper": "hygiene",
+        "chicken breast": "meat_fish",
+        "bananas": "produce",
+    }

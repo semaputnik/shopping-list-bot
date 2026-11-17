@@ -1,6 +1,7 @@
 """The Entry card: edit the Note, move a Product to another Category, delete with Undo."""
 
 import pytest
+from conftest import invite_code
 
 ANNA = {"id": 1001, "first_name": "Анна", "language_code": "ru"}
 CARLOS = {"id": 2002, "first_name": "Carlos", "language_code": "es-MX"}
@@ -183,7 +184,7 @@ class TestAuthor:
         carlos = sign_in(CARLOS)
         join = client.post(
             "/api/lists/join",
-            json={"code": anna["share"]["share_code"]},
+            json={"code": invite_code(client, anna, anna["list_id"])},
             headers=carlos["headers"],
         )
         assert join.status_code == 200

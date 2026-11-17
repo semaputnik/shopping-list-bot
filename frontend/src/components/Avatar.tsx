@@ -9,7 +9,7 @@ function initials(member: Member): string {
   return letters.join("").toUpperCase() || "?";
 }
 
-export function memberName(member: Member): string {
+export function memberName(member: Pick<Member, "first_name" | "last_name">): string {
   return [member.first_name, member.last_name].filter(Boolean).join(" ");
 }
 

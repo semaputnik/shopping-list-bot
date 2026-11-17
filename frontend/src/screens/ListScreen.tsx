@@ -6,7 +6,18 @@ import {
   useState,
   type FormEvent,
   type KeyboardEvent,
+  type ReactNode,
 } from "react";
+import {
+  Button,
+  Cell,
+  IconButton,
+  List,
+  Placeholder,
+  Section,
+  Skeleton,
+  Snackbar,
+} from "@telegram-apps/telegram-ui";
 import {
   addEntries,
   buy,
@@ -16,6 +27,9 @@ import {
   fetchContents,
   fetchSuggestions,
   hideProduct,
+  addAlias,
+  removeAlias,
+  renameProduct,
   restoreEntry,
   updateEntry,
   uncheckAll,
@@ -24,14 +38,24 @@ import {
   type ListContents,
   type ShoppingList,
   type Suggestion,
+  type TipKey,
 } from "../api";
 import { AvatarStack, EntryAvatar } from "../components/Avatar";
 import { EntrySheet } from "../components/EntrySheet";
+import { ActionCell } from "../components/ActionCell";
+import { Popover } from "../components/Popover";
+import { Tip } from "../components/Tip";
 import { applyEntryChange } from "../entryChange";
 import { QUICK_ADD, withCount, type Language, type Strings } from "../i18n";
 import { shareList } from "../share";
 import type { Remote } from "../sync";
-import { bindMainButton, confirmDestructive, haptic, setMainButtonText } from "../telegram";
+import {
+  bindMainButton,
+  confirmDestructive,
+  haptic,
+  platform,
+  setMainButtonText,
+} from "../telegram";
 import { NameSheet, Sheet } from "./Sheet";
 
 interface Props {
@@ -41,6 +65,9 @@ interface Props {
   list: ShoppingList | null;
   language: Language;
   strings: Strings;
+  /** Onboarding tips the user already closed. */
+  dismissedTips: readonly TipKey[];
+  onDismissTip: (key: TipKey) => void;
   /** True when the last action failed on the server. */
   failed: boolean;
   /** Changes announced by other Members, and app activations (see sync.ts). */
@@ -60,7 +87,9 @@ type Panel = null | "switcher" | "menu" | "create" | "rename";
 
 const HIGHLIGHT_MS = 1600;
 const SUGGEST_DELAY_MS = 120;
+// Undo stays for at least this long. A snackbar closes itself after it, then plays a 320 ms exit.
 const UNDO_MS = 5000;
+const SNACKBAR_EXIT_MS = 400;
 
 interface Removed {
   id: number;
@@ -90,6 +119,8 @@ export function ListScreen({
   list,
   language,
   strings,
+  dismissedTips,
+  onDismissTip,
   failed,
   remote,
   onSelect,
@@ -125,7 +156,6 @@ export function ListScreen({
   >(null);
   // The Purchase that can still be undone (the snackbar is up for UNDO_MS).
   const [undoable, setUndoable] = useState<{ id: number; listId: number; count: number } | null>(null);
-  const undoTimer = useRef<number | undefined>(undefined);
   const buying = useRef(false);
   const [text, setText] = useState("");
   const [pendingQuick, setPendingQuick] = useState<ReadonlySet<string>>(new Set());
@@ -141,10 +171,10 @@ export function ListScreen({
   const [justBought, setJustBought] = useState(false);
   const [boughtNames, setBoughtNames] = useState<string[]>([]);
   const [info, setInfo] = useState<string | null>(null);
-  const infoTimer = useRef<number | undefined>(undefined);
-  useEffect(() => () => window.clearTimeout(infoTimer.current), []); // deleted Entries still undoable, oldest first
   const { start: segmentStart, query } = currentSegment(text);
-  const isNew = query !== "" && !suggestions.some((s) => fold(s.name) === fold(query));
+  const isNew = query !== "" && !suggestions.some(
+    (s) => fold(s.name) === fold(query) || (s.matched_alias && fold(s.matched_alias) === fold(query)),
+  );
   // Options in order: matching Products, then «Добавить «…»» for a new name.
   const optionCount = suggestions.length + (isNew ? 1 : 0);
   const open = query !== "" && !dismissed && optionCount > 0;
@@ -350,6 +380,50 @@ export function ListScreen({
     [openId, editEntry],
   );
 
+  /** Renames the open Entry's Product everywhere in the List, then shows the result. */
+  const renameOpenProduct = useCallback(
+    async (name: string) => {
+      const entry = contentsRef.current?.categories
+        .flatMap((g) => g.entries)
+        .find((e) => e.id === openId);
+      if (listId === undefined || !entry) return;
+      markOwn(entry.id);
+      await renameProduct(token, listId, entry.product_id, name);
+      await refresh();
+    },
+    [token, listId, openId, markOwn, refresh],
+  );
+
+  /** The open Entry's Product, for the alias edits below. */
+  const openProductId = useCallback(
+    () =>
+      contentsRef.current?.categories.flatMap((g) => g.entries).find((e) => e.id === openId)
+        ?.product_id,
+    [openId],
+  );
+
+  const addOpenAlias = useCallback(
+    async (name: string) => {
+      const productId = openProductId();
+      if (listId === undefined || productId === undefined || openId === null) return;
+      markOwn(openId);
+      await addAlias(token, listId, productId, name);
+      await refresh();
+    },
+    [token, listId, openId, openProductId, markOwn, refresh],
+  );
+
+  const removeOpenAlias = useCallback(
+    async (aliasId: number) => {
+      const productId = openProductId();
+      if (listId === undefined || productId === undefined || openId === null) return;
+      markOwn(openId);
+      await removeAlias(token, listId, productId, aliasId);
+      await refresh();
+    },
+    [token, listId, openId, openProductId, markOwn, refresh],
+  );
+
   const removeEntry = async (id: number, name: string) => {
     if (listId === undefined) return;
     setOpenId(null);
@@ -363,11 +437,13 @@ export function ListScreen({
     haptic.error();
     setError(null);
     // One snackbar at a time: the newest action owns it, so a pending Purchase Undo is dismissed
-    // rather than left to expire unseen behind this one.
-    window.clearTimeout(undoTimer.current);
+    // rather than left to expire unseen behind this one. Deleted Entries stay undoable, oldest first.
     setUndoable(null);
     setRemoved((prev) => [...prev, { id, name }]);
-    window.setTimeout(() => setRemoved((prev) => prev.filter((r) => r.id !== id)), UNDO_MS);
+    window.setTimeout(
+      () => setRemoved((prev) => prev.filter((r) => r.id !== id)),
+      UNDO_MS + SNACKBAR_EXIT_MS,
+    );
     await refresh();
   };
 
@@ -394,6 +470,14 @@ export function ListScreen({
     el.style.height = `${el.scrollHeight}px`;
   }, [text]);
 
+  /** Closes a tip for good once the user did what it teaches. */
+  const settle = useCallback(
+    (key: TipKey) => {
+      if (!dismissedTips.includes(key)) onDismissTip(key);
+    },
+    [dismissedTips, onDismissTip],
+  );
+
   const submit = useCallback(
     async (raw: string) => {
       if (listId === undefined || !raw.trim()) return;
@@ -418,8 +502,9 @@ export function ListScreen({
         return;
       }
       flash(ids);
+      if (ids.length > 1) settle("multi_add"); // adding one item does not use the gesture
     },
-    [token, listId, showContents, flash],
+    [token, listId, showContents, flash, settle],
   );
 
   /** Applies a Checked state to the local copy right away; the Entry never moves. */
@@ -505,11 +590,7 @@ export function ListScreen({
     wasAllInBasket.current = allInBasket;
   }, [allInBasket]);
 
-  const dismissUndo = useCallback(() => {
-    window.clearTimeout(undoTimer.current);
-    setUndoable(null);
-  }, []);
-  useEffect(() => () => window.clearTimeout(undoTimer.current), []);
+  const dismissUndo = useCallback(() => setUndoable(null), []);
   // The snackbar belongs to the List it was shown for.
   useEffect(() => {
     if (undoable && undoable.listId !== listId) dismissUndo();
@@ -529,18 +610,17 @@ export function ListScreen({
       const result = await buy(token, listId);
       setBoughtNames(bought);
       showContents(await fetchContents(token, listId));
-      window.clearTimeout(undoTimer.current);
       setRemoved([]); // the newest action owns the snackbar (see removeEntry)
       setUndoable({ id: result.id, listId, count: result.count });
       setJustBought(true);
-      undoTimer.current = window.setTimeout(() => setUndoable(null), UNDO_MS);
+      settle("bought");
     } catch (e) {
       console.error(e);
       reload("buy");
     } finally {
       buying.current = false;
     }
-  }, [token, listId, showContents, reload]);
+  }, [token, listId, showContents, reload, settle]);
 
   const onUndo = async () => {
     if (listId === undefined || !undoable || undoable.listId !== listId) return;
@@ -698,13 +778,12 @@ export function ListScreen({
   const onShare = async () => {
     close();
     if (!list) return;
-    const result = await shareList(list.share_url, strings.shareText.replace("{name}", list.name));
+    settle("invite"); // someone who shares needs no hint to share
+    const result = await shareList(token, list, strings.shareText.replace("{name}", list.name));
     if (result === "unavailable") haptic.error();
     else haptic.success();
     if (result === "shared") return; // Telegram's own picker is the feedback
     setInfo(result === "copied" ? strings.linkCopied : strings.linkUnavailable);
-    window.clearTimeout(infoTimer.current);
-    infoTimer.current = window.setTimeout(() => setInfo(null), 2500);
   };
 
   const sheets = (
@@ -716,94 +795,33 @@ export function ListScreen({
       )}
       {panel === "switcher" && (
         <Sheet title={strings.switchList} onClose={close} closeLabel={strings.cancel}>
-          <ul className="sheet-list">
-            {lists.map((l) => (
-              <li key={l.id}>
-                <button
-                  type="button"
-                  className="sheet-row"
+          <List>
+            <Section>
+              {lists.map((l) => (
+                <ActionCell
+                  key={l.id}
                   aria-current={l.id === list?.id}
+                  className={l.id === list?.id ? "cell--current" : undefined}
+                  after={l.id === list?.id ? "✓" : withCount(strings.membersCount, l.members.length)}
                   onClick={() => {
                     if (l.id !== list?.id) haptic.select();
                     onSelect(l.id);
                     close();
                   }}
                 >
-                  <span className="sheet-row__name">{l.name}</span>
-                  <span className="sheet-row__meta">
-                    {l.id === list?.id ? "✓" : withCount(strings.membersCount, l.members.length)}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-          <ul className="sheet-list">
-            <li>
-              <button type="button" className="sheet-row sheet-row--accent" onClick={() => openPanel("create", "switcher")}>
+                  {l.name}
+                </ActionCell>
+              ))}
+            </Section>
+            <Section>
+              <ActionCell
+                tone="accent"
+                onClick={() => openPanel("create", "switcher")}
+              >
                 {strings.newList}
-              </button>
-            </li>
-          </ul>
-        </Sheet>
-      )}
-      {panel === "menu" && list && (
-        <Sheet title={strings.listMenu} onClose={close} closeLabel={strings.cancel}>
-          <ul className="sheet-list">
-            <li>
-              <button type="button" className="sheet-row sheet-row--accent" onClick={() => void onShare()}>
-                {strings.shareList}
-              </button>
-            </li>
-            <li>
-              <button type="button" className="sheet-row" disabled={!anyChecked} onClick={onUncheckAll}>
-                {strings.uncheckAll}
-              </button>
-            </li>
-            <li>
-              <button
-                type="button"
-                className="sheet-row"
-                onClick={() => {
-                  close();
-                  onOpenHistory();
-                }}
-              >
-                {strings.history}
-              </button>
-            </li>
-          </ul>
-          <ul className="sheet-list">
-            <li>
-              <button type="button" className="sheet-row" onClick={() => openPanel("rename", "menu")}>
-                {strings.renameList}
-              </button>
-            </li>
-            <li>
-              <button
-                type="button"
-                className="sheet-row"
-                onClick={() => {
-                  close();
-                  onOpenSettings();
-                }}
-              >
-                {strings.settings}
-              </button>
-            </li>
-          </ul>
-          {/* Destructive actions live in their own group, away from routine ones. */}
-          <ul className="sheet-list">
-            <li>
-              <button type="button" className="sheet-row sheet-row--destructive" onClick={() => void leave()}>
-                {strings.leaveList}
-              </button>
-            </li>
-            <li>
-              <button type="button" className="sheet-row sheet-row--destructive" onClick={() => void remove()}>
-                {strings.deleteList}
-              </button>
-            </li>
-          </ul>
+              </ActionCell>
+            </Section>
+          </List>
         </Sheet>
       )}
       {panel === "create" && (
@@ -838,15 +856,19 @@ export function ListScreen({
   if (!list) {
     return (
       <main className="screen">
-        <section className="empty">
-          <p className="empty__title">{strings.noList}</p>
-          <button type="button" className="empty__action" onClick={() => openPanel("create")}>
-            {strings.newList}
-          </button>
-          <button type="button" className="text-button" onClick={onOpenSettings}>
-            {strings.settings}
-          </button>
-        </section>
+        <Placeholder
+          header={strings.noList}
+          action={
+            <div className="placeholder__actions">
+              <Button size="l" mode="filled" onClick={() => openPanel("create")}>
+                {strings.newList}
+              </Button>
+              <Button size="l" mode="plain" onClick={onOpenSettings}>
+                {strings.settings}
+              </Button>
+            </div>
+          }
+        />
         {sheets}
       </main>
     );
@@ -855,8 +877,34 @@ export function ListScreen({
   const groups = contents?.categories ?? [];
   const openEntry =
     openId === null ? null : (groups.flatMap((g) => g.entries).find((e) => e.id === openId) ?? null);
+  const lastRemoved = removed.at(-1);
+
+  // One tip at a time, and none while something else floats or covers the screen. The tip for
+  // the first check outranks the invite tip; each shows until the user closes it or does what it teaches.
+  const tipOpen = (key: TipKey) => !dismissedTips.includes(key);
+  const busyAbove = panel !== null || openId !== null || lastRemoved || undoable || info;
+  let tip: { key: TipKey; title: string; text: string; action?: ReactNode } | null = null;
+  if (contents && !busyAbove) {
+    if (anyChecked && tipOpen("bought")) {
+      tip = { key: "bought", title: strings.tipBoughtTitle, text: strings.tipBoughtText };
+    } else if (totalCount === 0 && !justBought && tipOpen("multi_add")) {
+      tip = { key: "multi_add", title: strings.tipMultiAddTitle, text: strings.tipMultiAddText };
+    } else if (totalCount > 0 && !shared && tipOpen("invite")) {
+      tip = {
+        key: "invite",
+        title: strings.tipInviteTitle,
+        text: strings.tipInviteText,
+        action: (
+          <Button size="s" mode="bezeled" onClick={() => void onShare()}>
+            {strings.shareList}
+          </Button>
+        ),
+      };
+    }
+  }
+
   return (
-    <main className="screen">
+    <main className={tip ? "screen screen--with-tip" : "screen"}>
       <header className="header">
         <h1 className="header__heading">
           <button
@@ -879,14 +927,55 @@ export function ListScreen({
         >
           <AvatarStack members={list.members} />
         </button>
-        <button
-          type="button"
-          className="header__menu"
-          aria-label={strings.listMenu}
-          onClick={() => openPanel("menu")}
-        >
-          ⋯
-        </button>
+        <div className="header__menu-wrap">
+          <IconButton
+            mode="plain"
+            size="l"
+            className="header__menu"
+            aria-label={strings.listMenu}
+            aria-haspopup="menu"
+            aria-expanded={panel === "menu"}
+            onClick={() => openPanel("menu")}
+          >
+            <span aria-hidden="true">⋯</span>
+          </IconButton>
+          {panel === "menu" && (
+            <Popover label={strings.listMenu} onClose={close}>
+              {(choose) => (
+                <>
+                  <Section>
+                    <ActionCell role="menuitem" tone="accent" onClick={() => choose(() => void onShare())}>
+                      {strings.shareList}
+                    </ActionCell>
+                    <ActionCell role="menuitem" disabled={!anyChecked} onClick={() => choose(onUncheckAll)}>
+                      {strings.uncheckAll}
+                    </ActionCell>
+                    <ActionCell role="menuitem" onClick={() => choose(onOpenHistory)}>
+                      {strings.history}
+                    </ActionCell>
+                  </Section>
+                  <Section>
+                    <ActionCell role="menuitem" onClick={() => choose(() => openPanel("rename", "menu"))}>
+                      {strings.renameList}
+                    </ActionCell>
+                    <ActionCell role="menuitem" onClick={() => choose(onOpenSettings)}>
+                      {strings.settings}
+                    </ActionCell>
+                  </Section>
+                  {/* Destructive actions live in their own group, away from routine ones. */}
+                  <Section>
+                    <ActionCell role="menuitem" tone="destructive" onClick={() => choose(() => void leave())}>
+                      {strings.leaveList}
+                    </ActionCell>
+                    <ActionCell role="menuitem" tone="destructive" onClick={() => choose(() => void remove())}>
+                      {strings.deleteList}
+                    </ActionCell>
+                  </Section>
+                </>
+              )}
+            </Popover>
+          )}
+        </div>
       </header>
 
       {totalCount > 0 && (
@@ -938,6 +1027,7 @@ export function ListScreen({
                   onClick={() => choose(i)}
                 >
                   <span className="suggest__name">{s.name}</span>
+                  {s.matched_alias && <span className="suggest__alias">· {s.matched_alias}</span>}
                   {s.on_list && <span className="suggest__hint">{strings.alreadyOnList}</span>}
                 </button>
                 <button
@@ -982,7 +1072,7 @@ export function ListScreen({
           {strings.offline}
         </p>
       )}
-      {online && error && (
+      {online && error && !(error === "load" && !contents) && (
         <div className="alert" role="alert">
           <span className="alert__text">
             {
@@ -1011,129 +1101,156 @@ export function ListScreen({
           </button>
         </div>
       )}
-      {undoable && removed.length === 0 && (
-        <div className="snackbar" role="status">
-          <span className="snackbar__text">{`${strings.bought}: ${undoable.count} · ${strings.boughtSaved}`}</span>
-          <button type="button" className="snackbar__action" onClick={() => void onUndo()}>
-            {strings.undo}
-          </button>
-        </div>
-      )}
-
       {contents && groups.length === 0 && justBought && (
-        <section className="empty empty--done" aria-live="polite">
-          <span className="empty__emoji" aria-hidden="true">
+        <Placeholder
+          header={strings.doneTitle}
+          description={
+            <>
+              {boughtNames.length > 0 && (
+                <>
+                  {boughtNames.length <= 3
+                    ? boughtNames.join(", ")
+                    : `${boughtNames.slice(0, 3).join(", ")} ${withCount(strings.andMore, boughtNames.length - 3)}`}
+                  <br />
+                </>
+              )}
+              {strings.doneHint}
+            </>
+          }
+          action={
+            <Button size="m" mode="bezeled" onClick={onOpenHistory}>
+              {strings.history}
+            </Button>
+          }
+        >
+          <span className="placeholder__emoji" aria-hidden="true">
             ✅
           </span>
-          <p className="empty__title">{strings.doneTitle}</p>
-          {boughtNames.length > 0 && (
-            <p className="empty__summary">
-              {boughtNames.length <= 3
-                ? boughtNames.join(", ")
-                : `${boughtNames.slice(0, 3).join(", ")} ${withCount(strings.andMore, boughtNames.length - 3)}`}
-            </p>
-          )}
-          <p className="empty__hint">{strings.doneHint}</p>
-          <button type="button" className="empty__action" onClick={onOpenHistory}>
-            {strings.history}
-          </button>
-        </section>
+        </Placeholder>
       )}
       {contents && groups.length === 0 && !justBought && (
-        <section className="empty" aria-live="polite">
-          <span className="empty__emoji" aria-hidden="true">
+        <Placeholder
+          header={strings.emptyTitle}
+          description={strings.emptyInputHint}
+          action={
+            <div>
+              <p className="quick-add__lead">{strings.emptyHint}</p>
+              <div className="quick">
+                {QUICK_ADD[language].map((name) => (
+                  <button
+                    key={name}
+                    type="button"
+                    className="quick__button"
+                    disabled={pendingQuick.has(name)}
+                    onClick={() => {
+                      setPendingQuick((prev) => new Set(prev).add(name));
+                      void submit(name).finally(() =>
+                        setPendingQuick((prev) => {
+                          const next = new Set(prev);
+                          next.delete(name);
+                          return next;
+                        }),
+                      );
+                    }}
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          }
+        >
+          <span className="placeholder__emoji" aria-hidden="true">
             🛒
           </span>
-          <p className="empty__title">{strings.emptyTitle}</p>
-          <p className="empty__hint">{strings.emptyInputHint}</p>
-          <p className="empty__hint">{strings.emptyHint}</p>
-          <div className="quick">
-            {QUICK_ADD[language].map((name) => (
-              <button
-                key={name}
-                type="button"
-                className="quick__button"
-                disabled={pendingQuick.has(name)}
-                onClick={() => {
-                  setPendingQuick((prev) => new Set(prev).add(name));
-                  void submit(name).finally(() =>
-                    setPendingQuick((prev) => {
-                      const next = new Set(prev);
-                      next.delete(name);
-                      return next;
-                    }),
-                  );
-                }}
-              >
-                {name}
-              </button>
-            ))}
-          </div>
-        </section>
+        </Placeholder>
       )}
 
-      {groups.map((group) => (
-        <section
-          key={group.key}
-          className={group.entries.every((e) => e.checked) ? "group group--done" : "group"}
-        >
-          <h2 className="group__header">
-            <span className="group__emoji" aria-hidden="true">
-              {group.emoji}
-            </span>
-            <span className="group__name">{group.name}</span>
-            {(() => {
-              const left = group.entries.filter((e) => !e.checked).length;
-              return (
-                <span className="group__count" aria-label={withCount(strings.remaining, left)}>
-                  {left > 0 ? left : "✓"}
-                </span>
-              );
-            })()}
-          </h2>
-          <ul className="rows">
-            {group.entries.map((entry) => (
-              <li
-                key={entry.id}
-                className={["row", entry.checked && "row--checked", fresh.has(entry.id) && "row--new"]
-                  .filter(Boolean)
-                  .join(" ")}
-              >
-                {/* The whole row is the tap target for the aisle action (check / uncheck);
-                    the trailing chevron is the separate, visible way into the Entry card. */}
-                <button
-                  type="button"
-                  role="checkbox"
-                  aria-checked={entry.checked}
-                  className="row__toggle"
-                  onClick={() => toggle(entry.id, !entry.checked)}
-                >
-                  <span className="row__check" aria-hidden="true" />
-                  <span className="row__text">
-                    <span className="row__name">
-                      <span className="row__label">{entry.name}</span>
-                    </span>
-                    {entry.note && <span className="row__note">{entry.note}</span>}
-                  </span>
-                  {shared && (
-                    <span className="row__by" aria-hidden="true">
-                      <EntryAvatar members={list.members} addedBy={entry.added_by} />
-                    </span>
-                  )}
-                </button>
-                <button
-                  type="button"
-                  className="row__open"
-                  aria-label={`${strings.entryDetails}: ${entry.name}`}
-                  onClick={() => openCard(entry.id)}
-                >
-                  <span aria-hidden="true">›</span>
-                </button>
-              </li>
+      {!contents && error === "load" && (
+        <Placeholder
+          header={strings.loadFailed}
+          action={
+            <Button size="m" mode="bezeled" onClick={() => void retry()}>
+              {strings.retry}
+            </Button>
+          }
+        />
+      )}
+
+      {!contents && error !== "load" && (
+        <List className="groups" data-platform={platform} role="status" aria-busy="true" aria-label={strings.loading}>
+          <Section>
+            {[0, 1, 2, 3].map((i) => (
+              <Cell key={i} before={<Skeleton visible className="skeleton__check" />}>
+                <Skeleton visible className="skeleton__line" />
+              </Cell>
             ))}
-          </ul>
-        </section>
-      ))}
+          </Section>
+        </List>
+      )}
+
+      <List className="groups" data-platform={platform}>
+        {groups.map((group) => {
+          const left = group.entries.filter((e) => !e.checked).length;
+          return (
+            <Section
+              key={group.key}
+              className={left === 0 ? "group group--done" : "group"}
+              header={
+                <h2 className="group__header">
+                  <span className="group__emoji" aria-hidden="true">
+                    {group.emoji}
+                  </span>
+                  <span className="group__name">{group.name}</span>
+                  <span className="group__count" aria-label={withCount(strings.remaining, left)}>
+                    {left > 0 ? left : "✓"}
+                  </span>
+                </h2>
+              }
+            >
+              {group.entries.map((entry) => (
+                <div
+                  key={entry.id}
+                  className={["row", entry.checked && "row--checked", fresh.has(entry.id) && "row--new"]
+                    .filter(Boolean)
+                    .join(" ")}
+                >
+                  {/* The whole row is the tap target for the aisle action (check / uncheck);
+                      the trailing chevron is the separate, visible way into the Entry card. */}
+                  <Cell
+                    Component="button"
+                    type="button"
+                    role="checkbox"
+                    aria-checked={entry.checked}
+                    className="row__toggle"
+                    multiline
+                    before={<span className="row__check" aria-hidden="true" />}
+                    subtitle={entry.note ? <span className="row__note">{entry.note}</span> : undefined}
+                    after={
+                      shared ? (
+                        <span className="row__by" aria-hidden="true">
+                          <EntryAvatar members={list.members} addedBy={entry.added_by} />
+                        </span>
+                      ) : undefined
+                    }
+                    onClick={() => toggle(entry.id, !entry.checked)}
+                  >
+                    <span className="row__label">{entry.name}</span>
+                  </Cell>
+                  <button
+                    type="button"
+                    className="row__open"
+                    aria-label={`${strings.entryDetails}: ${entry.name}`}
+                    onClick={() => openCard(entry.id)}
+                  >
+                    <span aria-hidden="true">›</span>
+                  </button>
+                </div>
+              ))}
+            </Section>
+          );
+        })}
+      </List>
       {openEntry && (
         <EntrySheet
           key={openEntry.id}
@@ -1144,26 +1261,50 @@ export function ListScreen({
           strings={strings}
           onSaveNote={saveNote}
           onChangeCategory={changeCategory}
+          onRename={renameOpenProduct}
+          onAddAlias={addOpenAlias}
+          onRemoveAlias={removeOpenAlias}
           onDelete={() => void removeEntry(openEntry.id, openEntry.name)}
           onSaveFailed={() => setError("save")}
           onClose={closeCard}
         />
       )}
 
-      {removed.length > 0 && (
-        <div className="snackbar" role="status">
-          <span className="snackbar__text">
-            {strings.entryDeleted}: {removed[removed.length - 1].name}
-          </span>
-          <button type="button" className="snackbar__action" onClick={() => void undoRemove()}>
-            {strings.undo}
-          </button>
-        </div>
+      {tip && (
+        <Tip
+          title={tip.title}
+          text={tip.text}
+          closeLabel={strings.close}
+          onClose={() => onDismissTip(tip.key)}
+          action={tip.action}
+        />
       )}
-      {info && (
-        <div className="toast" role="status">
-          {info}
-        </div>
+      {lastRemoved ? (
+        <Snackbar
+          key={lastRemoved.id}
+          className="snackbar"
+          duration={UNDO_MS}
+          onClose={() => setRemoved((prev) => prev.filter((r) => r.id !== lastRemoved.id))}
+          after={<Snackbar.Button onClick={() => void undoRemove()}>{strings.undo}</Snackbar.Button>}
+        >
+          {strings.entryDeleted}: {lastRemoved.name}
+        </Snackbar>
+      ) : undoable ? (
+        <Snackbar
+          key={undoable.id}
+          className="snackbar"
+          duration={UNDO_MS}
+          onClose={dismissUndo}
+          after={<Snackbar.Button onClick={() => void onUndo()}>{strings.undo}</Snackbar.Button>}
+        >
+          {`${strings.bought}: ${undoable.count} · ${strings.boughtSaved}`}
+        </Snackbar>
+      ) : (
+        info && (
+          <Snackbar key={info} className="snackbar" duration={2500} onClose={() => setInfo(null)}>
+            {info}
+          </Snackbar>
+        )
       )}
       {sheets}
     </main>

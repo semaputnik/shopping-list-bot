@@ -1,4 +1,4 @@
-"""The fixed, system-wide Category set and the RU/ES dictionary that guesses it.
+"""The fixed, system-wide Category set and the RU/ES/EN dictionary that guesses it.
 
 A dictionary entry is matched against the normalised name (lower-case, no diacritics, see
 ``normalize``). ``молок*`` matches any word that starts with it (inflections); an entry
@@ -22,6 +22,8 @@ class Category:
     words: tuple[str, ...] = ()
 
     def name(self, language: str) -> str:
+        if language == "en":
+            return EN_NAMES[self.key]
         return self.es if language == "es" else self.ru
 
 
@@ -567,6 +569,178 @@ CATEGORIES: tuple[Category, ...] = (
     Category(UNCATEGORIZED, "❔", "Без категории", "Sin categoría"),
 )
 
+EN_NAMES = {
+    "produce": "Fruit & vegetables",
+    "bread": "Bakery",
+    "dairy": "Dairy & eggs",
+    "meat_fish": "Meat & fish",
+    "frozen": "Frozen",
+    "pantry": "Pantry",
+    "drinks": "Drinks",
+    "household": "Household",
+    "hygiene": "Personal care",
+    "other": "Other",
+    UNCATEGORIZED: "Uncategorized",
+}
+
+# English words for guessing, kept apart from the RU/ES lists above. Same syntax: ``word*``
+# matches any word starting with it, a plain entry must match whole words.
+EN_WORDS: dict[str, tuple[str, ...]] = {
+    "produce": (
+        "apple*",
+        "pear*",
+        "banana*",
+        "orange*",
+        "tangerine*",
+        "lemon*",
+        "lime*",
+        "grape*",
+        "strawberr*",
+        "blueberr*",
+        "raspberr*",
+        "peach*",
+        "melon*",
+        "watermelon*",
+        "kiwi*",
+        "avocado*",
+        "pineapple*",
+        "mango*",
+        "tomato*",
+        "cucumber*",
+        "potato*",
+        "carrot*",
+        "onion*",
+        "garlic",
+        "cabbage*",
+        "lettuce",
+        "salad",
+        "spinach",
+        "broccoli",
+        "zucchini*",
+        "pepper*",
+        "mushroom*",
+        "herbs",
+        "parsley",
+        "dill",
+        "basil",
+        "ginger",
+    ),
+    "bread": (
+        "bread",
+        "baguette*",
+        "loaf",
+        "loaves",
+        "bun*",
+        "roll*",
+        "croissant*",
+        "bagel*",
+        "tortilla*",
+        "pita",
+        "cake*",
+        "cookie*",
+        "biscuit*",
+    ),
+    "dairy": (
+        "milk",
+        "kefir",
+        "yogurt*",
+        "yoghurt*",
+        "cheese*",
+        "butter",
+        "cream",
+        "sour cream",
+        "cottage cheese",
+        "egg*",
+        "mozzarella",
+        "parmesan",
+    ),
+    "meat_fish": (
+        "chicken*",
+        "beef",
+        "pork",
+        "lamb",
+        "turkey",
+        "mince*",
+        "minced meat",
+        "steak*",
+        "sausage*",
+        "ham",
+        "bacon",
+        "salami",
+        "fish",
+        "salmon",
+        "tuna",
+        "cod",
+        "shrimp*",
+        "prawn*",
+    ),
+    "frozen": ("frozen*", "ice cream", "dumpling*", "ice"),
+    "pantry": (
+        "rice",
+        "pasta",
+        "spaghetti",
+        "noodle*",
+        "buckwheat",
+        "oats",
+        "oatmeal",
+        "flour",
+        "sugar",
+        "salt",
+        "oil",
+        "olive oil",
+        "vinegar",
+        "ketchup",
+        "mayo*",
+        "mustard",
+        "sauce*",
+        "beans",
+        "lentil*",
+        "chickpea*",
+        "canned*",
+        "honey",
+        "jam",
+        "cereal*",
+        "chocolate*",
+        "nuts",
+        "spice*",
+        "tea",
+        "coffee",
+    ),
+    "drinks": ("water", "juice*", "soda", "cola", "beer*", "wine*", "lemonade", "sparkling water"),
+    "household": (
+        "detergent*",
+        "dish soap",
+        "washing up liquid",
+        "sponge*",
+        "bleach",
+        "trash bags",
+        "bin bags",
+        "paper towel*",
+        "foil",
+        "cling film",
+        "batter*",
+        "light bulb*",
+    ),
+    "hygiene": (
+        "toothpaste",
+        "toothbrush*",
+        "shampoo*",
+        "conditioner",
+        "soap",
+        "shower gel",
+        "deodorant*",
+        "toilet paper",
+        "napkins",
+        "tissues",
+        "razor*",
+        "pads",
+        "tampons",
+        "diapers",
+        "nappies",
+        "cotton pads",
+    ),
+}
+
 CATEGORY_BY_KEY = {c.key: c for c in CATEGORIES}
 CATEGORY_ORDER = {c.key: i for i, c in enumerate(CATEGORIES)}
 
@@ -574,7 +748,7 @@ CATEGORY_ORDER = {c.key: i for i, c in enumerate(CATEGORIES)}
 def _compile() -> list[tuple[int, re.Pattern[str], str]]:
     rules: list[tuple[int, re.Pattern[str], str]] = []
     for category in CATEGORIES:
-        for word in category.words:
+        for word in category.words + EN_WORDS.get(category.key, ()):
             prefix = word.endswith("*")
             text = normalize(word.rstrip("*"))
             pattern = r"(?<!\w)" + re.escape(text) + ("" if prefix else r"(?!\w)")

@@ -1,6 +1,7 @@
 """Checking and unchecking Entries, and unchecking everything (HTTP API only)."""
 
 import pytest
+from conftest import invite_code
 
 ANNA = {"id": 1001, "first_name": "Анна", "language_code": "ru"}
 CARLOS = {"id": 2002, "first_name": "Carlos", "language_code": "es-MX"}
@@ -106,7 +107,7 @@ def test_duplicate_entries_check_independently(client, anna):
 @pytest.mark.parametrize("settings_overrides", [{"check_wins_window_seconds": 0}])
 def test_other_member_sees_and_changes_checked_state(client, sign_in, anna):
     (entry,) = add(client, anna, "молоко")
-    code = client.get(f"/api/lists/{anna['list_id']}", headers=anna["headers"]).json()["share_code"]
+    code = invite_code(client, anna, anna["list_id"])
     carlos = sign_in(CARLOS)
     joined = client.post("/api/lists/join", json={"code": code}, headers=carlos["headers"])
     assert joined.status_code == 200

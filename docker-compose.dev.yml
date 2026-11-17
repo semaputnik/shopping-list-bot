@@ -3,17 +3,47 @@
 # Needs in .env: SL_BOT_TOKEN, SL_BOT_USERNAME, NGROK_AUTHTOKEN (and optionally NGROK_URL for a static domain).
 # The ngrok inspector is at http://localhost:4040.
 
+x-database-url: &database-url postgresql+psycopg://shopping_list:shopping_list@db:5432/shopping_list
+
 services:
-  app:
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: shopping_list
+      POSTGRES_PASSWORD: shopping_list
+      POSTGRES_DB: shopping_list
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shopping_list"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  migrate:
     build: .
     image: shared-lists:dev
     env_file: .env
     environment:
-      SL_DATABASE_URL: sqlite:////data/shared_lists.db
-    volumes:
-      - data:/data
+      SL_DATABASE_URL: *database-url
+    command: ["shopping-list-bot", "migrate"]
+    healthcheck:
+      disable: true
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  app:
+    image: shared-lists:dev
+    env_file: .env
+    environment:
+      SL_DATABASE_URL: *database-url
     ports:
       - "8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
 
   ngrok:
     image: ngrok/ngrok:3-alpine
@@ -36,10 +66,9 @@ services:
     image: shared-lists:dev
     env_file: .env
     environment:
-      SL_DATABASE_URL: sqlite:////data/shared_lists.db
+      SL_DATABASE_URL: *database-url
       NGROK_API: http://ngrok:4040/api/tunnels
     volumes:
-      - data:/data
       - ./docker/dev-bot-entrypoint.py:/app/dev-bot-entrypoint.py:ro
     command: ["python", "/app/dev-bot-entrypoint.py"]
     healthcheck:
@@ -52,4 +81,4 @@ services:
     restart: on-failure
 
 volumes:
-  data:
+  pgdata:

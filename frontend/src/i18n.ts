@@ -1,4 +1,4 @@
-export type Language = "ru" | "es";
+export type Language = "ru" | "es" | "en";
 
 type StringKey =
   | "loading"
@@ -37,6 +37,12 @@ type StringKey =
   | "share"
   | "linkCopied"
   | "linkUnavailable"
+  | "invitedBy"
+  | "resetLink"
+  | "resetLinkTitle"
+  | "resetLinkMessage"
+  | "resetLinkConfirm"
+  | "linkReset"
   | "members"
   | "you"
   | "membersHint"
@@ -48,6 +54,13 @@ type StringKey =
   | "languageAsTelegram"
   | "languageSaveError"
   | "entryNote"
+  | "entryName"
+  | "entryNameHint"
+  | "aliases"
+  | "aliasesPlaceholder"
+  | "aliasesHint"
+  | "aliasTaken"
+  | "aliasRemove"
   | "entryDetails"
   | "entryNotePlaceholder"
   | "entryCategory"
@@ -81,11 +94,20 @@ type StringKey =
   | "buyFailed"
   | "undoBuyFailed"
   | "history"
+  | "historyEmptyTitle"
   | "historyEmpty"
+  | "historyToList"
   | "historyAdded"
   | "historyAddFailed"
   | "historyAddBack"
-  | "historyLoadFailed";
+  | "historyLoadFailed"
+  | "languageAsTelegramHint"
+  | "tipMultiAddTitle"
+  | "tipMultiAddText"
+  | "tipInviteTitle"
+  | "tipInviteText"
+  | "tipBoughtTitle"
+  | "tipBoughtText";
 
 const strings: Record<Language, Record<StringKey, string>> = {
   ru: {
@@ -126,6 +148,12 @@ const strings: Record<Language, Record<StringKey, string>> = {
     share: "Поделиться",
     linkCopied: "Ссылка скопирована",
     linkUnavailable: "Не удалось получить ссылку",
+    invitedBy: "пригласил(а) {name}",
+    resetLink: "Сбросить ссылку",
+    resetLinkTitle: "Сбросить ссылку?",
+    resetLinkMessage: "Старая ссылка перестанет работать. Те, кто уже в списке, останутся.",
+    resetLinkConfirm: "Сбросить",
+    linkReset: "Ссылка сброшена",
     members: "Участники",
     you: "вы",
     membersHint: "У всех участников одинаковые права. Отправьте ссылку, чтобы добавить ещё кого-то.",
@@ -137,6 +165,13 @@ const strings: Record<Language, Record<StringKey, string>> = {
     languageAsTelegram: "Как в Telegram",
     languageSaveError: "Не удалось сохранить язык. Попробуйте ещё раз.",
     entryNote: "Заметка",
+    entryName: "Название",
+    entryNameHint: "Меняется у товара целиком: во всех его строках и подсказках.",
+    aliases: "Другие названия",
+    aliasesPlaceholder: "Например, milk",
+    aliasesHint: "Поиск найдёт товар и по этим названиям.",
+    aliasTaken: "Это название уже занято другим товаром в списке.",
+    aliasRemove: "Убрать название",
     entryNotePlaceholder: "Количество или детали",
     entryCategory: "Отдел",
     entryAddedBy: "Добавлено:",
@@ -170,11 +205,20 @@ const strings: Record<Language, Record<StringKey, string>> = {
     buyFailed: "Покупка не сохранилась. Проверьте связь.",
     undoBuyFailed: "Не удалось отменить покупку. Проверьте связь.",
     history: "История покупок",
+    historyEmptyTitle: "Покупок пока нет",
+    historyToList: "К списку",
     historyEmpty: "Пока пусто. Здесь появятся покупки после нажатия «Куплено».",
     historyAdded: "Добавлено в список",
     historyAddFailed: "Не удалось добавить. Попробуйте ещё раз.",
     historyAddBack: "Добавить в список снова",
     historyLoadFailed: "Не удалось загрузить историю.",
+    languageAsTelegramHint: "Сейчас: {language}",
+    tipMultiAddTitle: "Несколько товаров сразу",
+    tipMultiAddText: "Разделяйте их точкой с запятой или вставьте список по строкам: молоко; хлеб; яйца.",
+    tipInviteTitle: "Покупаете вместе?",
+    tipInviteText: "Отправьте ссылку, и другие смогут добавлять товары и отмечать купленное.",
+    tipBoughtTitle: "Закончили покупки?",
+    tipBoughtText: "Нажмите «Куплено» внизу: отмеченные товары уйдут в историю.",
   },
   es: {
     loading: "Cargando…",
@@ -214,6 +258,12 @@ const strings: Record<Language, Record<StringKey, string>> = {
     share: "Compartir",
     linkCopied: "Enlace copiado",
     linkUnavailable: "No se pudo obtener el enlace",
+    invitedBy: "invitación de {name}",
+    resetLink: "Restablecer el enlace",
+    resetLinkTitle: "¿Restablecer el enlace?",
+    resetLinkMessage: "El enlace anterior dejará de funcionar. Quienes ya están en la lista se quedan.",
+    resetLinkConfirm: "Restablecer",
+    linkReset: "Enlace restablecido",
     members: "Miembros",
     you: "tú",
     membersHint: "Todos los miembros tienen los mismos derechos. Envía el enlace para añadir a alguien más.",
@@ -225,6 +275,13 @@ const strings: Record<Language, Record<StringKey, string>> = {
     languageAsTelegram: "Como en Telegram",
     languageSaveError: "No se pudo guardar el idioma. Inténtalo de nuevo.",
     entryNote: "Nota",
+    entryName: "Nombre",
+    entryNameHint: "Cambia en todo el producto: en todas sus filas y sugerencias.",
+    aliases: "Otros nombres",
+    aliasesPlaceholder: "Por ejemplo, milk",
+    aliasesHint: "La búsqueda también encontrará el producto por estos nombres.",
+    aliasTaken: "Otro producto de la lista ya tiene este nombre.",
+    aliasRemove: "Quitar nombre",
     entryNotePlaceholder: "Cantidad o detalles",
     entryCategory: "Sección",
     entryAddedBy: "Añadido por:",
@@ -258,11 +315,130 @@ const strings: Record<Language, Record<StringKey, string>> = {
     buyFailed: "La compra no se guardó. Revisa la conexión.",
     undoBuyFailed: "No se pudo deshacer la compra. Revisa la conexión.",
     history: "Historial de compras",
+    historyEmptyTitle: "Aún no hay compras",
+    historyToList: "A la lista",
     historyEmpty: "Aún no hay nada. Las compras aparecerán aquí al pulsar «Comprado».",
     historyAdded: "Añadido a la lista",
     historyAddFailed: "No se pudo añadir. Inténtalo de nuevo.",
     historyAddBack: "Volver a añadir a la lista",
     historyLoadFailed: "No se pudo cargar el historial.",
+    languageAsTelegramHint: "Ahora: {language}",
+    tipMultiAddTitle: "Varios productos a la vez",
+    tipMultiAddText: "Sepáralos con punto y coma o pega una lista por líneas: leche; pan; huevos.",
+    tipInviteTitle: "¿Compráis juntos?",
+    tipInviteText: "Envía el enlace y los demás podrán añadir productos y marcar lo comprado.",
+    tipBoughtTitle: "¿Has terminado?",
+    tipBoughtText: "Pulsa «Comprado» abajo: lo marcado pasa al historial.",
+  },
+  en: {
+    loading: "Loading…",
+    emptyTitle: "The list is empty",
+    emptyHint: "Things to buy will show up here. Or add something popular:",
+    errorTitle: "Couldn't sign in",
+    errorHint: "Close the app and open it again from Telegram.",
+    retry: "Retry",
+    offline: "No connection. Changes won't be saved until you're back online.",
+    notTelegramTitle: "Open in Telegram",
+    notTelegramHint: "Shared Lists works as a mini app inside Telegram.",
+    noList: "No lists available",
+    switchList: "Your lists",
+    newList: "New list",
+    createList: "Create",
+    listName: "List name",
+    listNamePlaceholder: "For example, Weekend at the cabin",
+    save: "Save",
+    cancel: "Cancel",
+    listMenu: "List actions",
+    renameList: "Rename",
+    leaveList: "Leave list",
+    deleteList: "Delete list",
+    leaveTitle: "Leave the list?",
+    leaveMessage: "The list disappears only for you; the other members keep it.",
+    leaveLastMessage: "You're the last member: the list will be deleted.",
+    deleteTitle: "Delete the list?",
+    deleteMessage:
+      "The list will be deleted for all {n} members, together with its history. This can't be undone.",
+    membersCount: "Members: {n}",
+    actionFailed: "That didn't work. Try again.",
+    inputPlaceholder: "Add to the list",
+    inputLabel: "What to buy",
+    addFailed: "Couldn't add. Try again.",
+    loadFailed: "Couldn't update the list.",
+    emptyInputHint: "Type a name and send it. A comma starts a note: milk, 2 l.",
+    share: "Share",
+    linkCopied: "Link copied",
+    linkUnavailable: "Couldn't get the link",
+    invitedBy: "invited by {name}",
+    resetLink: "Reset link",
+    resetLinkTitle: "Reset the link?",
+    resetLinkMessage: "The old link will stop working. People already in the list stay.",
+    resetLinkConfirm: "Reset",
+    linkReset: "Link reset",
+    members: "Members",
+    you: "you",
+    membersHint: "Every member has the same rights. Send the link to add someone else.",
+    badLinkTitle: "The link isn't valid",
+    badLinkHint: "Ask for the list's link again.",
+    openMyLists: "Open my lists",
+    settings: "Settings",
+    languageSection: "Language",
+    languageAsTelegram: "Same as Telegram",
+    languageSaveError: "Couldn't save the language. Try again.",
+    entryNote: "Note",
+    entryName: "Name",
+    entryNameHint: "Changes the whole item: every row of it and its suggestions.",
+    aliases: "Other names",
+    aliasesPlaceholder: "For example, leche",
+    aliasesHint: "Search finds the item by these names too.",
+    aliasTaken: "Another item on the list already has this name.",
+    aliasRemove: "Remove name",
+    entryNotePlaceholder: "Amount or details",
+    entryCategory: "Section",
+    entryAddedBy: "Added by:",
+    entryDelete: "Delete",
+    entryDeleted: "Deleted",
+    undo: "Undo",
+    close: "Close",
+    entryDetails: "Details",
+    entrySaveFailed: "Couldn't save. Try again.",
+    entryDeleteFailed: "Couldn't delete. Try again.",
+    undoFailed: "Couldn't bring the item back.",
+    listDeletedNotice: "The list “{name}” was deleted",
+    listLeftNotice: "You're no longer a member of “{name}”",
+    suggestions: "Suggestions",
+    alreadyOnList: "already on the list",
+    addNew: "Add",
+    forgetProduct: "Remove from suggestions",
+    forgetConfirm: "Remove",
+    shareList: "Share list",
+    shareText: "Join the list “{name}”",
+    remaining: "Left: {n}",
+    progress: "Left to buy: {left} of {total}",
+    allInBasket: "Everything's in the basket — tap “Bought”",
+    boughtSaved: "saved to history",
+    doneTitle: "All bought",
+    doneHint: "The purchase is saved to history.",
+    andMore: "and {n} more",
+    uncheckAll: "Uncheck all",
+    checkFailed: "The check wasn't saved. Check your connection.",
+    bought: "Bought",
+    buyFailed: "The purchase wasn't saved. Check your connection.",
+    undoBuyFailed: "Couldn't undo the purchase. Check your connection.",
+    history: "Purchase history",
+    historyEmptyTitle: "No purchases yet",
+    historyToList: "Back to the list",
+    historyEmpty: "Nothing yet. Purchases show up here when you tap “Bought”.",
+    historyAdded: "Added to the list",
+    historyAddFailed: "Couldn't add. Try again.",
+    historyAddBack: "Add back to the list",
+    historyLoadFailed: "Couldn't load the history.",
+    languageAsTelegramHint: "Now: {language}",
+    tipMultiAddTitle: "Add several at once",
+    tipMultiAddText: "Separate items with a semicolon or paste a list line by line: milk; bread; eggs.",
+    tipInviteTitle: "Shopping together?",
+    tipInviteText: "Send the link and others can add items and check off what they buy.",
+    tipBoughtTitle: "Done shopping?",
+    tipBoughtText: "Tap “Bought” below: the checked items move to history.",
   },
 };
 
@@ -270,10 +446,18 @@ const strings: Record<Language, Record<StringKey, string>> = {
 export const QUICK_ADD: Record<Language, string[]> = {
   ru: ["Молоко", "Хлеб", "Яйца", "Бананы", "Картошка", "Сыр", "Курица", "Вода"],
   es: ["Leche", "Pan", "Huevos", "Plátanos", "Patatas", "Queso", "Pollo", "Agua"],
+  en: ["Milk", "Bread", "Eggs", "Bananas", "Potatoes", "Cheese", "Chicken", "Water"],
 };
 
 /** Each language is always shown in its own name, whatever the interface language is. */
-export const LANGUAGE_NAMES: Record<Language, string> = { ru: "Русский", es: "Español" };
+export const LANGUAGE_NAMES: Record<Language, string> = { ru: "Русский", es: "Español", en: "English" };
+
+/** The one-line consequence shown under each language option, also in that language. */
+export const LANGUAGE_HINTS: Record<Language, string> = {
+  ru: "Интерфейс на русском",
+  es: "Interfaz en español",
+  en: "Interface in English",
+};
 
 export type Strings = Record<StringKey, string>;
 
@@ -285,7 +469,8 @@ export function withCount(template: string, n: number): string {
 /** Map a Telegram `language_code` (e.g. "es-MX") to a supported UI language. */
 export function pickLanguage(code: string | null | undefined): Language {
   const base = (code ?? "").toLowerCase().replace("_", "-").split("-")[0];
-  return base === "es" ? "es" : "ru";
+  // A language we do not speak falls back to English (the backend does the same).
+  return base === "ru" || base === "es" ? base : "en";
 }
 
 export function t(lang: Language): Strings {

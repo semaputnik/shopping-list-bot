@@ -1,6 +1,6 @@
 """Ranking of a List's Products against typed text."""
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from typing import Protocol
 
 MAX_SUGGESTIONS = 8
@@ -8,10 +8,16 @@ MAX_SUGGESTIONS = 8
 MIN_TYPO_LENGTH = 3
 
 
+class _Alias(Protocol):
+    name: str
+    name_norm: str
+
+
 class _Product(Protocol):
     id: int
     name_norm: str
     purchase_count: int
+    aliases: Sequence[_Alias]
 
 
 def within_one_edit(a: str, b: str) -> bool:
@@ -55,12 +61,25 @@ def match_tier(query: str, name: str) -> int | None:
     return None
 
 
-def rank[P: _Product](query: str, products: Iterable[P]) -> list[P]:
-    """Matching Products, best first: exact, prefix, substring, typo; ties by purchase count."""
+def rank[P: _Product](query: str, products: Iterable[P]) -> list[tuple[P, str | None]]:
+    """Matching Products, best first: exact, prefix, substring, typo; ties by purchase count.
+
+    A Product matches through its name or any of its aliases, whichever fits best (the name wins
+    a tie). Each result carries the alias that matched, or ``None`` when the name did.
+    """
     scored = []
     for product in products:
+        best: tuple[int, str | None] | None = None
         tier = match_tier(query, product.name_norm)
         if tier is not None:
-            scored.append((tier, -product.purchase_count, product.name_norm, product.id, product))
+            best = (tier, None)
+        for alias in product.aliases:
+            tier = match_tier(query, alias.name_norm)
+            if tier is not None and (best is None or tier < best[0]):
+                best = (tier, alias.name)
+        if best is not None:
+            scored.append(
+                (best[0], -product.purchase_count, product.name_norm, product.id, product, best[1])
+            )
     scored.sort(key=lambda s: s[:4])
-    return [s[4] for s in scored]
+    return [(s[4], s[5]) for s in scored]
