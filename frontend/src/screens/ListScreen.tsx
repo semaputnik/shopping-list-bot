@@ -2,11 +2,13 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type FormEvent,
   type KeyboardEvent,
   type ReactNode,
+  Suspense,
 } from "react";
 import {
   Button,
@@ -15,6 +17,7 @@ import {
   List,
   Placeholder,
   Section,
+  SegmentedControl,
   Skeleton,
   Snackbar,
 } from "@telegram-apps/telegram-ui";
@@ -31,17 +34,24 @@ import {
   removeAlias,
   renameProduct,
   restoreEntry,
+  createStore,
+  deleteStore,
+  renameStore,
+  setGrouping,
+  setProductStore,
   updateEntry,
   uncheckAll,
   undoPurchase,
   type Category,
+  type Grouping,
   type ListContents,
+  type Store,
   type ShoppingList,
   type Suggestion,
   type TipKey,
 } from "../api";
-import { AvatarStack, EntryAvatar } from "../components/Avatar";
-import { EntrySheet } from "../components/EntrySheet";
+import { AvatarStack } from "../components/Avatar";
+import { EntryGroups, groupEntries } from "../components/EntryGroups";
 import { ActionCell } from "../components/ActionCell";
 import { Popover } from "../components/Popover";
 import { Tip } from "../components/Tip";
@@ -56,7 +66,7 @@ import {
   platform,
   setMainButtonText,
 } from "../telegram";
-import { NameSheet, Sheet } from "./Sheet";
+import { EntryScreen, ListsScreen, NameSheet, StoresScreen, prefetchScreens } from "./lazyScreens";
 
 interface Props {
   token: string;
@@ -83,9 +93,11 @@ interface Props {
   onDelete: (id: number) => Promise<boolean>;
 }
 
-type Panel = null | "switcher" | "menu" | "create" | "rename";
+type Panel = null | "switcher" | "menu" | "create" | "rename" | "stores";
 
 const HIGHLIGHT_MS = 1600;
+// The input line can size itself to its content (CSS field-sizing); not in older iOS WebKit.
+const FIELD_SIZING = typeof CSS !== "undefined" && CSS.supports("field-sizing", "content");
 const SUGGEST_DELAY_MS = 120;
 // Undo stays for at least this long. A snackbar closes itself after it, then plays a 320 ms exit.
 const UNDO_MS = 5000;
@@ -139,7 +151,12 @@ export function ListScreen({
     setParent(null);
     setPanel(null);
   }, []);
+  // Where the List was scrolled when a screen (an Entry, the Lists) replaced it.
+  const listScroll = useRef(0);
   const openPanel = (next: Panel, from: Panel = null) => {
+    if ((next === "switcher" || next === "stores") && (panel === null || panel === "menu")) {
+      listScroll.current = window.scrollY;
+    }
     setParent(from);
     setPanel(next);
   };
@@ -336,15 +353,27 @@ export function ListScreen({
     fetchCategories(token).then(setCategories, (e) => console.error(e));
   }, [token]);
 
+  // Once the List is on screen, warm the screens and sheets it can open (split chunks).
+  useEffect(() => {
+    if (contents) prefetchScreens();
+  }, [contents]);
+
   // Fetched up front so the card's select is ready; retried on open if that failed.
   useEffect(loadCategories, [loadCategories]);
 
   const openCard = (id: number) => {
+    listScroll.current = window.scrollY;
     setOpenId(id);
     if (categories.length === 0) loadCategories();
   };
 
   const closeCard = useCallback(() => setOpenId(null), []);
+
+  const onOtherScreen =
+    openId !== null || panel === "switcher" || parent === "switcher" || panel === "stores";
+  useLayoutEffect(() => {
+    window.scrollTo(0, onOtherScreen ? 0 : listScroll.current);
+  }, [onOtherScreen]);
 
   /** Sends one edit and applies the answer locally; a refetch only when it cannot be applied. */
   const editEntry = useCallback(
@@ -413,6 +442,45 @@ export function ListScreen({
     [token, listId, openId, openProductId, markOwn, refresh],
   );
 
+  const changeOpenStore = useCallback(
+    async (storeId: number | null) => {
+      const productId = openProductId();
+      if (listId === undefined || productId === undefined || openId === null) return;
+      markOwn(openId);
+      await setProductStore(token, listId, productId, storeId);
+      await refresh();
+    },
+    [token, listId, openId, openProductId, markOwn, refresh],
+  );
+
+  const addStore = useCallback(
+    async (name: string): Promise<Store> => {
+      if (listId === undefined) throw new Error("no list");
+      const { store } = await createStore(token, listId, name);
+      await refresh();
+      return store;
+    },
+    [token, listId, refresh],
+  );
+
+  const editStore = useCallback(
+    async (id: number, name: string) => {
+      if (listId === undefined) return;
+      await renameStore(token, listId, id, name);
+      await refresh();
+    },
+    [token, listId, refresh],
+  );
+
+  const dropStore = useCallback(
+    async (id: number) => {
+      if (listId === undefined) return;
+      await deleteStore(token, listId, id);
+      await refresh();
+    },
+    [token, listId, refresh],
+  );
+
   const removeOpenAlias = useCallback(
     async (aliasId: number) => {
       const productId = openProductId();
@@ -462,12 +530,17 @@ export function ListScreen({
     await refresh();
   };
 
-  // Grow the textarea with its content (field-sizing is not available in older iOS WebKit).
+  // Grow the textarea with its content. Where CSS `field-sizing: content` works (styles.css) there
+  // is nothing to do. Older iOS WebKit lacks it: there, resetting the height to `auto` relayouts
+  // the whole page, so it happens only when the text got shorter; growing just reads the size.
+  const typedLength = useRef(0);
   useLayoutEffect(() => {
     const el = input.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
+    const shorter = text.length < typedLength.current;
+    typedLength.current = text.length;
+    if (!el || FIELD_SIZING) return;
+    if (shorter) el.style.height = "auto";
+    if (shorter || el.scrollHeight > el.clientHeight) el.style.height = `${el.scrollHeight}px`;
   }, [text]);
 
   /** Closes a tip for good once the user did what it teaches. */
@@ -512,10 +585,12 @@ export function ListScreen({
     setContents((prev) =>
       prev && {
         ...prev,
-        categories: prev.categories.map((g) => ({
-          ...g,
-          entries: g.entries.map((e) => (match(e.id) ? { ...e, checked } : e)),
-        })),
+        // Untouched groups keep their identity, so their memoised sections skip the re-render.
+        categories: prev.categories.map((g) =>
+          g.entries.some((e) => match(e.id) && e.checked !== checked)
+            ? { ...g, entries: g.entries.map((e) => (match(e.id) ? { ...e, checked } : e)) }
+            : g,
+        ),
       },
     );
   }, []);
@@ -575,6 +650,15 @@ export function ListScreen({
     [token, listId, applyChecked, reload, categories, markOwn, ownVersion],
   );
 
+  // Stable handlers for the memoised rows: they always call the latest toggle / openCard.
+  const latest = useRef({ toggle, openCard });
+  latest.current = { toggle, openCard };
+  const onToggleRow = useCallback(
+    (id: number, checked: boolean) => latest.current.toggle(id, checked),
+    [],
+  );
+  const onOpenRow = useCallback((id: number) => latest.current.openCard(id), []);
+
   const checkedCount = (contents?.categories ?? []).reduce(
     (n, g) => n + g.entries.filter((e) => e.checked).length,
     0,
@@ -583,6 +667,27 @@ export function ListScreen({
   const totalCount = (contents?.categories ?? []).reduce((n, g) => n + g.entries.length, 0);
   const shared = (list?.members.length ?? 0) > 1;
   const allInBasket = totalCount > 0 && checkedCount === totalCount;
+
+  // Grouping by Store only means something once the List has a Store; it is personal (no event).
+  const stores = useMemo(() => contents?.stores ?? [], [contents?.stores]);
+  const grouping: Grouping = stores.length > 0 ? (contents?.grouping ?? "category") : "category";
+  const shown = useMemo(
+    () => groupEntries(contents?.categories ?? [], stores, grouping, strings),
+    [contents?.categories, stores, grouping, strings],
+  );
+  // Keyed on which Categories are shown, not on the groups array (that changes on every check
+  // and would re-render every memoised section).
+  const emojiKey = (contents?.categories ?? []).map((g) => `${g.key}:${g.emoji}`).join(",");
+  const categoryEmoji = useMemo(
+    () => new Map(emojiKey.split(",").filter(Boolean).map((pair) => pair.split(":") as [string, string])),
+    [emojiKey],
+  );
+  const changeGrouping = (next: Grouping) => {
+    if (listId === undefined || next === grouping) return;
+    haptic.select();
+    setContents((prev) => prev && { ...prev, grouping: next });
+    setGrouping(token, listId, next).catch((e) => console.error(e));
+  };
   // The moment the last Entry goes into the basket gets one success tap, not every render.
   const wasAllInBasket = useRef(allInBasket);
   useEffect(() => {
@@ -793,37 +898,7 @@ export function ListScreen({
           {strings.actionFailed}
         </p>
       )}
-      {panel === "switcher" && (
-        <Sheet title={strings.switchList} onClose={close} closeLabel={strings.cancel}>
-          <List>
-            <Section>
-              {lists.map((l) => (
-                <ActionCell
-                  key={l.id}
-                  aria-current={l.id === list?.id}
-                  className={l.id === list?.id ? "cell--current" : undefined}
-                  after={l.id === list?.id ? "✓" : withCount(strings.membersCount, l.members.length)}
-                  onClick={() => {
-                    if (l.id !== list?.id) haptic.select();
-                    onSelect(l.id);
-                    close();
-                  }}
-                >
-                  {l.name}
-                </ActionCell>
-              ))}
-            </Section>
-            <Section>
-              <ActionCell
-                tone="accent"
-                onClick={() => openPanel("create", "switcher")}
-              >
-                {strings.newList}
-              </ActionCell>
-            </Section>
-          </List>
-        </Sheet>
-      )}
+      <Suspense fallback={null}>
       {panel === "create" && (
         <NameSheet
           title={strings.newList}
@@ -850,6 +925,7 @@ export function ListScreen({
           onSubmit={(name) => onRename(list.id, name)}
         />
       )}
+      </Suspense>
     </>
   );
 
@@ -877,6 +953,66 @@ export function ListScreen({
   const groups = contents?.categories ?? [];
   const openEntry =
     openId === null ? null : (groups.flatMap((g) => g.entries).find((e) => e.id === openId) ?? null);
+
+  // An Entry and the Lists open as their own screens, replacing the List (see EntryScreen).
+  if (openEntry) {
+    return (
+      <Suspense fallback={null}>
+      <EntryScreen
+        key={openEntry.id}
+        entry={openEntry}
+        categories={categories}
+        categoryName={groups.find((g) => g.key === openEntry.category)?.name ?? ""}
+        language={language}
+        strings={strings}
+        onSaveNote={saveNote}
+        onChangeCategory={changeCategory}
+        stores={contents?.stores ?? []}
+        onChangeStore={changeOpenStore}
+        onCreateStore={addStore}
+        onRename={renameOpenProduct}
+        onAddAlias={addOpenAlias}
+        onRemoveAlias={removeOpenAlias}
+        onDelete={() => void removeEntry(openEntry.id, openEntry.name)}
+        onSaveFailed={() => setError("save")}
+        onClose={closeCard}
+      />
+      </Suspense>
+    );
+  }
+  if (panel === "stores") {
+    return (
+      <Suspense fallback={null}>
+      <StoresScreen
+        stores={contents?.stores ?? []}
+        strings={strings}
+        onCreate={addStore}
+        onRename={editStore}
+        onDelete={dropStore}
+        onBack={close}
+      />
+      </Suspense>
+    );
+  }
+  if (panel === "switcher" || parent === "switcher") {
+    return (
+      <Suspense fallback={null}>
+        <ListsScreen
+          lists={lists}
+          currentId={list.id}
+          strings={strings}
+          onSelect={(id) => {
+            onSelect(id);
+            close();
+          }}
+          onCreate={() => openPanel("create", "switcher")}
+          onBack={close}
+          covered={panel !== "switcher"}
+        />
+        {sheets}
+      </Suspense>
+    );
+  }
   const lastRemoved = removed.at(-1);
 
   // One tip at a time, and none while something else floats or covers the screen. The tip for
@@ -960,6 +1096,9 @@ export function ListScreen({
                     <ActionCell role="menuitem" onClick={() => choose(onOpenHistory)}>
                       {strings.history}
                     </ActionCell>
+                    <ActionCell role="menuitem" onClick={() => choose(() => openPanel("stores"))}>
+                      {strings.stores}
+                    </ActionCell>
                   </Section>
                   <Section>
                     <ActionCell role="menuitem" onClick={() => choose(() => openPanel("rename", "menu"))}>
@@ -1001,6 +1140,22 @@ export function ListScreen({
             />
           </span>
         </div>
+      )}
+
+      {stores.length > 0 && totalCount > 0 && (
+        <SegmentedControl className="grouping" aria-label={strings.groupBy}>
+          {(["category", "store"] as const).map((g) => (
+            <SegmentedControl.Item
+              key={g}
+              type="button"
+              selected={grouping === g}
+              aria-pressed={grouping === g}
+              onClick={() => changeGrouping(g)}
+            >
+              {g === "category" ? strings.groupByCategory : strings.groupByStore}
+            </SegmentedControl.Item>
+          ))}
+        </SegmentedControl>
       )}
 
       <form className="composer" onSubmit={onSubmit}>
@@ -1196,87 +1351,16 @@ export function ListScreen({
         </List>
       )}
 
-      <List className="groups" data-platform={platform}>
-        {groups.map((group) => {
-          const left = group.entries.filter((e) => !e.checked).length;
-          return (
-            <Section
-              key={group.key}
-              className={left === 0 ? "group group--done" : "group"}
-              header={
-                <h2 className="group__header">
-                  <span className="group__emoji" aria-hidden="true">
-                    {group.emoji}
-                  </span>
-                  <span className="group__name">{group.name}</span>
-                  <span className="group__count" aria-label={withCount(strings.remaining, left)}>
-                    {left > 0 ? left : "✓"}
-                  </span>
-                </h2>
-              }
-            >
-              {group.entries.map((entry) => (
-                <div
-                  key={entry.id}
-                  className={["row", entry.checked && "row--checked", fresh.has(entry.id) && "row--new"]
-                    .filter(Boolean)
-                    .join(" ")}
-                >
-                  {/* The whole row is the tap target for the aisle action (check / uncheck);
-                      the trailing chevron is the separate, visible way into the Entry card. */}
-                  <Cell
-                    Component="button"
-                    type="button"
-                    role="checkbox"
-                    aria-checked={entry.checked}
-                    className="row__toggle"
-                    multiline
-                    before={<span className="row__check" aria-hidden="true" />}
-                    subtitle={entry.note ? <span className="row__note">{entry.note}</span> : undefined}
-                    after={
-                      shared ? (
-                        <span className="row__by" aria-hidden="true">
-                          <EntryAvatar members={list.members} addedBy={entry.added_by} />
-                        </span>
-                      ) : undefined
-                    }
-                    onClick={() => toggle(entry.id, !entry.checked)}
-                  >
-                    <span className="row__label">{entry.name}</span>
-                  </Cell>
-                  <button
-                    type="button"
-                    className="row__open"
-                    aria-label={`${strings.entryDetails}: ${entry.name}`}
-                    onClick={() => openCard(entry.id)}
-                  >
-                    <span aria-hidden="true">›</span>
-                  </button>
-                </div>
-              ))}
-            </Section>
-          );
-        })}
-      </List>
-      {openEntry && (
-        <EntrySheet
-          key={openEntry.id}
-          entry={openEntry}
-          categories={categories}
-          categoryName={groups.find((g) => g.key === openEntry.category)?.name ?? ""}
-          language={language}
-          strings={strings}
-          onSaveNote={saveNote}
-          onChangeCategory={changeCategory}
-          onRename={renameOpenProduct}
-          onAddAlias={addOpenAlias}
-          onRemoveAlias={removeOpenAlias}
-          onDelete={() => void removeEntry(openEntry.id, openEntry.name)}
-          onSaveFailed={() => setError("save")}
-          onClose={closeCard}
-        />
-      )}
-
+      <EntryGroups
+        groups={shown}
+        grouping={grouping}
+        categoryEmoji={categoryEmoji}
+        fresh={fresh}
+        members={list.members}
+        strings={strings}
+        onToggle={onToggleRow}
+        onOpen={onOpenRow}
+      />
       {tip && (
         <Tip
           key={tip.key}

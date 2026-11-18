@@ -124,6 +124,8 @@ export interface Entry {
   aliases: Alias[];
   note: string | null;
   category: string;
+  /** The Product's default Store; null when none is set. */
+  store_id: number | null;
   added_by: number | null;
   /** First name of whoever added it; null if that user is gone. */
   added_by_name: string | null;
@@ -140,10 +142,22 @@ export interface CategoryGroup {
   entries: Entry[];
 }
 
+/** A shop the List's Products are usually bought at; it belongs to one List. */
+export interface Store {
+  id: number;
+  name: string;
+}
+
+/** How a Member groups the List screen; personal to them. */
+export type Grouping = "category" | "store";
+
 export interface ListContents {
   list: ShoppingList;
   /** Only non-empty groups, in the fixed system order. */
   categories: CategoryGroup[];
+  /** The List's Stores, by name. */
+  stores: Store[];
+  grouping: Grouping;
 }
 
 /** What happened to a List since a version: the missed bumps, or a snapshot if too far behind. */
@@ -255,6 +269,66 @@ export function addAlias(
   return request(
     `/api/lists/${listId}/products/${productId}/aliases`,
     { method: "POST", body: JSON.stringify({ name }) },
+    token,
+  );
+}
+
+export function createStore(
+  token: string,
+  listId: number,
+  name: string,
+): Promise<{ version: number; store: Store }> {
+  return request(
+    `/api/lists/${listId}/stores`,
+    { method: "POST", body: JSON.stringify({ name }) },
+    token,
+  );
+}
+
+export function renameStore(
+  token: string,
+  listId: number,
+  storeId: number,
+  name: string,
+): Promise<{ version: number; store: Store }> {
+  return request(
+    `/api/lists/${listId}/stores/${storeId}`,
+    { method: "PATCH", body: JSON.stringify({ name }) },
+    token,
+  );
+}
+
+export function deleteStore(
+  token: string,
+  listId: number,
+  storeId: number,
+): Promise<{ version: number }> {
+  return request(`/api/lists/${listId}/stores/${storeId}`, { method: "DELETE" }, token);
+}
+
+/** Sets a Product's default Store (null clears it); every Entry of the Product follows. */
+export function setProductStore(
+  token: string,
+  listId: number,
+  productId: number,
+  storeId: number | null,
+): Promise<{ version: number; product_id: number; store_id: number | null }> {
+  return request(
+    `/api/lists/${listId}/products/${productId}/store`,
+    { method: "PUT", body: JSON.stringify({ store_id: storeId }) },
+    token,
+  );
+}
+
+/** Saves this user's grouping of the List screen (no version bump: it is personal). */
+export function setGrouping(
+  token: string,
+  listId: number,
+  grouping: Grouping,
+): Promise<{ grouping: Grouping }> {
+  return request(
+    `/api/lists/${listId}/grouping`,
+    { method: "PUT", body: JSON.stringify({ grouping }) },
     token,
   );
 }

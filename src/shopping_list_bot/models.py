@@ -47,12 +47,18 @@ LIST_CHANGE_KINDS = (
     "product.renamed",
     "product.alias_added",
     "product.alias_removed",
+    "product.store_changed",
+    "store.created",
+    "store.renamed",
+    "store.deleted",
     "entries.unchecked",
     "purchase.created",
     "purchase.undone",
 )
 NOTIFICATION_KINDS = ("added", "bought")
 LANGUAGES = ("ru", "es", "en")
+# How a Member groups the List screen; personal, per (Member, List).
+GROUPINGS = ("category", "store")
 # The one-time onboarding tips of the Mini App; the client shows each until it is dismissed.
 TIPS = ("multi_add", "invite", "bought")
 
@@ -113,6 +119,7 @@ class ListMember(Base):
         UniqueConstraint("list_id", "user_id"),
         Index("ix_list_member_user_id", "user_id"),
         Index("ix_list_member_invite_id", "invite_id"),
+        CheckConstraint(_in("grouping", GROUPINGS), name="ck_list_member_grouping"),
     )
 
     id: Mapped[int] = _pk()
@@ -121,6 +128,8 @@ class ListMember(Base):
     joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     # The Invite whose link they opened; null for a creator and for Members from before Invites.
     invite_id: Mapped[int | None] = mapped_column(ForeignKey("invite.id", ondelete="SET NULL"))
+    # This Member's grouping of the List screen: by Category or by Store. Never shared.
+    grouping: Mapped[str] = mapped_column(String(16), default="category", server_default="category")
 
     list: Mapped[List] = relationship(back_populates="members")
     user: Mapped[User] = relationship()
@@ -160,6 +169,7 @@ class Product(Base):
     __table_args__ = (
         UniqueConstraint("list_id", "name_norm"),
         Index("ix_product_list_id", "list_id"),
+        Index("ix_product_store_id", "store_id"),
         CheckConstraint(
             _in("category_key", tuple(c.key for c in CATEGORIES)), name="ck_product_category_key"
         ),
@@ -171,6 +181,8 @@ class Product(Base):
     name: Mapped[str] = mapped_column(String(200))
     name_norm: Mapped[str] = mapped_column(String(200))
     category_key: Mapped[str] = mapped_column(String(32))
+    # Where it is usually bought; optional, shared by every Member. Deleting the Store clears it.
+    store_id: Mapped[int | None] = mapped_column(ForeignKey("store.id", ondelete="SET NULL"))
     # Times bought (updated on «Куплено»); breaks ties between equally good suggestions.
     purchase_count: Mapped[int] = mapped_column(default=0, server_default="0")
     # Removed from memory: not suggested any more, but Entries and History keep the Product,
@@ -187,6 +199,20 @@ class Product(Base):
         passive_deletes=True,
         lazy="selectin",
     )
+
+
+class Store(Base):
+    """A shop a List's Products are usually bought at. Belongs to one List, like its Products."""
+
+    __tablename__ = "store"
+    __table_args__ = (UniqueConstraint("list_id", "name_norm"),)
+
+    id: Mapped[int] = _pk()
+    list_id: Mapped[int] = mapped_column(ForeignKey("list.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(String(100))
+    # Normalised like Product names (normalize.py): «Mercadona» and «mercadona» are one Store.
+    name_norm: Mapped[str] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class ProductAlias(Base):

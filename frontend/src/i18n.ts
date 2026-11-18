@@ -107,7 +107,26 @@ type StringKey =
   | "tipInviteTitle"
   | "tipInviteText"
   | "tipBoughtTitle"
-  | "tipBoughtText";
+  | "tipBoughtText"
+  | "groupBy"
+  | "groupByCategory"
+  | "groupByStore"
+  | "noStore"
+  | "noStoreHint"
+  | "entryStore"
+  | "storeUnset"
+  | "newStore"
+  | "storeName"
+  | "storeNamePlaceholder"
+  | "storeTaken"
+  | "stores"
+  | "storesHint"
+  | "storesEmptyTitle"
+  | "storesEmptyHint"
+  | "renameStore"
+  | "deleteStore"
+  | "deleteStoreTitle"
+  | "deleteStoreMessage";
 
 const strings: Record<Language, Record<StringKey, string>> = {
   ru: {
@@ -219,6 +238,25 @@ const strings: Record<Language, Record<StringKey, string>> = {
     tipInviteText: "Отправьте ссылку, и другие смогут добавлять товары и отмечать купленное.",
     tipBoughtTitle: "Закончили покупки?",
     tipBoughtText: "Нажмите «Куплено» внизу: отмеченные товары уйдут в историю.",
+    groupBy: "Группировка",
+    groupByCategory: "Категории",
+    groupByStore: "Магазины",
+    noStore: "Без магазина",
+    noStoreHint: "Укажите магазин в карточке товара, и он попадёт в свою секцию.",
+    entryStore: "Магазин",
+    storeUnset: "Не указан",
+    newStore: "Новый магазин",
+    storeName: "Название магазина",
+    storeNamePlaceholder: "Например, Mercadona",
+    storeTaken: "Такой магазин в этом списке уже есть.",
+    stores: "Магазины",
+    storesHint: "Магазины общие для всех участников списка. Нажмите на магазин, чтобы переименовать его.",
+    storesEmptyTitle: "Магазинов пока нет",
+    storesEmptyHint: "Добавьте магазин, и список можно будет смотреть по магазинам.",
+    renameStore: "Переименовать магазин",
+    deleteStore: "Удалить",
+    deleteStoreTitle: "Удалить «{name}»?",
+    deleteStoreMessage: "Товары останутся в списке, но без магазина.",
   },
   es: {
     loading: "Cargando…",
@@ -329,6 +367,25 @@ const strings: Record<Language, Record<StringKey, string>> = {
     tipInviteText: "Envía el enlace y los demás podrán añadir productos y marcar lo comprado.",
     tipBoughtTitle: "¿Has terminado?",
     tipBoughtText: "Pulsa «Comprado» abajo: lo marcado pasa al historial.",
+    groupBy: "Agrupar",
+    groupByCategory: "Categorías",
+    groupByStore: "Tiendas",
+    noStore: "Sin tienda",
+    noStoreHint: "Elige la tienda en la ficha del producto y pasará a su sección.",
+    entryStore: "Tienda",
+    storeUnset: "Sin indicar",
+    newStore: "Nueva tienda",
+    storeName: "Nombre de la tienda",
+    storeNamePlaceholder: "Por ejemplo, Mercadona",
+    storeTaken: "Esta lista ya tiene una tienda con ese nombre.",
+    stores: "Tiendas",
+    storesHint: "Las tiendas son comunes para todos en la lista. Toca una para cambiarle el nombre.",
+    storesEmptyTitle: "Aún no hay tiendas",
+    storesEmptyHint: "Añade una tienda para ver la lista por tiendas.",
+    renameStore: "Cambiar nombre",
+    deleteStore: "Eliminar",
+    deleteStoreTitle: "¿Eliminar «{name}»?",
+    deleteStoreMessage: "Los productos se quedan en la lista, pero sin tienda.",
   },
   en: {
     loading: "Loading…",
@@ -439,6 +496,25 @@ const strings: Record<Language, Record<StringKey, string>> = {
     tipInviteText: "Send the link and others can add items and check off what they buy.",
     tipBoughtTitle: "Done shopping?",
     tipBoughtText: "Tap “Bought” below: the checked items move to history.",
+    groupBy: "Group by",
+    groupByCategory: "Categories",
+    groupByStore: "Stores",
+    noStore: "No store",
+    noStoreHint: "Pick a store on an item’s card and it moves into that store’s section.",
+    entryStore: "Store",
+    storeUnset: "Not set",
+    newStore: "New store",
+    storeName: "Store name",
+    storeNamePlaceholder: "For example, Mercadona",
+    storeTaken: "This list already has a store with that name.",
+    stores: "Stores",
+    storesHint: "Stores are shared by everyone on the list. Tap a store to rename it.",
+    storesEmptyTitle: "No stores yet",
+    storesEmptyHint: "Add a store to view the list by store.",
+    renameStore: "Rename store",
+    deleteStore: "Delete",
+    deleteStoreTitle: "Delete “{name}”?",
+    deleteStoreMessage: "The items stay on the list, without a store.",
   },
 };
 

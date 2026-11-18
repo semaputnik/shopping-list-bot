@@ -2,19 +2,19 @@
 name: Shared Lists
 description: Shared shopping lists built from Telegram's own UI kit, with a small, tactile signature of our own.
 colors:
-  accent: "#007aff"
+  accent: "#3390ec"
   accent-text: "#ffffff"
-  link: "#007aff"
-  ground: "#efeff4"
+  link: "#3390ec"
+  ground: "#f4f4f5"
   section: "#ffffff"
   text: "#000000"
   hint: "#707579"
   subtitle: "#707579"
-  section-header: "#707579"
-  destructive: "#e53935"
-  divider: "rgba(0, 0, 0, 0.15)"
+  section-header: "#3390ec"
+  destructive: "#df3f40"
+  divider: "#e7e7e9"
   plain-fill: "rgba(0, 0, 0, 0.04)"
-  accent-fill: "rgba(67, 120, 255, 0.1)"
+  accent-fill: "rgba(51, 144, 236, 0.1)"
   surface-dark: "rgba(56, 56, 56, 0.85)"
 typography:
   large-title:
@@ -130,17 +130,17 @@ These outcomes are rejected: looking foreign inside Telegram, looking as dull as
 
 **Key Characteristics:**
 - Built on tgui components and tokens. Custom CSS exists only for our signature details and gaps in the kit.
-- Every color comes from Telegram `themeParams`, through tgui's `--tgui--*` tokens, so light, dark and custom themes follow the client.
+- One fixed light palette, the one Wishapp shows (Telegram's light theme); the app does not follow the phone's Telegram theme.
 - Native chrome stays native: `MainButton` for «Куплено (N)», `BackButton` for depth, `showConfirm` for destructive confirmations, `HapticFeedback` on every state change.
 - Grouped inset sections, one per Category, with the emoji tile as the only color we own.
 - One short, tactile response per action. The Still Row rule is absolute.
 
 ## Colors
 
-The palette is borrowed, not chosen: Telegram's theme, read through tgui tokens. The frontmatter hex values are tgui's light-theme fallbacks, used only when the client sends no theme key.
+A fixed light palette taken from Wishapp (Telegram's light theme): white sections on a pale grey ground, one Telegram blue for buttons, links and section headers. The hex values in the frontmatter are the palette; `styles.css` sets them as the `--tg-theme-*` variables, which tgui reads, and the app never binds Telegram's `themeParams` over them.
 
 ### Primary
-- **Telegram Accent** (`--tgui--button_color` ← `--tg-theme-button-color`): filled buttons, the filled check, progress fill, focus outline and the new-row wash (22% mix). The native MainButton takes the same color automatically.
+- **Telegram Accent** (`--tgui--button_color` ← `--tg-theme-button-color`): filled buttons, the filled check, progress fill, focus outline and the new-row wash (22% mix). The native MainButton and Telegram's header are given the same fixed colours (`telegram.ts`).
 - **Link Accent** (`--tgui--link_color`): plain and bezeled buttons, quick-add chips, «Add ⊕» in section headers, and snackbar actions.
 
 ### Neutral
@@ -156,9 +156,9 @@ The palette is borrowed, not chosen: Telegram's theme, read through tgui tokens.
 - **Dark Surface** (`--tgui--surface_dark`): the Undo snackbar, with a 28 px backdrop blur.
 
 ### Named Rules
-**The Borrowed Palette Rule.** No color literal appears in UI code except as a fallback inside `var()`. If a color is not a Telegram theme value or a tgui token, it does not belong on the screen.
+**The One Palette Rule.** Colours are defined once, as the `--tg-theme-*` variables in `styles.css` (repeated only in `telegram.ts` for Telegram's own chrome). UI code uses those variables or tgui tokens, never a new literal. There is no dark mode.
 
-**The Emoji Is the Brand Rule.** Category emoji are the only color we supply. No gradients, covers, illustrations or brand hue.
+**The Emoji Is the Brand Rule.** Beyond the one blue, Category emoji are the only colour on the screen. No gradients, covers or illustrations.
 
 ## Typography
 
@@ -187,9 +187,11 @@ A single column at phone width (360 px minimum). From top to bottom:
 
 The page gutter is 16 px. Sections are 20 px apart. A Cell is at least 52 px tall, and every control is at least 44 px. The top and bottom padding add Telegram's content and safe-area insets (`--tg-viewport-*`). Spacing steps are 4 / 8 / 12 / 16 / 20 / 24 px.
 
-Navigation is at most two levels deep: the List, then Members, History or Settings. Depth is shown by the native BackButton, and there are no breadcrumbs. Sheets (switcher, List menu, Entry card, forms) are tgui `Modal` drawers, except the List menu, which is a popover.
+Navigation is at most two levels deep: the List, then an Entry, the Lists (switcher), Members, History or Settings. Depth is shown by the native BackButton, and there are no breadcrumbs. Short forms (new List, rename) are tgui `Modal` drawers and the List menu is a popover.
 
 ### Named Rules
+**The Fields Live On Screens Rule.** Anything with more than one text field is a screen, never a drawer. On iOS a fixed drawer and the keyboard fight over the position (the Entry card flew off-screen in v0.2.0–0.2.1), while a plain page lets the WebView scroll the focused field into view.
+
 **The Still Row Rule.** Checking, unchecking, syncing and failing never move, reorder or resize a row. Feedback floats (snackbar, alert) or happens inside the row.
 
 **The Aisle Reach Rule.** Primary actions sit at the bottom (MainButton, snackbar Undo) or in the row itself. No primary action lives only in the top bar.
@@ -275,7 +277,7 @@ A Subheadline line ("5 из 12") above a 3 px hairline track (Hint at 22%) whose
 - **Do** keep MainButton, BackButton, `showConfirm` and HapticFeedback native, even where tgui offers an HTML alternative.
 - **Do** keep every motion at or under `.35s` (the 1.6 s new-row wash is the one exception), on `cubic-bezier(.22,1,.36,1)` for our details and tgui's `cubic-bezier(.3,.3,.5,1)` for kit surfaces. Honour `prefers-reduced-motion` by cutting durations to `.01s`.
 - **Do** give every Section header action and every setting a visible label. No gesture is the only way to do something.
-- **Do** check every screen in light and dark themes, on iOS and Android, at 360 px.
+- **Do** check every screen on iOS and Android at 360 px, including inside a dark Telegram (the app stays light).
 
 ### Don't:
 - **Don't** add gradient covers, 3D illustrations, shine sweeps or any custom brand color, even though Wishapp uses them.

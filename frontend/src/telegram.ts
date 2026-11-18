@@ -1,5 +1,4 @@
 import {
-  bindThemeParamsCssVars,
   bindViewportCssVars,
   disableVerticalSwipes,
   expandViewport,
@@ -10,14 +9,12 @@ import {
   isBackButtonMounted,
   isMainButtonMounted,
   isMiniAppActive,
-  isThemeParamsDark,
   isTMA,
   miniAppReady,
   mountBackButton,
   mountMainButton,
   mountMiniApp,
   mountSwipeBehavior,
-  mountThemeParamsSync,
   mountViewport,
   offBackButtonClick,
   offMainButtonClick,
@@ -48,12 +45,11 @@ function launchPlatform(): "ios" | "base" {
 
 export const platform = launchPlatform();
 
-/**
- * Whether the Telegram theme is dark (a signal: it changes when the client switches theme).
- * Outside Telegram there is no theme, and the SDK would read that as dark.
- */
-export const isDarkTheme = isThemeParamsDark;
-export const insideTelegram = isTMA();
+/** The fixed palette's colours Telegram paints itself (its header, background, MainButton);
+ * they match the CSS variables in styles.css. */
+const GROUND = "#f4f4f5";
+const BUTTON = "#3390ec";
+const BUTTON_TEXT = "#ffffff";
 
 export interface TelegramContext {
   rawInitData: string;
@@ -102,10 +98,6 @@ async function doStartTelegram(): Promise<TelegramContext | null> {
   if (!isTMA()) return null;
   init();
 
-  // Colors come only from themeParams, exposed as --tg-theme-* CSS variables.
-  if (mountThemeParamsSync.isAvailable()) mountThemeParamsSync();
-  if (bindThemeParamsCssVars.isAvailable()) bindThemeParamsCssVars();
-
   // ready() first: Telegram keeps its own loading placeholder up until it is called.
   if (miniAppReady.isAvailable()) miniAppReady();
   if (expandViewport.isAvailable()) expandViewport();
@@ -117,10 +109,10 @@ async function doStartTelegram(): Promise<TelegramContext | null> {
     mountViewport.isAvailable() ? mountWithin(() => mountViewport(), "viewport") : false,
   ]).then(([miniAppMounted, viewportMounted]) => {
     if (miniAppMounted) {
-      // The page ground is secondary_bg_color; match Telegram's own chrome to it (no seam).
-      if (setMiniAppHeaderColor.isAvailable()) setMiniAppHeaderColor("secondary_bg_color");
-      if (setMiniAppBackgroundColor.isAvailable()) setMiniAppBackgroundColor("secondary_bg_color");
-      if (setMiniAppBottomBarColor.isAvailable()) setMiniAppBottomBarColor("secondary_bg_color");
+      // Telegram's own chrome takes the page ground, whatever the phone's theme (no seam).
+      if (setMiniAppHeaderColor.isAvailable()) setMiniAppHeaderColor(GROUND);
+      if (setMiniAppBackgroundColor.isAvailable()) setMiniAppBackgroundColor(GROUND);
+      if (setMiniAppBottomBarColor.isAvailable()) setMiniAppBottomBarColor(GROUND);
     }
     if (viewportMounted && bindViewportCssVars.isAvailable()) bindViewportCssVars();
   });
@@ -186,7 +178,13 @@ export function bindBackButton(onBack: () => void): () => void {
  */
 export function bindMainButton(text: string, onClick: () => void): () => void {
   if (!setMainButtonParams.isAvailable() || !onMainButtonClick.isAvailable()) return () => {};
-  setMainButtonParams({ text, isVisible: true, isEnabled: true });
+  setMainButtonParams({
+    text,
+    isVisible: true,
+    isEnabled: true,
+    backgroundColor: BUTTON,
+    textColor: BUTTON_TEXT,
+  });
   onMainButtonClick(onClick);
   return () => {
     if (offMainButtonClick.isAvailable()) offMainButtonClick(onClick);

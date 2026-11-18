@@ -38,6 +38,10 @@ _Avoid_: Description, quantity, amount
 One of a fixed, system-wide set of store departments that a Product is filed under ("Молочное", "Хлеб").
 _Avoid_: Department, aisle, section
 
+**Store**:
+A shop a List's Products are usually bought at ("Mercadona", "Lidl"). It belongs to one List, and a Product can name one as its default Store. The List screen can group Entries by Store; Entries whose Product has no Store go to «Без магазина».
+_Avoid_: Shop, supermarket, market
+
 ## Buying
 
 **Checked**:
