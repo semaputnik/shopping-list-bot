@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Chip, Input, List, Section, Select, Textarea } from "@telegram-apps/telegram-ui";
-import { ApiError, type Category, type Entry } from "../api";
+import { Chip, Input, List, Section, Select, Textarea, Title } from "@telegram-apps/telegram-ui";
+import { ApiError, type Category, type Entry, type Store } from "../api";
 import type { Language, Strings } from "../i18n";
-import { Sheet } from "../screens/Sheet";
-import { ActionCell } from "./ActionCell";
+import { ActionCell } from "../components/ActionCell";
+import { bindBackButton } from "../telegram";
+import { NameSheet } from "./Sheet";
 
 interface Props {
   entry: Entry;
@@ -15,13 +16,19 @@ interface Props {
   /** Saves the Note; rejects on failure. Called one at a time, in order. */
   onSaveNote: (note: string) => Promise<void>;
   onChangeCategory: (category: string) => Promise<void>;
+  /** The List's Stores, by name. */
+  stores: Store[];
+  /** Sets or clears (null) the Product's default Store; rejects on failure. */
+  onChangeStore: (storeId: number | null) => Promise<void>;
+  /** Adds a Store to the List and returns it; rejects with ApiError 409 on a taken name. */
+  onCreateStore: (name: string) => Promise<Store>;
   /** Renames the whole Product (every Entry of it in this List); rejects on failure. */
   onRename: (name: string) => Promise<void>;
   /** Gives the Product another name; rejects with ApiError 409 when another Product has it. */
   onAddAlias: (name: string) => Promise<void>;
   onRemoveAlias: (aliasId: number) => Promise<void>;
   onDelete: () => void;
-  /** A Note or Alias save failed after the sheet had already closed. */
+  /** A Note or Alias save failed after the screen had already closed. */
   onSaveFailed: () => void;
   onClose: () => void;
 }
@@ -33,8 +40,12 @@ function parseTime(value: string): Date {
   return new Date(/(Z|[+-]\d\d:\d\d)$/.test(value) ? value : `${value}Z`);
 }
 
-/** Bottom sheet for one Entry: Note (autosaved), Category, who added it, Delete. */
-export function EntrySheet({
+/**
+ * The screen for one Entry: name, other names, Note (autosaved), Category, who added it, Delete.
+ * A screen rather than a bottom sheet: on iOS a fixed drawer and the keyboard fight over the
+ * position, while a plain page lets the WebView scroll the focused field into view.
+ */
+export function EntryScreen({
   entry,
   categories,
   categoryName,
@@ -42,6 +53,9 @@ export function EntrySheet({
   strings,
   onSaveNote,
   onChangeCategory,
+  stores,
+  onChangeStore,
+  onCreateStore,
   onRename,
   onAddAlias,
   onRemoveAlias,
@@ -60,6 +74,9 @@ export function EntrySheet({
   // A removed Alias is gone from view, so ✕ arms the chip and a second tap removes it.
   const [armedAlias, setArmedAlias] = useState<number | null>(null);
   const [failed, setFailed] = useState(false);
+  const [storeId, setStoreId] = useState(entry.store_id);
+  // «＋ Новый магазин» opens a sheet over the screen; it owns the BackButton meanwhile.
+  const [creatingStore, setCreatingStore] = useState(false);
   const saved = useRef(entry.note ?? "");
   const latest = useRef(note);
   const timer = useRef<number | undefined>(undefined);
@@ -85,7 +102,7 @@ export function EntrySheet({
     return chain.current;
   }, [onSaveNote, onSaveFailed]);
 
-  // Saved on blur or Enter (Enter blurs), so a typed Alias is never lost when the sheet closes.
+  // Saved on blur or Enter (Enter blurs), so a typed Alias is never lost when the screen closes.
   const commitAlias = useCallback(async () => {
     const value = alias.trim();
     if (!value || addingAlias.current) return;
@@ -105,14 +122,22 @@ export function EntrySheet({
     }
   }, [alias, onAddAlias, onSaveFailed]);
 
-  // Closing still sends a typed Alias; if that fails once the sheet is gone, it reports through onSaveFailed.
+  // Closing still sends a typed Alias; if that fails once the screen is gone, it reports through onSaveFailed.
   const close = useCallback(() => {
     void flush();
     void commitAlias();
     onClose();
   }, [flush, onClose, commitAlias]);
 
-  // Unmounting (also when the List is switched under an open sheet) must not drop a Note still
+  // Telegram's BackButton leaves the screen; the ref keeps the latest close without re-binding.
+  const closeRef = useRef(close);
+  closeRef.current = close;
+  useEffect(
+    () => (creatingStore ? undefined : bindBackButton(() => closeRef.current())),
+    [creatingStore],
+  );
+
+  // Unmounting (also when the List is switched under an open screen) must not drop a Note still
   // waiting for its debounce: flush it, the save then reports through onSaveFailed.
   useEffect(() => {
     mounted.current = true;
@@ -145,6 +170,32 @@ export function EntrySheet({
       console.error(e);
       setCategory(previous);
       setFailed(true);
+    }
+  };
+
+  const pickStore = async (next: number | null) => {
+    const previous = storeId;
+    setStoreId(next);
+    try {
+      await onChangeStore(next);
+      setFailed(false);
+    } catch (e) {
+      console.error(e);
+      setStoreId(previous);
+      setFailed(true);
+    }
+  };
+
+  /** The sheet's submit: create the Store, then file the Product under it. */
+  const createStore = async (storeName: string): Promise<boolean | string> => {
+    try {
+      const store = await onCreateStore(storeName);
+      await pickStore(store.id);
+      return true;
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) return strings.storeTaken;
+      console.error(e);
+      return false;
     }
   };
 
@@ -197,7 +248,10 @@ export function EntrySheet({
   });
 
   return (
-    <Sheet title={entry.name} closeLabel={strings.close} onClose={close}>
+    <main className="screen">
+      <Title level="1" weight="1" className="screen__title">
+        {entry.name}
+      </Title>
       <List>
         <Section footer={strings.entryNameHint}>
           <Input
@@ -271,6 +325,25 @@ export function EntrySheet({
             onBlur={() => void flush()}
           />
         </Section>
+        <Section>
+          <Select
+            header={strings.entryStore}
+            value={storeId === null ? "" : String(storeId)}
+            onChange={(e) => {
+              const value = e.target.value;
+              if (value === "new") setCreatingStore(true);
+              else void pickStore(value === "" ? null : Number(value));
+            }}
+          >
+            <option value="">{strings.storeUnset}</option>
+            {stores.map((st) => (
+              <option key={st.id} value={String(st.id)}>
+                {st.name}
+              </option>
+            ))}
+            <option value="new">＋ {strings.newStore}</option>
+          </Select>
+        </Section>
         <Section footer={`${entry.added_by_name ? `${strings.entryAddedBy} ${entry.added_by_name} · ` : ""}${when}`}>
           <Select
             header={strings.entryCategory}
@@ -287,7 +360,7 @@ export function EntrySheet({
           </Select>
         </Section>
         {failed && (
-          <p className="sheet__error" role="alert">
+          <p className="screen__error" role="alert">
             {strings.entrySaveFailed}
           </p>
         )}
@@ -300,6 +373,19 @@ export function EntrySheet({
           </ActionCell>
         </Section>
       </List>
-    </Sheet>
+      {creatingStore && (
+        <NameSheet
+          title={strings.newStore}
+          label={strings.storeName}
+          placeholder={strings.storeNamePlaceholder}
+          submitLabel={strings.save}
+          cancelLabel={strings.cancel}
+          initial=""
+          onClose={() => setCreatingStore(false)}
+          onDone={() => setCreatingStore(false)}
+          onSubmit={createStore}
+        />
+      )}
+    </main>
   );
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Snackbar } from "@telegram-apps/telegram-ui";
 import {
   ApiError,
@@ -16,11 +16,9 @@ import {
   type User,
 } from "./api";
 import { pickLanguage, t, type Language } from "./i18n";
-import { HistoryScreen } from "./screens/HistoryScreen";
 import { ListScreen } from "./screens/ListScreen";
-import { MembersScreen } from "./screens/MembersScreen";
 import { Message } from "./screens/Message";
-import { SettingsScreen } from "./screens/SettingsScreen";
+import { HistoryScreen, MembersScreen, SettingsScreen } from "./screens/lazyScreens";
 import { openEventStream, type Remote } from "./sync";
 import { haptic, onActivated, startTelegram } from "./telegram";
 
@@ -329,30 +327,36 @@ export function App() {
       const current = state.lists.find((l) => l.id === state.currentId) ?? null;
       if (current && state.screen === "members") {
         return (
-          <MembersScreen token={state.token} user={state.user} list={current} strings={strings} onBack={backToList} />
+          <Suspense fallback={null}>
+            <MembersScreen token={state.token} user={state.user} list={current} strings={strings} onBack={backToList} />
+          </Suspense>
         );
       }
       if (current && state.screen === "history") {
         return (
-          <HistoryScreen
-            token={state.token}
-            listId={current.id}
-            language={language}
-            strings={strings}
-            onBack={backToList}
-          />
+          <Suspense fallback={null}>
+            <HistoryScreen
+              token={state.token}
+              listId={current.id}
+              language={language}
+              strings={strings}
+              onBack={backToList}
+            />
+          </Suspense>
         );
       }
       if (state.screen === "settings") {
         return (
-          <SettingsScreen
-            language={language}
-            telegramLanguage={telegramLanguage}
-            overridden={state.user.language_overridden}
-            strings={strings}
-            onBack={backToList}
-            onChangeLanguage={(next) => changeLanguage(state.token, next)}
-          />
+          <Suspense fallback={null}>
+            <SettingsScreen
+              language={language}
+              telegramLanguage={telegramLanguage}
+              overridden={state.user.language_overridden}
+              strings={strings}
+              onBack={backToList}
+              onChangeLanguage={(next) => changeLanguage(state.token, next)}
+            />
+          </Suspense>
         );
       }
       return (

@@ -22,11 +22,14 @@ export function applyEntryChange(
   const list = { ...contents.list, version: Math.max(contents.list.version, version) };
   if (!moved) {
     return {
+      ...contents,
       list,
-      categories: contents.categories.map((g) => ({
-        ...g,
-        entries: g.entries.map((e) => next.find((n) => n.id === e.id) ?? e),
-      })),
+      // Only the group holding the edited Entry changes identity (its section re-renders).
+      categories: contents.categories.map((g) =>
+        g.entries.some((e) => e.id === entry.id)
+          ? { ...g, entries: g.entries.map((e) => (e.id === entry.id ? entry : e)) }
+          : g,
+      ),
     };
   }
   const known = new Map<string, Pick<CategoryGroup, "emoji" | "name">>(
@@ -42,5 +45,5 @@ export function applyEntryChange(
   }
   // An Entry in a Category this client does not know would vanish; refetch instead.
   if (groups.reduce((n, g) => n + g.entries.length, 0) !== next.length) return null;
-  return { list, categories: groups };
+  return { ...contents, list, categories: groups };
 }
