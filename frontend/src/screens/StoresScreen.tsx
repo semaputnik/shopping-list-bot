@@ -3,8 +3,8 @@ import { List, Placeholder, Section, Title } from "@telegram-apps/telegram-ui";
 import { ApiError, type Store } from "../api";
 import { ActionCell } from "../components/ActionCell";
 import type { Strings } from "../i18n";
-import { bindBackButton, confirmDestructive, haptic } from "../telegram";
-import { NameSheet, Sheet } from "./Sheet";
+import { bindBackButton, chooseAction, confirmDestructive, haptic } from "../telegram";
+import { NameScreen } from "./NameScreen";
 
 interface Props {
   stores: Store[];
@@ -16,12 +16,12 @@ interface Props {
   onBack: () => void;
 }
 
-type Open = null | { kind: "create" } | { kind: "actions" | "rename"; store: Store };
+type Open = null | { kind: "create" } | { kind: "rename"; store: Store };
 
 /** The List's Stores: add one, rename it, delete it (its Products stay, without a Store). */
 export function StoresScreen({ stores, strings, onCreate, onRename, onDelete, onBack }: Props) {
   const [open, setOpen] = useState<Open>(null);
-  // A sheet on top owns the BackButton; the screen takes it back once the sheet is gone.
+  // While a name screen is up, it owns the BackButton.
   useEffect(() => (open ? undefined : bindBackButton(onBack)), [open, onBack]);
 
   const submit = async (run: () => Promise<unknown>): Promise<boolean | string> => {
@@ -37,8 +37,21 @@ export function StoresScreen({ stores, strings, onCreate, onRename, onDelete, on
     }
   };
 
+  /** A tap on a Store offers its actions in Telegram's own popup. */
+  const act = async (store: Store) => {
+    const choice = await chooseAction({
+      title: store.name,
+      message: strings.storeActions,
+      actions: [
+        { id: "rename", text: strings.renameStore },
+        { id: "delete", text: strings.deleteStore, destructive: true },
+      ],
+    });
+    if (choice === "rename") setOpen({ kind: "rename", store });
+    if (choice === "delete") void remove(store);
+  };
+
   const remove = async (store: Store) => {
-    setOpen(null);
     const ok = await confirmDestructive({
       title: strings.deleteStoreTitle.replace("{name}", store.name),
       message: strings.deleteStoreMessage,
@@ -53,6 +66,38 @@ export function StoresScreen({ stores, strings, onCreate, onRename, onDelete, on
       haptic.error();
     }
   };
+
+  if (open?.kind === "rename") {
+    const store = open.store;
+    return (
+      <NameScreen
+        title={strings.renameStore}
+        label={strings.storeName}
+        placeholder={strings.storeNamePlaceholder}
+        submitLabel={strings.save}
+        cancelLabel={strings.cancel}
+        initial={store.name}
+        onClose={() => setOpen(null)}
+        onDone={() => setOpen(null)}
+        onSubmit={(name) => submit(() => onRename(store.id, name))}
+      />
+    );
+  }
+  if (open?.kind === "create") {
+    return (
+      <NameScreen
+        title={strings.newStore}
+        label={strings.storeName}
+        placeholder={strings.storeNamePlaceholder}
+        submitLabel={strings.save}
+        cancelLabel={strings.cancel}
+        initial=""
+        onClose={() => setOpen(null)}
+        onDone={() => setOpen(null)}
+        onSubmit={(name) => submit(() => onCreate(name))}
+      />
+    );
+  }
 
   return (
     <main className="screen">
@@ -69,7 +114,7 @@ export function StoresScreen({ stores, strings, onCreate, onRename, onDelete, on
         <List>
           <Section footer={strings.storesHint}>
             {stores.map((st) => (
-              <ActionCell key={st.id} onClick={() => setOpen({ kind: "actions", store: st })}>
+              <ActionCell key={st.id} onClick={() => void act(st)}>
                 {st.name}
               </ActionCell>
             ))}
@@ -84,46 +129,6 @@ export function StoresScreen({ stores, strings, onCreate, onRename, onDelete, on
         </Section>
       </List>
 
-      {open?.kind === "actions" && (
-        <Sheet title={open.store.name} closeLabel={strings.cancel} onClose={() => setOpen(null)}>
-          <List>
-            <Section>
-              <ActionCell onClick={() => setOpen({ kind: "rename", store: open.store })}>
-                {strings.renameStore}
-              </ActionCell>
-              <ActionCell tone="destructive" onClick={() => void remove(open.store)}>
-                {strings.deleteStore}
-              </ActionCell>
-            </Section>
-          </List>
-        </Sheet>
-      )}
-      {open?.kind === "rename" && (
-        <NameSheet
-          title={strings.renameStore}
-          label={strings.storeName}
-          placeholder={strings.storeNamePlaceholder}
-          submitLabel={strings.save}
-          cancelLabel={strings.cancel}
-          initial={open.store.name}
-          onClose={() => setOpen(null)}
-          onDone={() => setOpen(null)}
-          onSubmit={(name) => submit(() => onRename(open.store.id, name))}
-        />
-      )}
-      {open?.kind === "create" && (
-        <NameSheet
-          title={strings.newStore}
-          label={strings.storeName}
-          placeholder={strings.storeNamePlaceholder}
-          submitLabel={strings.save}
-          cancelLabel={strings.cancel}
-          initial=""
-          onClose={() => setOpen(null)}
-          onDone={() => setOpen(null)}
-          onSubmit={(name) => submit(() => onCreate(name))}
-        />
-      )}
     </main>
   );
 }

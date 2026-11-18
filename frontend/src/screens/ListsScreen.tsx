@@ -12,8 +12,6 @@ interface Props {
   onSelect: (id: number) => void;
   onCreate: () => void;
   onBack: () => void;
-  /** A sheet is open on top: it owns the BackButton meanwhile. */
-  covered: boolean;
 }
 
 /** The user's Lists, to switch between them or start a new one. */
@@ -24,9 +22,8 @@ export function ListsScreen({
   onSelect,
   onCreate,
   onBack,
-  covered,
 }: Props) {
-  useEffect(() => (covered ? undefined : bindBackButton(onBack)), [covered, onBack]);
+  useEffect(() => bindBackButton(onBack), [onBack]);
   return (
     <main className="screen">
       <Title level="1" weight="1" className="screen__title">

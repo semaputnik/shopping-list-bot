@@ -34,7 +34,7 @@ It lives inside Telegram: no install, no account, no signup. A list is shared by
 - Any Member can create, rename, leave or delete a List, and all Members have equal rights. Deleting a List needs a confirmation screen.
 - Each List remembers its own Products and suggests them; suggestions never draw on other Lists. Duplicate Entries are allowed.
 - A tap toggles an Entry between checked and unchecked. «Куплено» removes the checked Entries and records them as one Purchase in the List's History, which loads in pages.
-- Telegram constraints: one fixed light palette (Wishapp's colours); the app does not follow the phone's Telegram theme. Native `MainButton`, `BackButton`, `HapticFeedback` and `showConfirm` are used. Vertical swipes are disabled. There is no push; notifications arrive as bot messages.
+- Telegram constraints: colors come from Telegram `themeParams`, so light and dark themes follow the client (with a guard that keeps sections visible). No drawers or bottom sheets: forms are screens. Native `MainButton`, `BackButton`, `HapticFeedback` and `showConfirm` are used. Vertical swipes are disabled. There is no push; notifications arrive as bot messages.
 - Languages: RU, ES and EN, taken from Telegram `language_code`; anything else falls back to English.
 - Undecided: who owns stores (later stage).
 
@@ -57,4 +57,4 @@ None. There are no users, screenshots, testimonials or assets yet, and none shou
 
 ## Accessibility & Inclusion
 
-The interface must work on 360 px screens, and stay readable inside a dark Telegram (the app itself is always light). Tap targets must suit one-handed use in a store. The UI must support RU, ES and EN, including Spanish diacritics.
+The interface must work on 360 px screens and in both Telegram themes. Tap targets must suit one-handed use in a store. The UI must support RU, ES and EN, including Spanish diacritics.

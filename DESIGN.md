@@ -5,14 +5,14 @@ colors:
   accent: "#3390ec"
   accent-text: "#ffffff"
   link: "#3390ec"
-  ground: "#f4f4f5"
+  ground: "#efeff4"
   section: "#ffffff"
   text: "#000000"
   hint: "#707579"
   subtitle: "#707579"
-  section-header: "#3390ec"
-  destructive: "#df3f40"
-  divider: "#e7e7e9"
+  section-header: "#707579"
+  destructive: "#e53935"
+  divider: "rgba(60, 60, 67, 0.2)"
   plain-fill: "rgba(0, 0, 0, 0.04)"
   accent-fill: "rgba(51, 144, 236, 0.1)"
   surface-dark: "rgba(56, 56, 56, 0.85)"
@@ -50,7 +50,6 @@ typography:
 rounded:
   tile: "9px"
   control: "12px"
-  sheet: "16px"
   pill: "22px"
   round: "50%"
 spacing:
@@ -108,10 +107,6 @@ components:
     rounded: "{rounded.control}"
     height: "48px"
     padding: "10px 16px 10px 10px"
-  sheet:
-    backgroundColor: "{colors.ground}"
-    rounded: "{rounded.sheet}"
-    padding: "16px"
 ---
 
 # Design System: Shared Lists
@@ -122,7 +117,7 @@ components:
 
 **Creative North Star: "Telegram's own parts, our own hand"**
 
-The interface is assembled from Telegram's official Mini App kit, `@telegram-apps/telegram-ui` (tgui): its Sections, Cells, Buttons, Placeholders, Modal, Snackbar, Skeletons and typography scale. The craft bar is the strongest kit-built Mini Apps (Wishapp, Wallet). A Telegram user should feel at home instantly, because the parts are literally the ones they already know. The kit also switches between iOS and Android grammar for us (`AppRoot platform`).
+The interface is assembled from Telegram's official Mini App kit, `@telegram-apps/telegram-ui` (tgui): its Sections, Cells, Buttons, Placeholders, Snackbar, Skeletons and typography scale. The craft bar is the strongest kit-built Mini Apps (Wishapp, Wallet). A Telegram user should feel at home instantly, because the parts are literally the ones they already know. The kit also switches between iOS and Android grammar for us (`AppRoot platform`).
 
 Our own hand shows in a few precise, tactile details layered on top of the kit, never in a palette or decoration. Those details are: the category emoji tile, the pen stroke that crosses an item out, the small pop of the check, the accent wash on a just-added row, and the trip progress hairline. The motion is calm and tactile. Each action gets one short physical response, and nothing moves under the finger. Density is comfortable, readable at a glance in a store aisle.
 
@@ -130,21 +125,21 @@ These outcomes are rejected: looking foreign inside Telegram, looking as dull as
 
 **Key Characteristics:**
 - Built on tgui components and tokens. Custom CSS exists only for our signature details and gaps in the kit.
-- One fixed light palette, the one Wishapp shows (Telegram's light theme); the app does not follow the phone's Telegram theme.
+- Every colour comes from Telegram `themeParams`, so light, dark and custom themes follow the client, as in Wishapp. One guard: Sections always stand out from the ground.
 - Native chrome stays native: `MainButton` for «Куплено (N)», `BackButton` for depth, `showConfirm` for destructive confirmations, `HapticFeedback` on every state change.
 - Grouped inset sections, one per Category, with the emoji tile as the only color we own.
 - One short, tactile response per action. The Still Row rule is absolute.
 
 ## Colors
 
-A fixed light palette taken from Wishapp (Telegram's light theme): white sections on a pale grey ground, one Telegram blue for buttons, links and section headers. The hex values in the frontmatter are the palette; `styles.css` sets them as the `--tg-theme-*` variables, which tgui reads, and the app never binds Telegram's `themeParams` over them.
+The palette is borrowed, not chosen: Telegram's theme, bound as the `--tg-theme-*` variables and read through our tokens and tgui's. The frontmatter hex values are the light-theme fallbacks, used only when the client sends no key. Like Wishapp, the app does not trust a theme blindly: when the section colour is too close to the ground (pure-black night themes), `telegram.ts` mixes the section surface a little towards white or black so fields never vanish.
 
 ### Primary
-- **Telegram Accent** (`--tgui--button_color` ← `--tg-theme-button-color`): filled buttons, the filled check, progress fill, focus outline and the new-row wash (22% mix). The native MainButton and Telegram's header are given the same fixed colours (`telegram.ts`).
+- **Telegram Accent** (`--tgui--button_color` ← `--tg-theme-button-color`): filled buttons, the filled check, progress fill, focus outline and the new-row wash (22% mix). The native MainButton takes the same colour automatically; Telegram's header and background take the ground (`secondary_bg_color`).
 - **Link Accent** (`--tgui--link_color`): plain and bezeled buttons, quick-add chips, «Add ⊕» in section headers, and snackbar actions.
 
 ### Neutral
-- **Screen Ground** (`--tgui--secondary_bg_color`): the page behind sections, sheets, and the sticky composer band.
+- **Screen Ground** (`--tgui--secondary_bg_color`): the page behind sections and fields, and the sticky composer band.
 - **Section Surface** (`--tgui--section_bg_color`): Sections, the composer input, suggestion panels and alerts.
 - **Primary Text** (`--tgui--text_color`): Product names and titles.
 - **Hint** (`--tgui--hint_color`): Notes, counts, timestamps, placeholders, and checked rows.
@@ -156,9 +151,9 @@ A fixed light palette taken from Wishapp (Telegram's light theme): white section
 - **Dark Surface** (`--tgui--surface_dark`): the Undo snackbar, with a 28 px backdrop blur.
 
 ### Named Rules
-**The One Palette Rule.** Colours are defined once, as the `--tg-theme-*` variables in `styles.css` (repeated only in `telegram.ts` for Telegram's own chrome). UI code uses those variables or tgui tokens, never a new literal. There is no dark mode.
+**The Borrowed Palette Rule.** No colour literal appears in UI code except as a fallback inside `var()` (and the contrast guard's white/black mix). If a colour is not a Telegram theme value or one of our tokens built on them, it does not belong on the screen.
 
-**The Emoji Is the Brand Rule.** Beyond the one blue, Category emoji are the only colour on the screen. No gradients, covers or illustrations.
+**The Emoji Is the Brand Rule.** Category emoji are the only colour we supply. No gradients, covers or illustrations.
 
 ## Typography
 
@@ -169,7 +164,7 @@ A fixed light palette taken from Wishapp (Telegram's light theme): white section
 ### Hierarchy
 - **Title 1** (700, 28 px / 34 px): the List name in the header and screen titles. Use tgui `Title level="1"`. The shipped code uses 28 px with −0.01em tracking.
 - **Headline** (600, 19 px / 24 px): Placeholder headers (empty states, error screens).
-- **Text** (400, 17 px / 22 px): Product names in Cells, inputs, and sheet rows. A 600 weight marks the current List and button labels.
+- **Text** (400, 17 px / 22 px): Product names in Cells and inputs. A 600 weight marks the current List and button labels.
 - **Subheadline** (400, 15 px / 20 px): Notes, meta lines, snackbar text, alert text, and hints.
 - **Caption** (400, 13 px / 16 px): Category section headers in caps with +0.02em tracking, field labels and field hints.
 
@@ -187,10 +182,10 @@ A single column at phone width (360 px minimum). From top to bottom:
 
 The page gutter is 16 px. Sections are 20 px apart. A Cell is at least 52 px tall, and every control is at least 44 px. The top and bottom padding add Telegram's content and safe-area insets (`--tg-viewport-*`). Spacing steps are 4 / 8 / 12 / 16 / 20 / 24 px.
 
-Navigation is at most two levels deep: the List, then an Entry, the Lists (switcher), Members, History or Settings. Depth is shown by the native BackButton, and there are no breadcrumbs. Short forms (new List, rename) are tgui `Modal` drawers and the List menu is a popover.
+Navigation is at most two levels deep: the List, then an Entry, the Lists (switcher), Members, History or Settings. Depth is shown by the native BackButton, and there are no breadcrumbs. Naming forms (new List or Store, rename) are screens too. The app has no drawers at all: a choice of actions is Telegram's native popup (a Store's rename/delete), a confirmation is `showConfirm`, and the List menu is a popover.
 
 ### Named Rules
-**The Fields Live On Screens Rule.** Anything with more than one text field is a screen, never a drawer. On iOS a fixed drawer and the keyboard fight over the position (the Entry card flew off-screen in v0.2.0–0.2.1), while a plain page lets the WebView scroll the focused field into view.
+**The No Drawers Rule.** No bottom sheets or drawers, anywhere: forms are screens, action choices are native popups. On iOS a fixed drawer and the keyboard fight over the position (the Entry card flew off-screen in v0.2.0–0.2.1, the new-Store sheet in v0.3.0), while a plain page lets the WebView scroll the focused field into view. Wishapp has none either.
 
 **The Still Row Rule.** Checking, unchecking, syncing and failing never move, reorder or resize a row. Feedback floats (snackbar, alert) or happens inside the row.
 
@@ -202,7 +197,6 @@ Flat, with tonal layering: Section Surface on Screen Ground, as in Telegram sett
 - **Alert** (`0 4px 20px rgba(0,0,0,.16)`): connectivity and failure alerts pinned to the top.
 - **Suggestions** (`0 0 0 .5px` divider ring): the panel that overlays rows under the composer.
 - **Snackbar**: tgui's dark translucent surface with a 28 px backdrop blur instead of a shadow.
-- **Modal**: tgui's drawer over a 40% dimmed backdrop.
 
 ### Named Rules
 **The Float-Only Shadow Rule.** A shadow means "this is above the list and will go away". Nothing that stays put casts one.
@@ -211,7 +205,6 @@ Flat, with tonal layering: Section Surface on Screen Ground, as in Telegram sett
 
 The kit's forms, unmodified:
 - **12 px** (`control`): Sections, buttons, inputs and the snackbar.
-- **16 px** (`sheet`): top corners of the Modal drawer.
 - **22 px** (`pill`): quick-add chips.
 - **9 px** (`tile`): squircle-ish Category emoji tiles.
 - **Round**: checks, avatars (with a 2 px ring in the surface color, overlapping by 8 px in stacks), and the done badge on a tile.
@@ -224,8 +217,8 @@ Every component is a tgui component unless marked custom. Character: **calm and 
 
 ### Buttons
 - **Primary action:** the native **MainButton**, not a tgui Button. «Куплено (N)» shows only while something is checked, and its label changes in place without hiding and showing again.
-- **Filled** (`Button mode="filled" size="l" stretched`): in-page primaries such as Save in sheets and the empty-state action. Accent background, 48 px, 12 px corners, disabled at 50% opacity until the form changes (to implement for explicit-save forms).
-- **Bezeled** (`mode="bezeled"`): secondary actions next to a primary (Share link next to Members, Cancel in sheets).
+- **Filled** (`Button mode="filled" size="l" stretched`): in-page primaries such as the empty-state action, and Save outside Telegram. Accent background, 48 px, 12 px corners, disabled at 50% opacity until the form changes (to implement for explicit-save forms).
+- **Bezeled** (`mode="bezeled"`): secondary actions next to a primary (Share link next to Members, Cancel outside Telegram).
 - **Plain** (`mode="plain"`): snackbar Undo, alert Retry, and «Add ⊕» in a section header.
 - **IconButton** (`mode="plain"`, 44 px hit area): the "⋯" List menu and the "›" Entry opener.
 - **Press:** iOS gets an opacity press (tgui Tappable), Android a ripple (`scale 1→8`, `.3s cubic-bezier(.3,.3,.5,1)`). We never add our own scale-on-press.
@@ -240,13 +233,15 @@ Every component is a tgui component unless marked custom. Character: **calm and 
 
 ### Inputs / Fields
 - **Composer** (custom, sticky): a borderless 44 px field on Section Surface with 12 px corners, growing to 120 px. Like Telegram's own fields, focus shows only the caret and no ring. Pasting multiline text adds every line.
-- **Form fields** (`Input`, `Textarea`): name and Note in sheets, with a Caption label above and a Caption hint below.
+- **Form fields** (`components/Field.tsx`, Wishapp's pattern): the label always visible above a native `input`, `textarea` or `select` (tgui's Input hides its header on iOS), a note below. The control sits on Section Surface with 12 px corners and a 1 px border that turns Link colour on focus; the caret is Link colour too. Errors turn the border and the note destructive.
+- **Saving a form**: Telegram's MainButton with its own progress indicator; the BackButton leaves. Buttons are drawn on the page only outside Telegram. The Entry screen saves as you go and needs neither.
+- **Entry name**: the Entry screen's title is the name and edits in place (a pencil marks it); there is no second name field.
 - **Settings** (`Cell` with `Switch` / `Radio` and `description`): each option is a two-line Cell, title plus a one-line consequence ("Visible to everyone with a link").
 - **Keyboard focus:** a 2 px Telegram Accent outline inset by 2 px with 10 px corners on every control. Pointer focus shows nothing.
 
 ### Navigation
 - **Header** (custom): the List name in Title 1 is the switcher button (chevron after it). On the right, an `AvatarStack` of up to three Members (+N) opens Members, and the "⋯" IconButton opens the List menu. Under the name sits a Subheadline meta line ("3 участника · 5 из 12 в корзине").
-- **BackButton** (native) for every nested screen and every open Modal.
+- **BackButton** (native) for every nested screen.
 - **List menu**: a popover from "⋯". It enters in `.12s ease-out` (opacity 0→1, scale .96→1, 4 px rise) and leaves in `.12s ease-in` with pointer events off.
 
 ### Entry Row (signature, custom Cell)
@@ -272,16 +267,17 @@ A Subheadline line ("5 из 12") above a 3 px hairline track (Hint at 22%) whose
 ## Do's and Don'ts
 
 ### Do:
-- **Do** build screens from tgui (`AppRoot`, `List`, `Section`, `Cell`, `Button`, `IconButton`, `Placeholder`, `Modal`, `Snackbar`, `Skeleton`, `AvatarStack`, `Switch`, `Radio`, `Input`) before writing custom CSS.
+- **Do** build screens from tgui (`AppRoot`, `List`, `Section`, `Cell`, `Button`, `IconButton`, `Placeholder`, `Snackbar`, `Skeleton`, `AvatarStack`, `Switch`, `Radio`) before writing custom CSS; form fields use `Field` with native controls.
 - **Do** wrap the app in `AppRoot` with `platform` and `appearance` from the Telegram launch params, so iOS and Android each get their own grammar.
 - **Do** keep MainButton, BackButton, `showConfirm` and HapticFeedback native, even where tgui offers an HTML alternative.
 - **Do** keep every motion at or under `.35s` (the 1.6 s new-row wash is the one exception), on `cubic-bezier(.22,1,.36,1)` for our details and tgui's `cubic-bezier(.3,.3,.5,1)` for kit surfaces. Honour `prefers-reduced-motion` by cutting durations to `.01s`.
 - **Do** give every Section header action and every setting a visible label. No gesture is the only way to do something.
-- **Do** check every screen on iOS and Android at 360 px, including inside a dark Telegram (the app stays light).
+- **Do** check every screen in light and dark Telegram themes, on iOS and Android, at 360 px.
 
 ### Don't:
 - **Don't** add gradient covers, 3D illustrations, shine sweeps or any custom brand color, even though Wishapp uses them.
 - **Don't** replace the MainButton with a sticky HTML button.
+- **Don't** add a drawer or bottom sheet: a form is a screen, a choice is a native popup.
 - **Don't** add page-transition animations. Screens swap instantly, and BackButton carries the depth.
 - **Don't** scale an element on press, or move, reorder or resize a row in response to a state change.
 - **Don't** add breadcrumbs. Two levels of depth do not need them.

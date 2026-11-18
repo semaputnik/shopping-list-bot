@@ -1,11 +1,10 @@
 import { lazy } from "react";
 
 /*
- * Screens and sheets the List screen opens on demand, split out of the start-up bundle: the
- * drawers (vaul, Radix) and the secondary screens are not needed to show the List. They are
+ * Screens the List screen opens on demand, split out of the start-up bundle: they are not needed
+ * to show the List. They are
  * fetched in the background once the List is up (prefetchScreens), so a first tap rarely waits.
  */
-const loadSheet = () => import("./Sheet");
 const loaders = [
   () => import("./EntryScreen"),
   () => import("./ListsScreen"),
@@ -13,7 +12,6 @@ const loaders = [
   () => import("./HistoryScreen"),
   () => import("./MembersScreen"),
   () => import("./SettingsScreen"),
-  loadSheet,
 ];
 
 export const EntryScreen = lazy(() => import("./EntryScreen").then((m) => ({ default: m.EntryScreen })));
@@ -30,7 +28,6 @@ export const MembersScreen = lazy(() =>
 export const SettingsScreen = lazy(() =>
   import("./SettingsScreen").then((m) => ({ default: m.SettingsScreen })),
 );
-export const NameSheet = lazy(() => loadSheet().then((m) => ({ default: m.NameSheet })));
 
 let prefetched = false;
 
