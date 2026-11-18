@@ -123,6 +123,11 @@ class AliasOut(BaseModel):
     name: str
 
 
+class StoreOut(BaseModel):
+    id: int
+    name: str
+
+
 class EntryOut(BaseModel):
     id: int
     product_id: int
@@ -131,6 +136,8 @@ class EntryOut(BaseModel):
     aliases: list[AliasOut]
     note: str | None
     category: str
+    # The Product's default Store; null when none is set.
+    store_id: int | None
     added_by: int | None
     # First name of whoever added the Entry; null if that user is gone.
     added_by_name: str | None
@@ -152,6 +159,10 @@ class ListContentsOut(BaseModel):
     list: ListOut
     # Only non-empty groups, in the fixed system order ("Без категории" last).
     categories: list[CategoryGroupOut]
+    # The List's Stores, by name; the client groups by Store from each Entry's store_id.
+    stores: list[StoreOut]
+    # How this user groups the List screen ("category" or "store"); personal.
+    grouping: str
 
 
 class AddEntriesIn(BaseModel):
@@ -218,6 +229,34 @@ class AliasAddedOut(BaseModel):
 
 class ProductHiddenOut(BaseModel):
     version: int
+
+
+class StoreIn(BaseModel):
+    name: str = Field(max_length=100)
+
+
+class StoreChangeOut(BaseModel):
+    version: int
+    store: StoreOut
+
+
+class ProductStoreIn(BaseModel):
+    # A Store of this List, or null to clear it.
+    store_id: int | None
+
+
+class ProductStoreOut(BaseModel):
+    version: int
+    product_id: int
+    store_id: int | None
+
+
+class GroupingIn(BaseModel):
+    grouping: Literal["category", "store"]
+
+
+class GroupingOut(BaseModel):
+    grouping: str
 
 
 class EntryChangeOut(BaseModel):
@@ -844,6 +883,7 @@ def create_app(
             aliases=_aliases_out(entry.product),
             note=entry.note,
             category=entry.product.category_key,
+            store_id=entry.product.store_id,
             added_by=entry.added_by,
             added_by_name=entry.author.first_name if entry.author else None,
             created_at=entry.created_at,
@@ -872,7 +912,21 @@ def create_app(
                         entries=members,
                     )
                 )
-        return ListContentsOut(list=list_out(lst, language), categories=groups)
+        stores = session.scalars(select(models.Store).where(models.Store.list_id == lst.id)).all()
+        grouping = session.scalar(
+            select(models.ListMember.grouping).where(
+                models.ListMember.list_id == lst.id, models.ListMember.user_id == user.id
+            )
+        )
+        return ListContentsOut(
+            list=list_out(lst, language),
+            categories=groups,
+            stores=[
+                StoreOut(id=st.id, name=st.name)
+                for st in sorted(stores, key=lambda st: (st.name.casefold(), st.id))
+            ],
+            grouping=grouping or "category",
+        )
 
     @api.get("/lists/{list_id}/entries", response_model=ListContentsOut)
     def list_entries(list_id: int, user: UserDep, session: SessionDep) -> ListContentsOut:
@@ -1215,6 +1269,96 @@ def create_app(
         session.commit()
         return ProductHiddenOut(version=lst.version)
 
+    def _store_or_404(session: Session, lst: models.List, store_id: int) -> models.Store:
+        store = session.scalar(
+            select(models.Store).where(models.Store.id == store_id, models.Store.list_id == lst.id)
+        )
+        if store is None:
+            raise HTTPException(404, "store not found")
+        return store
+
+    def _store_name(session: Session, lst: models.List, raw: str, exclude: int | None = None):
+        """The trimmed name and its key, or 422 (empty) / 409 (another Store of this List has it)."""
+        name = raw.strip()
+        norm = normalize(name)
+        if not norm:
+            raise HTTPException(422, "store name must not be empty")
+        clash = session.scalar(
+            select(models.Store.id).where(
+                models.Store.list_id == lst.id,
+                models.Store.name_norm == norm,
+                models.Store.id != (exclude or 0),
+            )
+        )
+        if clash is not None:
+            raise HTTPException(409, "this list already has a store with that name")
+        return name, norm
+
+    @api.post("/lists/{list_id}/stores", response_model=StoreChangeOut, status_code=201)
+    def create_store(
+        list_id: int, body: StoreIn, user: UserDep, session: SessionDep
+    ) -> StoreChangeOut:
+        """Add a Store to the List; its name is unique in the List (409 otherwise)."""
+        lst = _member_list(session, user, list_id, lock=True)
+        name, norm = _store_name(session, lst, body.name)
+        store = models.Store(list_id=lst.id, name=name, name_norm=norm)
+        session.add(store)
+        session.flush()
+        _touch(session, lst, "store.created")
+        session.commit()
+        return StoreChangeOut(version=lst.version, store=StoreOut(id=store.id, name=store.name))
+
+    @api.patch("/lists/{list_id}/stores/{store_id}", response_model=StoreChangeOut)
+    def rename_store(
+        list_id: int, store_id: int, body: StoreIn, user: UserDep, session: SessionDep
+    ) -> StoreChangeOut:
+        lst = _member_list(session, user, list_id, lock=True)
+        store = _store_or_404(session, lst, store_id)
+        store.name, store.name_norm = _store_name(session, lst, body.name, exclude=store.id)
+        _touch(session, lst, "store.renamed")
+        session.commit()
+        return StoreChangeOut(version=lst.version, store=StoreOut(id=store.id, name=store.name))
+
+    @api.delete("/lists/{list_id}/stores/{store_id}", response_model=ProductHiddenOut)
+    def delete_store(
+        list_id: int, store_id: int, user: UserDep, session: SessionDep
+    ) -> ProductHiddenOut:
+        """Delete a Store; its Products stay, without a Store."""
+        lst = _member_list(session, user, list_id, lock=True)
+        session.delete(_store_or_404(session, lst, store_id))
+        session.flush()
+        _touch(session, lst, "store.deleted")
+        session.commit()
+        return ProductHiddenOut(version=lst.version)
+
+    @api.put("/lists/{list_id}/products/{product_id}/store", response_model=ProductStoreOut)
+    def set_product_store(
+        list_id: int, product_id: int, body: ProductStoreIn, user: UserDep, session: SessionDep
+    ) -> ProductStoreOut:
+        """Set or clear a Product's default Store (every Entry of it follows)."""
+        lst = _member_list(session, user, list_id, lock=True)
+        product = _product_or_404(session, lst, product_id)
+        store_id = None if body.store_id is None else _store_or_404(session, lst, body.store_id).id
+        if product.store_id != store_id:
+            product.store_id = store_id
+            _touch(session, lst, "product.store_changed")
+            session.commit()
+        return ProductStoreOut(version=lst.version, product_id=product.id, store_id=store_id)
+
+    @api.put("/lists/{list_id}/grouping", response_model=GroupingOut)
+    def set_grouping(
+        list_id: int, body: GroupingIn, user: UserDep, session: SessionDep
+    ) -> GroupingOut:
+        """This user's grouping of the List screen. Personal: no version bump, no event."""
+        lst = _member_list(session, user, list_id)
+        session.execute(
+            update(models.ListMember)
+            .where(models.ListMember.list_id == lst.id, models.ListMember.user_id == user.id)
+            .values(grouping=body.grouping)
+        )
+        session.commit()
+        return GroupingOut(grouping=body.grouping)
+
     @api.patch("/lists/{list_id}/products/{product_id}", response_model=ProductRenameOut)
     def rename_product(
         list_id: int, product_id: int, body: ProductRenameIn, user: UserDep, session: SessionDep
@@ -1254,6 +1398,8 @@ def create_app(
                 ):
                     other.last_purchased_at = product.last_purchased_at
                 other.hidden = False
+                if other.store_id is None:
+                    other.store_id = product.store_id
                 # The source's aliases move over; one the target already has is dropped.
                 kept = {other.name_norm, *(a.name_norm for a in other.aliases)}
                 for alias in list(product.aliases):
