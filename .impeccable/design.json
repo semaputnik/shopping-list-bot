@@ -7,7 +7,7 @@
       "accent": {
         "role": "primary",
         "displayName": "Telegram Accent",
-        "canonical": "#3390ec",
+        "canonical": "var(--tgui--button_color)",
         "tonalRamp": [
           "#002a5c",
           "#00418a",
@@ -30,7 +30,7 @@
       "link": {
         "role": "primary",
         "displayName": "Link Accent",
-        "canonical": "#3390ec",
+        "canonical": "var(--tgui--link_color)",
         "tonalRamp": [
           "#002a5c",
           "#00418a",
@@ -45,7 +45,7 @@
       "ground": {
         "role": "neutral",
         "displayName": "Screen Ground",
-        "canonical": "#f4f4f5",
+        "canonical": "var(--tgui--secondary_bg_color)",
         "tonalRamp": [
           "#1c1c21",
           "#3a3a42",
@@ -90,12 +90,12 @@
       "section-header": {
         "role": "neutral",
         "displayName": "Section Header",
-        "canonical": "#3390ec"
+        "canonical": "var(--tgui--section_header_text_color)"
       },
       "destructive": {
         "role": "neutral",
         "displayName": "Destructive",
-        "canonical": "#df3f40"
+        "canonical": "var(--tgui--destructive_text_color)"
       },
       "divider": {
         "role": "neutral",
@@ -291,20 +291,20 @@
     "overview": "The interface is assembled from Telegram's official Mini App kit, `@telegram-apps/telegram-ui` (tgui): its Sections, Cells, Buttons, Placeholders, Modal, Snackbar, Skeletons and typography scale. The craft bar is the strongest kit-built Mini Apps (Wishapp, Wallet). A Telegram user should feel at home instantly, because the parts are literally the ones they already know. The kit also switches between iOS and Android grammar for us (`AppRoot platform`).\n\nOur own hand shows in a few precise, tactile details layered on top of the kit, never in a palette or decoration. Those details are: the category emoji tile, the pen stroke that crosses an item out, the small pop of the check, the accent wash on a just-added row, and the trip progress hairline. The motion is calm and tactile. Each action gets one short physical response, and nothing moves under the finger. Density is comfortable, readable at a glance in a store aisle.\n\nThese outcomes are rejected: looking foreign inside Telegram, looking as dull as a notes app, looking toy-like, and looking cramped.",
     "keyCharacteristics": [
       "Built on tgui components and tokens. Custom CSS exists only for our signature details and gaps in the kit.",
-      "One fixed light palette, the one Wishapp shows (Telegram's light theme); the app does not follow the phone's Telegram theme.",
+      "Every colour comes from Telegram `themeParams`, so light, dark and custom themes follow the client, as in Wishapp. One guard: Sections always stand out from the ground.",
       "Native chrome stays native: `MainButton` for «Куплено (N)», `BackButton` for depth, `showConfirm` for destructive confirmations, `HapticFeedback` on every state change.",
       "Grouped inset sections, one per Category, with the emoji tile as the only color we own.",
       "One short, tactile response per action. The Still Row rule is absolute."
     ],
     "rules": [
       {
-        "name": "The One Palette Rule",
-        "body": "Colours are defined once, as the `--tg-theme-*` variables in `styles.css` (repeated only in `telegram.ts` for Telegram's own chrome). UI code uses those variables or tgui tokens, never a new literal. There is no dark mode.",
+        "name": "The Borrowed Palette Rule",
+        "body": "No colour literal appears in UI code except as a fallback inside `var()` (and the contrast guard's white/black mix). If a colour is not a Telegram theme value or one of our tokens built on them, it does not belong on the screen.",
         "section": "colors"
       },
       {
         "name": "The Emoji Is the Brand Rule",
-        "body": "Beyond the one blue, Category emoji are the only colour on the screen. No gradients, covers or illustrations.",
+        "body": "Category emoji are the only colour we supply. No gradients, covers or illustrations.",
         "section": "colors"
       },
       {
@@ -313,8 +313,8 @@
         "section": "typography"
       },
       {
-        "name": "The Fields Live On Screens Rule",
-        "body": "Anything with more than one text field is a screen, never a drawer. On iOS a fixed drawer and the keyboard fight over the position (the Entry card flew off-screen in v0.2.0–0.2.1), while a plain page lets the WebView scroll the focused field into view.",
+        "name": "The No Drawers Rule",
+        "body": "No bottom sheets or drawers, anywhere: forms are screens, action choices are native popups. On iOS a fixed drawer and the keyboard fight over the position (the Entry card flew off-screen in v0.2.0–0.2.1, the new-Store sheet in v0.3.0), while a plain page lets the WebView scroll the focused field into view. Wishapp has none either.",
         "section": "layout"
       },
       {
@@ -334,16 +334,17 @@
       }
     ],
     "dos": [
-      "**Do** build screens from tgui (`AppRoot`, `List`, `Section`, `Cell`, `Button`, `IconButton`, `Placeholder`, `Modal`, `Snackbar`, `Skeleton`, `AvatarStack`, `Switch`, `Radio`, `Input`) before writing custom CSS.",
+      "**Do** build screens from tgui (`AppRoot`, `List`, `Section`, `Cell`, `Button`, `IconButton`, `Placeholder`, `Snackbar`, `Skeleton`, `AvatarStack`, `Switch`, `Radio`) before writing custom CSS; form fields use `Field` with native controls.",
       "**Do** wrap the app in `AppRoot` with `platform` and `appearance` from the Telegram launch params, so iOS and Android each get their own grammar.",
       "**Do** keep MainButton, BackButton, `showConfirm` and HapticFeedback native, even where tgui offers an HTML alternative.",
       "**Do** keep every motion at or under `.35s` (the 1.6 s new-row wash is the one exception), on `cubic-bezier(.22,1,.36,1)` for our details and tgui's `cubic-bezier(.3,.3,.5,1)` for kit surfaces. Honour `prefers-reduced-motion` by cutting durations to `.01s`.",
       "**Do** give every Section header action and every setting a visible label. No gesture is the only way to do something.",
-      "**Do** check every screen on iOS and Android at 360 px, including inside a dark Telegram (the app stays light)."
+      "**Do** check every screen in light and dark Telegram themes, on iOS and Android, at 360 px."
     ],
     "donts": [
       "**Don't** add gradient covers, 3D illustrations, shine sweeps or any custom brand color, even though Wishapp uses them.",
       "**Don't** replace the MainButton with a sticky HTML button.",
+      "**Don't** add a drawer or bottom sheet: a form is a screen, a choice is a native popup.",
       "**Don't** add page-transition animations. Screens swap instantly, and BackButton carries the depth.",
       "**Don't** scale an element on press, or move, reorder or resize a row in response to a state change.",
       "**Don't** add breadcrumbs. Two levels of depth do not need them."

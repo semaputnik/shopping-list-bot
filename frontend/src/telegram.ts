@@ -1,4 +1,5 @@
 import {
+  bindThemeParamsCssVars,
   bindViewportCssVars,
   disableVerticalSwipes,
   expandViewport,
@@ -9,12 +10,14 @@ import {
   isBackButtonMounted,
   isMainButtonMounted,
   isMiniAppActive,
+  isThemeParamsDark,
   isTMA,
   miniAppReady,
   mountBackButton,
   mountMainButton,
   mountMiniApp,
   mountSwipeBehavior,
+  mountThemeParamsSync,
   mountViewport,
   offBackButtonClick,
   offMainButtonClick,
@@ -45,11 +48,12 @@ function launchPlatform(): "ios" | "base" {
 
 export const platform = launchPlatform();
 
-/** The fixed palette's colours Telegram paints itself (its header, background, MainButton);
- * they match the CSS variables in styles.css. */
-const GROUND = "#f4f4f5";
-const BUTTON = "#3390ec";
-const BUTTON_TEXT = "#ffffff";
+/**
+ * Whether the Telegram theme is dark (a signal: it changes when the client switches theme).
+ * Outside Telegram there is no theme, and the SDK would read that as dark.
+ */
+export const isDarkTheme = isThemeParamsDark;
+export const insideTelegram = isTMA();
 
 export interface TelegramContext {
   rawInitData: string;
@@ -98,6 +102,11 @@ async function doStartTelegram(): Promise<TelegramContext | null> {
   if (!isTMA()) return null;
   init();
 
+  // Colors come from themeParams, exposed as --tg-theme-* CSS variables.
+  if (mountThemeParamsSync.isAvailable()) mountThemeParamsSync();
+  if (bindThemeParamsCssVars.isAvailable()) bindThemeParamsCssVars();
+  keepSectionsVisible();
+
   // ready() first: Telegram keeps its own loading placeholder up until it is called.
   if (miniAppReady.isAvailable()) miniAppReady();
   if (expandViewport.isAvailable()) expandViewport();
@@ -109,10 +118,10 @@ async function doStartTelegram(): Promise<TelegramContext | null> {
     mountViewport.isAvailable() ? mountWithin(() => mountViewport(), "viewport") : false,
   ]).then(([miniAppMounted, viewportMounted]) => {
     if (miniAppMounted) {
-      // Telegram's own chrome takes the page ground, whatever the phone's theme (no seam).
-      if (setMiniAppHeaderColor.isAvailable()) setMiniAppHeaderColor(GROUND);
-      if (setMiniAppBackgroundColor.isAvailable()) setMiniAppBackgroundColor(GROUND);
-      if (setMiniAppBottomBarColor.isAvailable()) setMiniAppBottomBarColor(GROUND);
+      // The page ground is secondary_bg_color; match Telegram's own chrome to it (no seam).
+      if (setMiniAppHeaderColor.isAvailable()) setMiniAppHeaderColor("secondary_bg_color");
+      if (setMiniAppBackgroundColor.isAvailable()) setMiniAppBackgroundColor("secondary_bg_color");
+      if (setMiniAppBottomBarColor.isAvailable()) setMiniAppBottomBarColor("secondary_bg_color");
     }
     if (viewportMounted && bindViewportCssVars.isAvailable()) bindViewportCssVars();
   });
@@ -158,6 +167,35 @@ export async function confirmDestructive(opts: {
 }
 
 /**
+ * Telegram's native popup with up to two actions plus Cancel (instead of a drawer, which this app
+ * never uses). Resolves the chosen action's id, or null when cancelled. Outside Telegram (local
+ * dev) it asks with window.confirm for the first action only.
+ */
+export async function chooseAction(opts: {
+  title: string;
+  message: string;
+  actions: { id: string; text: string; destructive?: boolean }[];
+}): Promise<string | null> {
+  if (openPopup.isAvailable()) {
+    const id = await openPopup({
+      title: opts.title,
+      message: opts.message,
+      buttons: [
+        ...opts.actions.map((a) => ({
+          id: a.id,
+          type: a.destructive ? ("destructive" as const) : ("default" as const),
+          text: a.text,
+        })),
+        { type: "cancel" as const },
+      ],
+    });
+    return id && opts.actions.some((a) => a.id === id) ? id : null;
+  }
+  const first = opts.actions[0];
+  return first && window.confirm(`${opts.title}: ${first.text}?`) ? first.id : null;
+}
+
+/**
  * Shows Telegram's native BackButton and calls `onBack` when it is pressed. Returns a
  * cleanup that removes the listener and hides the button. Used by every sheet and nested
  * screen, so the BackButton, not the «Закрыть» button, dismisses them. No-op outside Telegram.
@@ -178,18 +216,23 @@ export function bindBackButton(onBack: () => void): () => void {
  */
 export function bindMainButton(text: string, onClick: () => void): () => void {
   if (!setMainButtonParams.isAvailable() || !onMainButtonClick.isAvailable()) return () => {};
-  setMainButtonParams({
-    text,
-    isVisible: true,
-    isEnabled: true,
-    backgroundColor: BUTTON,
-    textColor: BUTTON_TEXT,
-  });
+  setMainButtonParams({ text, isVisible: true, isEnabled: true });
   onMainButtonClick(onClick);
   return () => {
     if (offMainButtonClick.isAvailable()) offMainButtonClick(onClick);
     if (setMainButtonParams.isAvailable()) setMainButtonParams({ isVisible: false });
   };
+}
+
+/** Whether Telegram's MainButton can be used here (false outside Telegram, e.g. local dev). */
+export function hasMainButton(): boolean {
+  return setMainButtonParams.isAvailable() && onMainButtonClick.isAvailable();
+}
+
+/** Enables or disables the MainButton and shows its own progress indicator while saving. */
+export function setMainButtonState(state: { enabled: boolean; loading: boolean }): void {
+  if (!setMainButtonParams.isAvailable()) return;
+  setMainButtonParams({ isEnabled: state.enabled, isLoaderVisible: state.loading });
 }
 
 /** Changes the label of the MainButton in place (no hide/show, so it does not flicker). */
@@ -276,4 +319,48 @@ function askForBotMessages(alreadyAllowed: boolean): void {
     return; // no storage: better never to ask than to ask on every open
   }
   requestWriteAccess().catch((e: unknown) => console.warn("Write access request failed", e));
+}
+
+/** Relative luminance (0–1) of a "#rrggbb" colour, or null for anything else. */
+function luminance(hex: string): number | null {
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex.trim());
+  if (!m) return null;
+  const [r, g, b] = m.slice(1).map((h) => {
+    const c = parseInt(h, 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/**
+ * Some themes give Sections the same colour as the ground (pure-black night themes: bg, secondary
+ * and section all black), and fields then vanish. Like Wishapp, adjust instead of trusting the
+ * theme: when the two are too close, the section surface is mixed a little towards white (dark
+ * themes) or black (light ones). Re-checked whenever Telegram rebinds the theme variables.
+ */
+function keepSectionsVisible(): void {
+  const root = document.documentElement;
+  let applied = "";
+  const check = () => {
+    const css = getComputedStyle(root);
+    const ground = css.getPropertyValue("--tg-theme-secondary-bg-color").trim();
+    const section =
+      css.getPropertyValue("--tg-theme-section-bg-color").trim() ||
+      css.getPropertyValue("--tg-theme-bg-color").trim();
+    const lg = luminance(ground);
+    const ls = luminance(section);
+    let next = "";
+    if (lg !== null && ls !== null && Math.abs(lg - ls) < 0.02) {
+      next =
+        lg < 0.5
+          ? `color-mix(in srgb, ${ground} 90%, #ffffff)`
+          : `color-mix(in srgb, ${ground} 95%, #000000)`;
+    }
+    if (next === applied) return;
+    applied = next;
+    if (next) root.style.setProperty("--section", next);
+    else root.style.removeProperty("--section");
+  };
+  check();
+  new MutationObserver(check).observe(root, { attributes: true, attributeFilter: ["style"] });
 }

@@ -76,7 +76,7 @@ git tag v0.1.0 && git push origin v0.1.0
 Planned pieces that interact:
 - **Bot**: a share link (a bot deep link whose start parameter identifies a list; opening it joins the user to that list), notifications sent as bot messages (a Mini App has no push or background sync), and later voice and text input in chat.
 - **FastAPI backend**: auth, a list-scoped REST API, a realtime channel (SSE or WebSocket), and a `changes?since=<version>` catch-up endpoint.
-- **Mini App frontend**: one fixed light palette (Wishapp's colours, not the phone's Telegram theme), keeps an offline cache and an operation queue, and uses native Telegram controls.
+- **Mini App frontend**: reads `themeParams` CSS variables, keeps an offline cache and an operation queue, and uses native Telegram controls.
 
 ## Architectural invariants (from the spec — easy to get wrong)
 
@@ -90,7 +90,7 @@ Planned pieces that interact:
 - **Never block adding:** category, unit and store are never required. Unknown items go to "Без категории". Category is guessed from an RU/ES/EN dictionary (`categories.py`; English words live in `EN_WORDS`), with an LLM considered later.
 - **Input parsing:** one line can hold several items, split by `;` or a newline. A comma splits name from note (`молоко, 2 л`). Pasting multiline text adds every line. Search ignores case and diacritics (`platano` = `plátano`) and tolerates one typo.
 - **Store ordering:** `store_category_order.is_manual = true` freezes the order, and the learned order from `checkout_log` must not override it.
-- **Telegram client:** call `ready()`, `expand()` and `disableVerticalSwipes()` at startup, because swipes on list rows must not close the app. Colours are one fixed light palette defined as the `--tg-theme-*` variables in `frontend/src/styles.css` (Telegram's chrome and MainButton get the same values in `telegram.ts`); Telegram's `themeParams` are not bound, and there is no dark mode. Turn on `enableClosingConfirmation()` only while offline ops are pending. Every destructive action needs Undo (at least 5 s) or a `showConfirm`.
+- **Telegram client:** call `ready()`, `expand()` and `disableVerticalSwipes()` at startup, because swipes on list rows must not close the app. Use only `--tg-theme-*` colors (a guard in `telegram.ts` keeps sections distinct from the ground); a custom palette is allowed only for category icons. **No drawers or bottom sheets**: on iOS they fight the keyboard; forms are screens (`NameScreen`, `EntryScreen`) built from `components/Field.tsx`, action choices use the native popup (`chooseAction`), confirmations `showConfirm`. Turn on `enableClosingConfirmation()` only while offline ops are pending. Every destructive action needs Undo (at least 5 s) or a `showConfirm`.
 
 ## Staging
 

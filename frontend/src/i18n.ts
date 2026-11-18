@@ -126,7 +126,8 @@ type StringKey =
   | "renameStore"
   | "deleteStore"
   | "deleteStoreTitle"
-  | "deleteStoreMessage";
+  | "deleteStoreMessage"
+  | "storeActions";
 
 const strings: Record<Language, Record<StringKey, string>> = {
   ru: {
@@ -250,13 +251,14 @@ const strings: Record<Language, Record<StringKey, string>> = {
     storeNamePlaceholder: "Например, Mercadona",
     storeTaken: "Такой магазин в этом списке уже есть.",
     stores: "Магазины",
-    storesHint: "Магазины общие для всех участников списка. Нажмите на магазин, чтобы переименовать его.",
+    storesHint: "Магазины общие для всех участников списка. Нажмите на магазин, чтобы переименовать или удалить его.",
     storesEmptyTitle: "Магазинов пока нет",
     storesEmptyHint: "Добавьте магазин, и список можно будет смотреть по магазинам.",
     renameStore: "Переименовать магазин",
     deleteStore: "Удалить",
     deleteStoreTitle: "Удалить «{name}»?",
     deleteStoreMessage: "Товары останутся в списке, но без магазина.",
+    storeActions: "Что сделать с магазином?",
   },
   es: {
     loading: "Cargando…",
@@ -379,13 +381,14 @@ const strings: Record<Language, Record<StringKey, string>> = {
     storeNamePlaceholder: "Por ejemplo, Mercadona",
     storeTaken: "Esta lista ya tiene una tienda con ese nombre.",
     stores: "Tiendas",
-    storesHint: "Las tiendas son comunes para todos en la lista. Toca una para cambiarle el nombre.",
+    storesHint: "Las tiendas son comunes para todos en la lista. Toca una para cambiarle el nombre o eliminarla.",
     storesEmptyTitle: "Aún no hay tiendas",
     storesEmptyHint: "Añade una tienda para ver la lista por tiendas.",
     renameStore: "Cambiar nombre",
     deleteStore: "Eliminar",
     deleteStoreTitle: "¿Eliminar «{name}»?",
     deleteStoreMessage: "Los productos se quedan en la lista, pero sin tienda.",
+    storeActions: "¿Qué quieres hacer con esta tienda?",
   },
   en: {
     loading: "Loading…",
@@ -508,13 +511,14 @@ const strings: Record<Language, Record<StringKey, string>> = {
     storeNamePlaceholder: "For example, Mercadona",
     storeTaken: "This list already has a store with that name.",
     stores: "Stores",
-    storesHint: "Stores are shared by everyone on the list. Tap a store to rename it.",
+    storesHint: "Stores are shared by everyone on the list. Tap a store to rename or delete it.",
     storesEmptyTitle: "No stores yet",
     storesEmptyHint: "Add a store to view the list by store.",
     renameStore: "Rename store",
     deleteStore: "Delete",
     deleteStoreTitle: "Delete “{name}”?",
     deleteStoreMessage: "The items stay on the list, without a store.",
+    storeActions: "What do you want to do with this store?",
   },
 };
 

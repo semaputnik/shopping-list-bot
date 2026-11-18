@@ -1,42 +1,32 @@
 /*
- * One fixed light palette, the one Wishapp shows (Telegram's light theme): the app no longer
- * follows the phone's Telegram theme. The colours are set as the --tg-theme-* variables because
- * telegram-ui reads those; nothing binds Telegram's themeParams over them (see telegram.ts).
- * telegram.ts repeats the ground and button colours for Telegram's own chrome and MainButton.
+ * Colors come from Telegram themeParams (--tg-theme-* variables, bound at startup), so light and
+ * dark follow the client. Hex values are only fallbacks for a missing key. One adjustment, as
+ * Wishapp does it: telegram.ts makes sure Sections stand out from the ground (see --section).
  */
 :root {
-  color-scheme: light;
-  --tg-theme-bg-color: #ffffff;
-  --tg-theme-secondary-bg-color: #f4f4f5;
-  --tg-theme-section-bg-color: #ffffff;
-  --tg-theme-header-bg-color: #ffffff;
-  --tg-theme-text-color: #000000;
-  --tg-theme-hint-color: #707579;
-  --tg-theme-subtitle-text-color: #707579;
-  --tg-theme-link-color: #3390ec;
-  --tg-theme-accent-text-color: #3390ec;
-  --tg-theme-button-color: #3390ec;
-  --tg-theme-button-text-color: #ffffff;
-  --tg-theme-section-header-text-color: #3390ec;
-  --tg-theme-destructive-text-color: #df3f40;
-  --tg-theme-section-separator-color: #e7e7e9;
-
-  --bg: var(--tg-theme-bg-color);
-  --ground: var(--tg-theme-secondary-bg-color);
-  --section: var(--tg-theme-section-bg-color);
-  --text: var(--tg-theme-text-color);
-  --separator: var(--tg-theme-section-separator-color);
-  --hint: var(--tg-theme-hint-color);
-  --accent: var(--tg-theme-button-color);
-  --destructive: var(--tg-theme-destructive-text-color);
-  --accent-text: var(--tg-theme-button-text-color);
+  --bg: var(--tg-theme-bg-color, #ffffff);
+  --ground: var(--tg-theme-secondary-bg-color, #efeff4);
+  --section: var(--tg-theme-section-bg-color, var(--bg));
+  --text: var(--tg-theme-text-color, #000000);
+  --separator: var(--tg-theme-section-separator-color, rgba(60, 60, 67, 0.2));
+  --hint: var(--tg-theme-hint-color, #8e8e93);
+  --link: var(--tg-theme-link-color, #3390ec);
+  --accent: var(--tg-theme-button-color, #3390ec);
+  --destructive: var(--tg-theme-destructive-text-color, #e53935);
+  --accent-text: var(--tg-theme-button-text-color, #ffffff);
   --safe-top: var(--tg-viewport-content-safe-area-inset-top, 0px);
   --safe-bottom: var(--tg-viewport-safe-area-inset-bottom, 0px);
 }
 
-/* Section headers take the blue, as in Wishapp; the notes under a section stay grey. tgui paints
-   both with section_header_text_color, so the footer (its own <footer>) is set back to hint. */
-:is(.screen, .sheet) section > footer > * {
+/* tgui paints Sections, Cells and fields with bg_color; ours use the section surface, which is the
+   colour meant to stand out from the ground (and which telegram.ts guards). */
+.screen {
+  --tgui--bg_color: var(--section);
+}
+
+/* Notes under a section are hint-grey; tgui would paint them with section_header_text_color, like
+   the header above (the footer is its own <footer>). */
+.screen section > footer > * {
   color: var(--hint);
 }
 
@@ -264,6 +254,10 @@ body {
   overflow-y: auto;
   /* Grows with its content where supported; ListScreen sizes it by script elsewhere. */
   field-sizing: content;
+}
+
+.composer__input {
+  caret-color: var(--link);
 }
 
 .composer__input::placeholder {
@@ -810,17 +804,12 @@ body {
   color: var(--tgui--hint_color, var(--hint));
 }
 
-/* The tgui Modal drawer body: Telegram's grouped ground, with room for the home indicator. */
-.sheet {
-  padding: 0 16px calc(var(--safe-bottom) + 16px);
-  background: var(--tgui--secondary_bg_color, var(--ground));
+/* Save and Cancel under the field of a NameScreen. */
+.name-screen__actions {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
 }
-
-.sheet > form > :not(:last-child),
-.sheet > :not(:last-child) {
-  margin-bottom: 12px;
-}
-
 
 /* tgui's Snackbar sits 10px from the bottom; keep it above the home indicator too. */
 .snackbar.snackbar {
@@ -955,7 +944,7 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  padding: 12px 16px 0;
+  padding: 0 0 8px;
 }
 
 .aliases__remove {
@@ -984,4 +973,146 @@ body {
   color: var(--destructive);
   font-size: 13px;
   font-weight: 600;
+}
+
+/* Labelled form fields (components/Field.tsx), Wishapp's pattern: label above, native control. */
+.field {
+  display: block;
+  margin: 0 0 18px;
+}
+
+.field__label {
+  display: block;
+  margin: 0 4px 6px;
+  color: var(--hint);
+  font-size: 14px;
+}
+
+.field__control {
+  display: block;
+  width: 100%;
+  min-height: 46px;
+  padding: 11px 14px;
+  border: 1px solid var(--section);
+  border-radius: 12px;
+  background: var(--section);
+  color: var(--text);
+  caret-color: var(--link);
+  font: inherit;
+  font-size: 17px;
+  outline: none;
+  transition: border-color 0.15s ease-out;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.field__control::placeholder {
+  color: var(--hint);
+}
+
+/* Where you type is visible: the focused field takes the link colour. */
+.field__control:focus {
+  border-color: var(--link);
+}
+
+textarea.field__control {
+  min-height: 72px;
+  max-height: 240px;
+  resize: none;
+  field-sizing: content;
+}
+
+select.field__control {
+  padding-right: 40px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%238e8e93' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-position: right 16px center;
+  background-repeat: no-repeat;
+  background-size: 12px 8px;
+}
+
+.field__hint {
+  display: block;
+  margin: 6px 4px 0;
+  color: var(--hint);
+  font-size: 13px;
+}
+
+.field--error .field__control {
+  border-color: var(--destructive);
+}
+
+.field--error .field__hint {
+  color: var(--destructive);
+}
+
+/* The Entry screen's name is its title, and edits in place (a pencil says so). */
+.title-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 4px 4px;
+}
+
+.title-field__input {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--text);
+  caret-color: var(--link);
+  font: inherit;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  outline: none;
+  transition: border-color 0.15s ease-out;
+}
+
+.title-field__input:focus {
+  border-bottom-color: var(--link);
+}
+
+.title-field__pencil {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  color: var(--hint);
+}
+
+.title-field__hint {
+  margin: 0 4px 20px;
+  color: var(--hint);
+  font-size: 13px;
+}
+
+.entry-meta {
+  margin: -6px 4px 20px;
+  color: var(--hint);
+  font-size: 13px;
+}
+
+/* Delete closes the Entry screen: a full-width row shaped like the fields, in the destructive colour. */
+.entry-delete {
+  display: block;
+  width: 100%;
+  min-height: 46px;
+  padding: 11px 14px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--section);
+  color: var(--destructive);
+  font: inherit;
+  font-size: 17px;
+  text-align: left;
+}
+
+.entry-delete:active {
+  opacity: 0.65;
+}
+
+.entry-delete:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }

@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Chip, Input, List, Section, Select, Textarea, Title } from "@telegram-apps/telegram-ui";
+import { Chip } from "@telegram-apps/telegram-ui";
 import { ApiError, type Category, type Entry, type Store } from "../api";
 import type { Language, Strings } from "../i18n";
-import { ActionCell } from "../components/ActionCell";
+import { Field } from "../components/Field";
 import { bindBackButton } from "../telegram";
-import { NameSheet } from "./Sheet";
+import { NameScreen } from "./NameScreen";
 
 interface Props {
   entry: Entry;
@@ -247,134 +247,9 @@ export function EntryScreen({
     minute: "2-digit",
   });
 
-  return (
-    <main className="screen">
-      <Title level="1" weight="1" className="screen__title">
-        {entry.name}
-      </Title>
-      <List>
-        <Section footer={strings.entryNameHint}>
-          <Input
-            header={strings.entryName}
-            type="text"
-            maxLength={200}
-            enterKeyHint="done"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onBlur={() => void commitName()}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                e.currentTarget.blur();
-              }
-            }}
-          />
-        </Section>
-        <Section header={strings.aliases} footer={aliasTaken ? strings.aliasTaken : strings.aliasesHint}>
-          {entry.aliases.length > 0 && (
-            <div className="aliases">
-              {entry.aliases.map((a) => (
-                <Chip
-                  key={a.id}
-                  mode="mono"
-                  after={
-                    <button
-                      type="button"
-                      className={armedAlias === a.id ? "aliases__remove aliases__remove--armed" : "aliases__remove"}
-                      aria-label={`${strings.aliasRemove}: ${a.name}`}
-                      onClick={() => void dropAlias(a.id)}
-                      onBlur={() => setArmedAlias((id) => (id === a.id ? null : id))}
-                    >
-                      {armedAlias === a.id ? strings.forgetConfirm : "✕"}
-                    </button>
-                  }
-                >
-                  {a.name}
-                </Chip>
-              ))}
-            </div>
-          )}
-          <Input
-            type="text"
-            maxLength={200}
-            enterKeyHint="done"
-            status={aliasTaken ? "error" : "default"}
-            value={alias}
-            placeholder={strings.aliasesPlaceholder}
-            onChange={(e) => {
-              setAlias(e.target.value);
-              setAliasTaken(false);
-            }}
-            onBlur={() => void commitAlias()}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                e.currentTarget.blur();
-              }
-            }}
-          />
-        </Section>
-        <Section>
-          <Textarea
-            header={strings.entryNote}
-            rows={2}
-            maxLength={500}
-            value={note}
-            placeholder={strings.entryNotePlaceholder}
-            onChange={(e) => onNoteChange(e.target.value)}
-            onBlur={() => void flush()}
-          />
-        </Section>
-        <Section>
-          <Select
-            header={strings.entryStore}
-            value={storeId === null ? "" : String(storeId)}
-            onChange={(e) => {
-              const value = e.target.value;
-              if (value === "new") setCreatingStore(true);
-              else void pickStore(value === "" ? null : Number(value));
-            }}
-          >
-            <option value="">{strings.storeUnset}</option>
-            {stores.map((st) => (
-              <option key={st.id} value={String(st.id)}>
-                {st.name}
-              </option>
-            ))}
-            <option value="new">＋ {strings.newStore}</option>
-          </Select>
-        </Section>
-        <Section footer={`${entry.added_by_name ? `${strings.entryAddedBy} ${entry.added_by_name} · ` : ""}${when}`}>
-          <Select
-            header={strings.entryCategory}
-            value={category}
-            disabled={categories.length === 0}
-            onChange={(e) => void pickCategory(e.target.value)}
-          >
-            {categories.length === 0 && <option value={category}>{categoryName}</option>}
-            {categories.map((c) => (
-              <option key={c.key} value={c.key}>
-                {c.name}
-              </option>
-            ))}
-          </Select>
-        </Section>
-        {failed && (
-          <p className="screen__error" role="alert">
-            {strings.entrySaveFailed}
-          </p>
-        )}
-        <Section>
-          <ActionCell
-            tone="destructive"
-            onClick={() => void remove()}
-          >
-            {strings.entryDelete}
-          </ActionCell>
-        </Section>
-      </List>
-      {creatingStore && (
-        <NameSheet
+  if (creatingStore) {
+    return (
+        <NameScreen
           title={strings.newStore}
           label={strings.storeName}
           placeholder={strings.storeNamePlaceholder}
@@ -385,7 +260,153 @@ export function EntryScreen({
           onDone={() => setCreatingStore(false)}
           onSubmit={createStore}
         />
+    );
+  }
+
+  return (
+    <main className="screen">
+      {/* The name is the title and edits in place; there is no second «Название» field. */}
+      <div className="title-field">
+        <input
+          className="title-field__input"
+          type="text"
+          maxLength={200}
+          enterKeyHint="done"
+          aria-label={strings.entryName}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onBlur={() => void commitName()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              e.currentTarget.blur();
+            }
+          }}
+        />
+        <svg className="title-field__pencil" viewBox="0 0 20 20" aria-hidden="true">
+          <path
+            d="M13.6 3.4l3 3L7 16H4v-3l9.6-9.6z"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </div>
+      <p className="title-field__hint">{strings.entryNameHint}</p>
+
+      <Field
+        label={strings.aliases}
+        hint={aliasTaken ? strings.aliasTaken : strings.aliasesHint}
+        error={aliasTaken}
+      >
+        {entry.aliases.length > 0 && (
+          <div className="aliases">
+            {entry.aliases.map((a) => (
+              <Chip
+                key={a.id}
+                mode="mono"
+                after={
+                  <button
+                    type="button"
+                    className={armedAlias === a.id ? "aliases__remove aliases__remove--armed" : "aliases__remove"}
+                    aria-label={`${strings.aliasRemove}: ${a.name}`}
+                    onClick={(e) => {
+                      e.preventDefault(); // inside a <label>: do not focus the input
+                      void dropAlias(a.id);
+                    }}
+                    onBlur={() => setArmedAlias((id) => (id === a.id ? null : id))}
+                  >
+                    {armedAlias === a.id ? strings.forgetConfirm : "✕"}
+                  </button>
+                }
+              >
+                {a.name}
+              </Chip>
+            ))}
+          </div>
+        )}
+        <input
+          className="field__control"
+          type="text"
+          maxLength={200}
+          enterKeyHint="done"
+          value={alias}
+          placeholder={strings.aliasesPlaceholder}
+          onChange={(e) => {
+            setAlias(e.target.value);
+            setAliasTaken(false);
+          }}
+          onBlur={() => void commitAlias()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              e.currentTarget.blur();
+            }
+          }}
+        />
+      </Field>
+
+      <Field label={strings.entryNote}>
+        <textarea
+          className="field__control"
+          rows={2}
+          maxLength={500}
+          value={note}
+          placeholder={strings.entryNotePlaceholder}
+          onChange={(e) => onNoteChange(e.target.value)}
+          onBlur={() => void flush()}
+        />
+      </Field>
+
+      <Field label={strings.entryStore}>
+        <select
+          className="field__control"
+          value={storeId === null ? "" : String(storeId)}
+          onChange={(e) => {
+            const value = e.target.value;
+            if (value === "new") setCreatingStore(true);
+            else void pickStore(value === "" ? null : Number(value));
+          }}
+        >
+          <option value="">{strings.storeUnset}</option>
+          {stores.map((st) => (
+            <option key={st.id} value={String(st.id)}>
+              {st.name}
+            </option>
+          ))}
+          <option value="new">＋ {strings.newStore}</option>
+        </select>
+      </Field>
+
+      <Field label={strings.entryCategory}>
+        <select
+          className="field__control"
+          value={category}
+          disabled={categories.length === 0}
+          onChange={(e) => void pickCategory(e.target.value)}
+        >
+          {categories.length === 0 && <option value={category}>{categoryName}</option>}
+          {categories.map((c) => (
+            <option key={c.key} value={c.key}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+      </Field>
+
+      <p className="entry-meta">
+        {entry.added_by_name ? `${strings.entryAddedBy} ${entry.added_by_name} · ` : ""}
+        {when}
+      </p>
+      {failed && (
+        <p className="screen__error" role="alert">
+          {strings.entrySaveFailed}
+        </p>
       )}
+      <button type="button" className="entry-delete" onClick={() => void remove()}>
+        {strings.entryDelete}
+      </button>
     </main>
   );
 }

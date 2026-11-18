@@ -66,7 +66,8 @@ import {
   platform,
   setMainButtonText,
 } from "../telegram";
-import { EntryScreen, ListsScreen, NameSheet, StoresScreen, prefetchScreens } from "./lazyScreens";
+import { EntryScreen, ListsScreen, StoresScreen, prefetchScreens } from "./lazyScreens";
+import { NameScreen } from "./NameScreen";
 
 interface Props {
   token: string;
@@ -154,7 +155,7 @@ export function ListScreen({
   // Where the List was scrolled when a screen (an Entry, the Lists) replaced it.
   const listScroll = useRef(0);
   const openPanel = (next: Panel, from: Panel = null) => {
-    if ((next === "switcher" || next === "stores") && (panel === null || panel === "menu")) {
+    if (next !== "menu" && (panel === null || panel === "menu")) {
       listScroll.current = window.scrollY;
     }
     setParent(from);
@@ -370,7 +371,11 @@ export function ListScreen({
   const closeCard = useCallback(() => setOpenId(null), []);
 
   const onOtherScreen =
-    openId !== null || panel === "switcher" || parent === "switcher" || panel === "stores";
+    openId !== null ||
+    panel === "switcher" ||
+    panel === "stores" ||
+    panel === "create" ||
+    panel === "rename";
   useLayoutEffect(() => {
     window.scrollTo(0, onOtherScreen ? 0 : listScroll.current);
   }, [onOtherScreen]);
@@ -891,43 +896,43 @@ export function ListScreen({
     setInfo(result === "copied" ? strings.linkCopied : strings.linkUnavailable);
   };
 
-  const sheets = (
-    <>
-      {failed && (
-        <p className="alert" role="alert">
-          {strings.actionFailed}
-        </p>
-      )}
-      <Suspense fallback={null}>
-      {panel === "create" && (
-        <NameSheet
-          title={strings.newList}
-          label={strings.listName}
-          placeholder={strings.listNamePlaceholder}
-          submitLabel={strings.createList}
-          cancelLabel={strings.cancel}
-          initial=""
-          onClose={back}
-          onDone={close}
-          onSubmit={onCreate}
-        />
-      )}
-      {panel === "rename" && list && (
-        <NameSheet
-          title={strings.renameList}
-          label={strings.listName}
-          placeholder={strings.listNamePlaceholder}
-          submitLabel={strings.save}
-          cancelLabel={strings.cancel}
-          initial={list.name}
-          onClose={back}
-          onDone={close}
-          onSubmit={(name) => onRename(list.id, name)}
-        />
-      )}
-      </Suspense>
-    </>
+  const sheets = failed && (
+    <p className="alert" role="alert">
+      {strings.actionFailed}
+    </p>
   );
+
+  // Naming a List is a screen of its own, replacing whatever was showing (see NameScreen).
+  if (panel === "create") {
+    return (
+      <NameScreen
+        title={strings.newList}
+        label={strings.listName}
+        placeholder={strings.listNamePlaceholder}
+        submitLabel={strings.createList}
+        cancelLabel={strings.cancel}
+        initial=""
+        onClose={back}
+        onDone={close}
+        onSubmit={onCreate}
+      />
+    );
+  }
+  if (panel === "rename" && list) {
+    return (
+      <NameScreen
+        title={strings.renameList}
+        label={strings.listName}
+        placeholder={strings.listNamePlaceholder}
+        submitLabel={strings.save}
+        cancelLabel={strings.cancel}
+        initial={list.name}
+        onClose={back}
+        onDone={close}
+        onSubmit={(name) => onRename(list.id, name)}
+      />
+    );
+  }
 
   if (!list) {
     return (
@@ -994,7 +999,7 @@ export function ListScreen({
       </Suspense>
     );
   }
-  if (panel === "switcher" || parent === "switcher") {
+  if (panel === "switcher") {
     return (
       <Suspense fallback={null}>
         <ListsScreen
@@ -1007,7 +1012,6 @@ export function ListScreen({
           }}
           onCreate={() => openPanel("create", "switcher")}
           onBack={close}
-          covered={panel !== "switcher"}
         />
         {sheets}
       </Suspense>
